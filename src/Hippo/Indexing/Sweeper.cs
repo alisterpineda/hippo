@@ -16,29 +16,36 @@ internal sealed record SweepResult(
 
 /// <summary>
 /// Brings the <c>files</c> table in line with the notebook on disk: enumerate, stat, re-hash only when mtime or size
-/// changed, re-parse only when the hash changed, and drop rows for files that are gone. Every write is idempotent, so
-/// several processes may sweep the same notebook at once.
+/// changed or the row is racy, re-parse only when the hash changed, and drop rows for files that are gone. Every write
+/// is idempotent, so several processes may sweep the same notebook at once.
 /// </summary>
 internal static class Sweeper
 {
     private const int BatchSize = 200;
 
+    /// <summary>How close to its hash time a file's mtime may be before its row is not trusted: FAT's 2 s mtime
+    /// granularity, the coarsest hippo allows for.</summary>
+    private static readonly TimeSpan RacyMargin = TimeSpan.FromSeconds(2);
+
     private sealed record DiskFile(string Path, string FullPath, long Size, long Mtime);
 
     // Internal, not private: the code Dapper.AOT generates must reach these types.
-    internal sealed record KnownFile(string Path, long Mtime, long Size, string Hash);
+    internal sealed record KnownFile(string Path, long Mtime, long Size, string Hash, long HashedAt);
 
-    internal sealed record FileRow(string Path, long Mtime, long Size, string Hash, string Kind, string? Frontmatter, string? ParseError);
+    internal sealed record FileRow(string Path, long Mtime, long Size, string Hash, long HashedAt, string Kind, string? Frontmatter, string? ParseError);
 
-    internal sealed record StatRow(string Path, long Mtime, long Size, string Hash);
+    internal sealed record StatRow(string Path, long Mtime, long Size, string Hash, long HashedAt);
 
     internal sealed record PathRow(string Path);
 
-    public static SweepResult Run(Notebook notebook, SqliteConnection db, bool rebuild)
+    public static SweepResult Run(Notebook notebook, SqliteConnection db, bool rebuild, TimeProvider clock)
     {
         var stopwatch = Stopwatch.StartNew();
+        // Read once, before any file is listed, so it is no later than any read below; an earlier time can only make a
+        // row look racy more often, never less.
+        var hashedAt = Ticks(clock.GetUtcNow());
         var warnings = new List<string>();
-        var known = db.Query<KnownFile>("SELECT path, mtime, size, hash FROM files").ToDictionary(k => k.Path, StringComparer.Ordinal);
+        var known = db.Query<KnownFile>("SELECT path, mtime, size, hash, hashed_at AS HashedAt FROM files").ToDictionary(k => k.Path, StringComparer.Ordinal);
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var rows = new List<FileRow>();
@@ -47,7 +54,7 @@ internal static class Sweeper
         foreach (var file in Enumerate(notebook))
         {
             known.TryGetValue(file.Path, out var previous);
-            if (!rebuild && previous is not null && previous.Mtime == file.Mtime && previous.Size == file.Size)
+            if (!rebuild && previous is not null && Unchanged(previous, file))
             {
                 seen.Add(file.Path);
                 continue;
@@ -86,7 +93,12 @@ internal static class Sweeper
 
             if (!rebuild && previous is not null && previous.Hash == hash)
             {
-                stats.Add(new StatRow(file.Path, file.Mtime, file.Size, hash));
+                // A row that would still be racy with the same stats gains nothing from a later hash time, so a file
+                // dated in the future costs no write on every sweep.
+                if (previous.Mtime != file.Mtime || previous.Size != file.Size || !Racy(file.Mtime, hashedAt))
+                {
+                    stats.Add(new StatRow(file.Path, file.Mtime, file.Size, hash, hashedAt));
+                }
                 continue;
             }
 
@@ -98,7 +110,7 @@ internal static class Sweeper
             {
                 updated++;
             }
-            rows.Add(Parse(file, hash, content));
+            rows.Add(Parse(file, hash, hashedAt, content));
         }
 
         var removed = known.Keys.Where(path => !seen.Contains(path)).Select(path => new PathRow(path)).ToList();
@@ -116,22 +128,34 @@ internal static class Sweeper
             // Each call names its row type, which Dapper.AOT needs to generate the binding.
             InBatches(db, rows, (batch, transaction) => db.Execute(UpsertSql, batch, transaction));
             InBatches(db, stats, (batch, transaction) =>
-                db.Execute("UPDATE files SET mtime = @Mtime, size = @Size WHERE path = @Path AND hash = @Hash", batch, transaction));
+                db.Execute("UPDATE files SET mtime = @Mtime, size = @Size, hashed_at = @HashedAt WHERE path = @Path AND hash = @Hash", batch, transaction));
             InBatches(db, removed, (batch, transaction) => db.Execute("DELETE FROM files WHERE path = @Path", batch, transaction));
         }
 
-        return new SweepResult(seen.Count, added, updated, removed.Count, hashed, rebuild, DateTimeOffset.UtcNow, stopwatch.Elapsed, warnings);
+        return new SweepResult(seen.Count, added, updated, removed.Count, hashed, rebuild, clock.GetUtcNow(), stopwatch.Elapsed, warnings);
     }
 
     /// <summary>A row changes only when its content does, so a second process writing the same file is a no-op.</summary>
     private const string UpsertSql = """
-        INSERT INTO files (path, mtime, size, hash, kind, frontmatter, parse_error)
-        VALUES (@Path, @Mtime, @Size, @Hash, @Kind, @Frontmatter, @ParseError)
+        INSERT INTO files (path, mtime, size, hash, hashed_at, kind, frontmatter, parse_error)
+        VALUES (@Path, @Mtime, @Size, @Hash, @HashedAt, @Kind, @Frontmatter, @ParseError)
         ON CONFLICT (path) DO UPDATE SET
-            mtime = excluded.mtime, size = excluded.size, hash = excluded.hash, kind = excluded.kind,
-            frontmatter = excluded.frontmatter, parse_error = excluded.parse_error
+            mtime = excluded.mtime, size = excluded.size, hash = excluded.hash, hashed_at = excluded.hashed_at,
+            kind = excluded.kind, frontmatter = excluded.frontmatter, parse_error = excluded.parse_error
         WHERE excluded.hash != files.hash
         """;
+
+    /// <summary>Whether the row still describes the file: same mtime and size, and not racy.</summary>
+    private static bool Unchanged(KnownFile previous, DiskFile file) =>
+        previous.Mtime == file.Mtime && previous.Size == file.Size && !Racy(previous.Mtime, previous.HashedAt);
+
+    /// <summary>Whether a file with this mtime, hashed at <paramref name="hashedAt"/>, may since have changed again in
+    /// the same mtime tick without changing its size. Such a row is not trusted until a sweep at least
+    /// <see cref="RacyMargin"/> after the mtime re-hashes the file.</summary>
+    private static bool Racy(long mtime, long hashedAt) => mtime >= hashedAt - RacyMargin.Ticks;
+
+    /// <summary>A time in the unit the index stores: 100 ns ticks since the Unix epoch, UTC.</summary>
+    private static long Ticks(DateTimeOffset time) => (time - DateTimeOffset.UnixEpoch).Ticks;
 
     private static void InBatches<T>(SqliteConnection db, List<T> items, Action<List<T>, SqliteTransaction> write)
     {
@@ -143,14 +167,14 @@ internal static class Sweeper
         }
     }
 
-    private static FileRow Parse(DiskFile file, string hash, byte[]? content)
+    private static FileRow Parse(DiskFile file, string hash, long hashedAt, byte[]? content)
     {
         if (!Notebook.IsMarkdown(file.Path))
         {
-            return new FileRow(file.Path, file.Mtime, file.Size, hash, "plain", null, null);
+            return new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "plain", null, null);
         }
         var frontmatter = Frontmatter.Parse(content!);
-        return new FileRow(file.Path, file.Mtime, file.Size, hash, "markdown", frontmatter.Json, frontmatter.Error);
+        return new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "markdown", frontmatter.Json, frontmatter.Error);
     }
 
     /// <summary>Lists the included files under the root. Symbolic links are skipped, so nothing outside the root is
@@ -180,7 +204,7 @@ internal static class Sweeper
                 RelativePath(ref entry),
                 entry.ToFullPath(),
                 entry.Length,
-                (entry.LastWriteTimeUtc - DateTimeOffset.UnixEpoch).Ticks),
+                Ticks(entry.LastWriteTimeUtc)),
             options)
         {
             ShouldIncludePredicate = (ref entry) => !entry.IsDirectory && !IsLink(ref entry),

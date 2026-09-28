@@ -12,6 +12,10 @@ public sealed class SweeperTests : IDisposable
     private readonly TestDatabase _database = new();
     private readonly SqliteConnection _db;
 
+    // An hour ahead, so every file a test writes or touches is settled by the time it is hashed. The racy tests set the
+    // clock and the mtimes they need.
+    private readonly TestClock _clock = new(DateTimeOffset.UtcNow.AddHours(1));
+
     public SweeperTests()
     {
         _notebook.Write(".hippo.yaml", "version: 1\nfiles:\n  include: [\"**/*\"]\n  exclude: [\".git/**\", \"inbox/**\", \"**/*.tmp\"]\n");
@@ -25,10 +29,12 @@ public sealed class SweeperTests : IDisposable
         _notebook.Dispose();
     }
 
-    private SweepResult Sweep(bool rebuild = false) => Sweeper.Run(Notebook.Open(_notebook.FullPath), _db, rebuild);
+    private SweepResult Sweep(bool rebuild = false) => Sweeper.Run(Notebook.Open(_notebook.FullPath), _db, rebuild, _clock);
+
+    private void SetMtime(string path, TimeSpan fromNow) => File.SetLastWriteTimeUtc(path, (_clock.Now + fromNow).UtcDateTime);
 
     private List<Sweeper.FileRow> Rows() =>
-        _db.Query<Sweeper.FileRow>("SELECT path, mtime, size, hash, kind, frontmatter, parse_error AS ParseError FROM files ORDER BY path").AsList();
+        _db.Query<Sweeper.FileRow>("SELECT path, mtime, size, hash, hashed_at AS HashedAt, kind, frontmatter, parse_error AS ParseError FROM files ORDER BY path").AsList();
 
     private Sweeper.FileRow Row(string path) => Rows().Single(r => r.Path == path);
 
@@ -159,6 +165,102 @@ public sealed class SweeperTests : IDisposable
 
         Assert.Equal((1, 0), (touched.Hashed, touched.Updated));
         Assert.Equal(0, after.Hashed);
+    }
+
+    [Fact]
+    public void A_same_size_edit_within_the_mtime_tick_of_the_last_hash_is_caught()
+    {
+        var path = _notebook.Write("a.md", "---\nt: a\n---\n");
+        SetMtime(path, TimeSpan.FromSeconds(-0.5));
+        Sweep();
+        File.WriteAllText(path, "---\nt: b\n---\n");
+        SetMtime(path, TimeSpan.FromSeconds(-0.5));
+
+        var result = Sweep();
+
+        Assert.Equal(1, result.Updated);
+        Assert.Equal("""{"t":"b"}""", Row("a.md").Frontmatter);
+    }
+
+    [Fact]
+    public void A_racy_row_is_trusted_once_it_is_rehashed_after_the_margin()
+    {
+        var path = _notebook.Write("a.md", "---\nt: a\n---\n");
+        SetMtime(path, TimeSpan.FromSeconds(-0.5));
+        Sweep();
+        _clock.Now += TimeSpan.FromSeconds(3);
+
+        var rehashed = Sweep();
+        var after = Sweep();
+
+        Assert.Equal((1, 0), (rehashed.Hashed, rehashed.Updated));
+        Assert.Equal(0, after.Hashed);
+    }
+
+    /// <summary>Writes a.md and hashes it exactly <paramref name="afterMtime"/> after its stored mtime.</summary>
+    private string HashAt(TimeSpan afterMtime)
+    {
+        var path = _notebook.Write("a.md", "---\nt: a\n---\n");
+        SetMtime(path, TimeSpan.Zero);
+        _clock.Now = new DateTimeOffset(File.GetLastWriteTimeUtc(path)) + afterMtime;
+        Sweep();
+        return path;
+    }
+
+    [Fact]
+    public void A_same_size_edit_is_caught_when_the_mtime_is_exactly_the_margin_before_the_hash()
+    {
+        var path = HashAt(TimeSpan.FromSeconds(2));
+        var mtime = File.GetLastWriteTimeUtc(path);
+        File.WriteAllText(path, "---\nt: b\n---\n");
+        File.SetLastWriteTimeUtc(path, mtime);
+
+        var result = Sweep();
+
+        Assert.Equal(1, result.Updated);
+        Assert.Equal("""{"t":"b"}""", Row("a.md").Frontmatter);
+    }
+
+    [Fact]
+    public void A_row_is_trusted_when_the_mtime_is_one_tick_more_than_the_margin_before_the_hash()
+    {
+        HashAt(TimeSpan.FromSeconds(2) + TimeSpan.FromTicks(1));
+
+        Assert.Equal(0, Sweep().Hashed);
+    }
+
+    [Fact]
+    public void A_row_is_stamped_with_the_time_the_sweep_started()
+    {
+        // Every clock read is 10 s later than the last, so a row stamped with any read but the first would be trusted
+        // and the same-size edit below missed.
+        var path = _notebook.Write("a.md", "---\nt: a\n---\n");
+        SetMtime(path, TimeSpan.FromSeconds(-0.5));
+        var mtime = File.GetLastWriteTimeUtc(path);
+        _clock.Step = TimeSpan.FromSeconds(10);
+        Sweep();
+        File.WriteAllText(path, "---\nt: b\n---\n");
+        File.SetLastWriteTimeUtc(path, mtime);
+
+        var result = Sweep();
+
+        Assert.Equal(1, result.Updated);
+        Assert.Equal("""{"t":"b"}""", Row("a.md").Frontmatter);
+    }
+
+    [Fact]
+    public void A_future_mtime_is_rehashed_every_sweep_but_not_updated()
+    {
+        var path = _notebook.Write("a.md", "# A\n");
+        SetMtime(path, TimeSpan.FromMinutes(1));
+        Sweep();
+        var hashedAt = Row("a.md").HashedAt;
+        _clock.Now += TimeSpan.FromSeconds(10);
+
+        var result = Sweep();
+
+        Assert.Equal((1, 0), (result.Hashed, result.Updated));
+        Assert.Equal(hashedAt, Row("a.md").HashedAt);
     }
 
     [Fact]

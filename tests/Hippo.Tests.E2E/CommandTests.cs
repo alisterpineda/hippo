@@ -43,6 +43,7 @@ public sealed class CommandTests : IDisposable
     public async Task A_new_database_gets_a_full_reindex_and_later_sweeps_do_not()
     {
         _notebook.Write("a.md", "# A\n");
+        _notebook.Settle();
 
         var first = Json(await _notebook.RunAsync("index", "--json"));
         var second = Json(await _notebook.RunAsync("index", "--json"));
@@ -266,6 +267,22 @@ public sealed class CommandTests : IDisposable
         Assert.Equal("A", json.GetProperty("frontmatter").GetProperty("title").GetString());
         Assert.Equal("x", json.GetProperty("frontmatter").GetProperty("tags")[0].GetString());
         Assert.Equal(JsonValueKind.Null, json.GetProperty("parseError").ValueKind);
+    }
+
+    [Fact]
+    public async Task A_same_size_edit_within_the_mtime_tick_of_the_last_sweep_is_seen()
+    {
+        // A future mtime is always inside the racy margin, so the test needs no timing luck.
+        var mtime = DateTime.UtcNow.AddMinutes(1);
+        var path = _notebook.Write("a.md", "---\ntitle: A\n---\n");
+        File.SetLastWriteTimeUtc(path, mtime);
+        await _notebook.RunAsync("index");
+        File.WriteAllText(path, "---\ntitle: B\n---\n");
+        File.SetLastWriteTimeUtc(path, mtime);
+
+        var json = Json(await _notebook.RunAsync("show", "a.md", "--json"));
+
+        Assert.Equal("B", json.GetProperty("frontmatter").GetProperty("title").GetString());
     }
 
     [Fact]

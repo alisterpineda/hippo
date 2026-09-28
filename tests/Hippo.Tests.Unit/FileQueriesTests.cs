@@ -30,7 +30,7 @@ public sealed class FileQueriesTests : IDisposable
 
     private void Insert(string path, string kind, string? frontmatter, string? parseError = null) =>
         _db.Execute(
-            "INSERT INTO files (path, mtime, size, hash, kind, frontmatter, parse_error) VALUES (@path, 0, 1, 'h', @kind, @frontmatter, @parseError)",
+            "INSERT INTO files (path, mtime, size, hash, hashed_at, kind, frontmatter, parse_error) VALUES (@path, 0, 1, 'h', 0, @kind, @frontmatter, @parseError)",
             new { path, kind, frontmatter, parseError });
 
     private List<string> Where(string field, string value) =>

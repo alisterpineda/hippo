@@ -26,7 +26,7 @@ internal sealed record NotebookSession(Notebook Notebook, string DatabasePath, S
             var databasePath = CacheLocation.DatabasePath(notebook.Root, Environment.GetEnvironmentVariable);
             using var db = IndexDatabase.Open(databasePath, out var scriptsApplied);
             // A schema change may alter what the sweep stores for unchanged files, so it re-reads them all.
-            var sweep = Sweeper.Run(notebook, db, rebuild || scriptsApplied > 0);
+            var sweep = Sweeper.Run(notebook, db, rebuild || scriptsApplied > 0, TimeProvider.System);
             Warn(error, sweep.Warnings);
 
             return command(new NotebookSession(notebook, databasePath, db, sweep, result.InvocationConfiguration.Output));

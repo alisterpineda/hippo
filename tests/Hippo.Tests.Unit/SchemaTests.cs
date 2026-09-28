@@ -33,6 +33,7 @@ public class SchemaTests
             column mtime INTEGER notnull=1 default= pk=0 hidden=0
             column size INTEGER notnull=1 default= pk=0 hidden=0
             column hash TEXT notnull=1 default= pk=0 hidden=0
+            column hashed_at INTEGER notnull=1 default= pk=0 hidden=0
             column kind TEXT notnull=1 default= pk=0 hidden=0
             column frontmatter TEXT notnull=0 default= pk=0 hidden=0
             column parse_error TEXT notnull=0 default= pk=0 hidden=0
@@ -48,7 +49,7 @@ public class SchemaTests
         using var connection = database.Open();
 
         var ex = Assert.Throws<SqliteException>(() => connection.Execute(
-            "INSERT INTO files (path, mtime, size, hash, kind) VALUES ('a', 0, 0, 'h', 'other')"));
+            "INSERT INTO files (path, mtime, size, hash, hashed_at, kind) VALUES ('a', 0, 0, 'h', 0, 'other')"));
 
         Assert.Contains("CHECK constraint failed", ex.Message);
     }

@@ -33,6 +33,17 @@ public sealed class TempNotebook : IDisposable
         return path;
     }
 
+    /// <summary>Sets every file's mtime a minute into the past, as if written long before, so hippo trusts what it
+    /// last read of them.</summary>
+    public void Settle()
+    {
+        var past = DateTime.UtcNow.AddMinutes(-1);
+        foreach (var file in Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories))
+        {
+            File.SetLastWriteTimeUtc(file, past);
+        }
+    }
+
     public Task<HippoProcess.Result> RunAsync(params string[] args) => RunInAsync(Root, args);
 
     public Task<HippoProcess.Result> RunInAsync(string workingDirectory, params string[] args) =>
