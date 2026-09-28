@@ -3,14 +3,15 @@ namespace Hippo.Tests.Unit;
 public class CliTests
 {
     [Fact]
-    public void Bare_command_prints_the_skeleton_message()
+    public void Bare_command_prints_usage()
     {
         var output = new StringWriter();
 
         var exitCode = Cli.Build().Parse([]).Invoke(new() { Output = output });
 
         Assert.Equal(0, exitCode);
-        Assert.Equal($"hippo {Cli.Version}: nothing indexed yet", output.ToString().TrimEnd());
+        Assert.Contains("Usage:", output.ToString());
+        Assert.Contains("index", output.ToString());
     }
 
     [Fact]

@@ -19,8 +19,30 @@
     <Description>Indexes a markdown notebook into a local SQLite cache and answers structural questions about it.</Description>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <!-- Dapper.AOT replaces Dapper's reflection with generated code through interceptors. -->
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Dapper.AOT</InterceptorsNamespaces>
+    <!-- DAP028 suggests AsList(), which lives on SqlMapper; its static constructor drags Dapper's reflection into the
+         native AOT build. ToList() copies a list of rows instead. -->
+    <NoWarn>$(NoWarn);DAP028</NoWarn>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="Dapper" />
+    <PackageReference Include="Dapper.AOT" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" />
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exported from Hippo.Migrations by scripts/add-migration.sh; the migration runner applies them in order. -->
+    <EmbeddedResource Include="Migrations/*.sql" LogicalName="Hippo.Migrations.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Hippo.Tests.Unit" />
   </ItemGroup>
 
 </Project>

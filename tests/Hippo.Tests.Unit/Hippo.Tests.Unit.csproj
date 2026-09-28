@@ -3,6 +3,8 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
+    <!-- Dapper.AOT's analyzer flows in from Hippo; the tests use Dapper's reflection path, which runs under the JIT. -->
+    <NoWarn>$(NoWarn);DAP005</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Hippo\Hippo.csproj" />
+    <ProjectReference Include="..\..\src\Hippo.Migrations\Hippo.Migrations.csproj" />
   </ItemGroup>
 
 </Project>

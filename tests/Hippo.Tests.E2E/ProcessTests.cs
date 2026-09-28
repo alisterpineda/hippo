@@ -3,12 +3,12 @@ namespace Hippo.Tests.E2E;
 public class ProcessTests
 {
     [Fact]
-    public async Task Bare_command_prints_the_skeleton_message()
+    public async Task Bare_command_prints_usage()
     {
         var result = await HippoProcess.RunAsync();
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Equal($"hippo {Cli.Version}: nothing indexed yet", result.Stdout.TrimEnd());
+        Assert.Contains("Usage:", result.Stdout);
     }
 
     [Fact]
@@ -37,6 +37,5 @@ public class ProcessTests
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("Unrecognized command or argument 'bogus'", result.Stderr);
-        Assert.DoesNotContain("nothing indexed yet", result.Stdout);
     }
 }
