@@ -3,6 +3,9 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+# Local scratch space
+.scratch/
+
 # dotenv files
 .env
 
