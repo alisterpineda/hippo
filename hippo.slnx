@@ -1,6 +1,5 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/Hippo.Migrations/Hippo.Migrations.csproj" />
     <Project Path="src/Hippo/Hippo.csproj" />
   </Folder>
   <Folder Name="/tests/">

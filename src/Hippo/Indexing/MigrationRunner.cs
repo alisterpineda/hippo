@@ -4,16 +4,15 @@ using Microsoft.Data.Sqlite;
 namespace Hippo.Indexing;
 
 /// <summary>
-/// Brings a database up to the binary's schema by running the embedded
-/// <c>Migrations/NNNN_&lt;EF migration id&gt;.sql</c> scripts whose number is above its <c>user_version</c>. Safe for
-/// several processes at once: the version is read under the write lock, so a second process waits and then finds
-/// nothing to do.
+/// Brings a database up to the binary's schema by running the embedded <c>Migrations/NNNN_&lt;name&gt;.sql</c> scripts
+/// whose number is above its schema version. Safe for several processes at once: the version is read under the write
+/// lock, so a second process waits and then finds nothing to do.
 /// </summary>
 internal static class MigrationRunner
 {
     private const string ResourcePrefix = "Hippo.Migrations.";
 
-    internal sealed record Script(int Version, string MigrationId, string Sql);
+    internal sealed record Script(int Version, string Sql);
 
     public static IReadOnlyList<Script> Scripts { get; } = LoadScripts();
 
@@ -30,6 +29,8 @@ internal static class MigrationRunner
         var applied = 0;
         using (var transaction = connection.BeginTransaction(deferred: false))
         {
+            // The schema version lives in SQLite's user_version header field, which SQLite reserves for the application
+            // and never touches.
             var version = Convert.ToInt32(Scalar(connection, transaction, "PRAGMA user_version"), CultureInfo.InvariantCulture);
             if (version > LatestVersion)
             {
@@ -83,11 +84,14 @@ internal static class MigrationRunner
             }
             var stem = resource[ResourcePrefix.Length..^".sql".Length];
             var separator = stem.IndexOf('_');
+            if (separator <= 0 || separator == stem.Length - 1
+                || !int.TryParse(stem[..separator], NumberStyles.None, CultureInfo.InvariantCulture, out var version))
+            {
+                throw new InvalidOperationException(
+                    $"embedded migration script {resource} is not named NNNN_<name>.sql");
+            }
             using var reader = new StreamReader(assembly.GetManifestResourceStream(resource)!);
-            scripts.Add(new Script(
-                int.Parse(stem[..separator], NumberStyles.None, CultureInfo.InvariantCulture),
-                stem[(separator + 1)..],
-                reader.ReadToEnd()));
+            scripts.Add(new Script(version, reader.ReadToEnd()));
         }
         scripts.Sort((a, b) => a.Version.CompareTo(b.Version));
         return scripts;

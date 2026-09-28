@@ -1,49 +1,44 @@
 using Dapper;
 using Hippo.Indexing;
-using Hippo.Migrations;
 using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore;
 
 namespace Hippo.Tests.Unit;
 
-/// <summary>Guards that the embedded SQL scripts stay in step with the EF model they were exported from.</summary>
+/// <summary>Guards the embedded SQL scripts: their numbering, the schema they build and the constraints they declare.</summary>
 public class SchemaTests
 {
-    private static HippoDbContext CreateContext() => new HippoDbContextFactory().CreateDbContext([]);
-
-    [Fact]
-    public void Every_migration_has_a_script_and_every_script_a_migration()
-    {
-        using var context = CreateContext();
-        Assert.Equal(context.Database.GetMigrations(), MigrationRunner.Scripts.Select(s => s.MigrationId));
-    }
-
     [Fact]
     public void Scripts_are_numbered_from_1_without_gaps()
     {
         Assert.Equal(Enumerable.Range(1, MigrationRunner.Scripts.Count), MigrationRunner.Scripts.Select(s => s.Version));
     }
 
+    /// <summary>
+    /// Pins the schema the scripts build, so a hand-written script that loosens a column, drops an index or leaves a stray
+    /// table fails here. A deliberate schema change updates the expected text.
+    /// </summary>
     [Fact]
-    public void Tables_built_from_the_scripts_match_the_model()
+    public void The_scripts_build_the_expected_schema()
     {
-        using var context = CreateContext();
-        using var fromScripts = new TestDatabase();
-        using var fromModel = new TestDatabase();
-        fromScripts.Migrate();
-        using (var connection = fromModel.Connect())
-        {
-            connection.Execute(context.Database.GenerateCreateScript());
-        }
+        using var database = new TestDatabase();
+        using var connection = database.Open();
 
-        using var scripts = fromScripts.Connect();
-        using var model = fromModel.Connect();
-        var tables = context.Model.GetEntityTypes().Select(e => e.GetTableName()!).Distinct().ToList();
-        Assert.NotEmpty(tables);
-        foreach (var table in tables)
-        {
-            Assert.Equal(Describe(model, table), Describe(scripts, table));
-        }
+        var tables = connection.Query<string>(
+            "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+        Assert.Equal(["files"], tables);
+        Assert.Equal(
+            """
+            column id INTEGER notnull=1 default= pk=1 hidden=0
+            column path TEXT notnull=1 default= pk=0 hidden=0
+            column mtime INTEGER notnull=1 default= pk=0 hidden=0
+            column size INTEGER notnull=1 default= pk=0 hidden=0
+            column hash TEXT notnull=1 default= pk=0 hidden=0
+            column kind TEXT notnull=1 default= pk=0 hidden=0
+            column frontmatter TEXT notnull=0 default= pk=0 hidden=0
+            column parse_error TEXT notnull=0 default= pk=0 hidden=0
+            index ix_files_path unique=1 partial=0 (path)
+            """.ReplaceLineEndings("\n"),
+            Describe(connection, "files"));
     }
 
     [Fact]

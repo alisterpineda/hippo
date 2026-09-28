@@ -1,8 +1,3 @@
-﻿CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
-    "MigrationId" TEXT NOT NULL CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY,
-    "ProductVersion" TEXT NOT NULL
-);
-
 CREATE TABLE "files" (
     "id" INTEGER NOT NULL CONSTRAINT "PK_files" PRIMARY KEY AUTOINCREMENT,
     "path" TEXT NOT NULL,
@@ -16,7 +11,3 @@ CREATE TABLE "files" (
 );
 
 CREATE UNIQUE INDEX "ix_files_path" ON "files" ("path");
-
-INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-VALUES ('20260928195655_Files', '10.0.12');
-

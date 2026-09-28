@@ -13,9 +13,6 @@ public sealed class TestDatabase : IDisposable
     /// <summary>Opens the index through hippo, which migrates it.</summary>
     internal SqliteConnection Open() => IndexDatabase.Open(Path, out _);
 
-    /// <summary>Builds the schema from the scripts and closes the connection.</summary>
-    public void Migrate() => Open().Dispose();
-
     /// <summary>A plain connection, with no migration applied.</summary>
     public SqliteConnection Connect() => Connect(Path);
 

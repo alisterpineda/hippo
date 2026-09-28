@@ -31,7 +31,6 @@ The index lives in `<user cache>/hippo/<hash of notebook root>/index.db`; set `H
 
 ```
 src/Hippo/               the CLI (AOT-compatible; trim and AOT warnings are errors)
-src/Hippo.Migrations/    dev-time only: EF Core model for authoring migrations; never shipped
 tests/Hippo.Tests.Unit/  in-process tests of the CLI's code
 tests/Hippo.Tests.E2E/   runs hippo as a separate process, as a user would
 ```
@@ -52,13 +51,11 @@ HIPPO_EXE="$PWD/artifacts/publish/osx-arm64/hippo" dotnet test tests/Hippo.Tests
 
 ## Migrations
 
-The schema is authored as EF Core entities in `src/Hippo.Migrations`. After changing them, run:
+The schema is a series of hand-written SQL scripts in `src/Hippo/Migrations`, named `NNNN_<name>.sql`, which hippo embeds and applies on start. The number is the schema version. To change the schema, add the next script:
 
-```sh
-scripts/add-migration.sh <Name>
-```
-
-It adds the EF migration and exports it alone to `src/Hippo/Migrations/NNNN_<migration id>.sql`, such as `0001_20260928195655_Files.sql`, which hippo embeds and applies on start. The number is the schema version; the id pairs the script with its EF migration. Review the SQL; a shipped script is never edited.
+- A change to a derived table (one the notebook can rebuild, such as `files`) drops and recreates the table in full. hippo reindexes after any script runs, so its rows need not survive.
+- A new column is `NOT NULL` with no default unless it is genuinely optional.
+- A shipped script is never edited; fixes go forward in a new one.
 
 ## Distribution
 
