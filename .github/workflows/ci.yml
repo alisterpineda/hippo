@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build:
+    # Every shipped form is built from one Mac.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Build
+        run: dotnet build -c Release
+
+      - name: Test
+        run: dotnet test -c Release --no-build
+
+      - name: Publish single files
+        run: |
+          for rid in osx-arm64 osx-x64 linux-x64 win-x64; do
+            dotnet publish src/Hippo -c Release -r "$rid" --self-contained \
+              -p:PublishSingleFile=true -o "artifacts/publish/$rid"
+          done
+
+      - name: Test the published binary
+        run: dotnet test -c Release --no-build
+        env:
+          HIPPO_EXE: ${{ github.workspace }}/artifacts/publish/osx-arm64/hippo
+
+      - name: Pack tool package
+        run: dotnet pack src/Hippo -c Release -o artifacts/nupkg
+
+      - name: Install tool package from local feed
+        run: |
+          version=$(dotnet msbuild src/Hippo -getProperty:Version)
+          dotnet tool install hippo --tool-path artifacts/tool --add-source artifacts/nupkg --version "$version"
+          output=$(artifacts/tool/hippo --version)
+          echo "$output"
+          test "$output" = "$version"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: single-files
+          path: artifacts/publish/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tool-package
+          path: artifacts/nupkg/
+
+  run-published:
+    # Runs the tests against the single files built on the Mac, on each platform the build job cannot run them on itself.
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            rid: osx-x64
+            exe: hippo
+          - os: ubuntu-latest
+            rid: linux-x64
+            exe: hippo
+          - os: windows-latest
+            rid: win-x64
+            exe: hippo.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: single-files
+          path: artifacts/publish
+
+      - name: Restore executable bit
+        if: runner.os != 'Windows'
+        run: chmod +x artifacts/publish/${{ matrix.rid }}/${{ matrix.exe }}
+
+      - name: Test the published binary
+        run: dotnet test -c Release
+        env:
+          HIPPO_EXE: ${{ github.workspace }}/artifacts/publish/${{ matrix.rid }}/${{ matrix.exe }}

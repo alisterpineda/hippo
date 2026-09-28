@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Hippo.Migrations/Hippo.Migrations.csproj" />
+    <Project Path="src/Hippo/Hippo.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Hippo.Tests/Hippo.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>hippo</AssemblyName>
+    <RootNamespace>Hippo</RootNamespace>
+    <Version>0.1.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+
+    <!-- Trim, single-file and AOT analyzers; TreatWarningsAsErrors makes their warnings errors. -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>hippo</ToolCommandName>
+    <PackageId>hippo</PackageId>
+    <Authors>Alister Pineda</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Description>Indexes a markdown notebook into a local SQLite cache and answers structural questions about it.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+
+</Project>
