@@ -75,7 +75,7 @@ jobs:
         run: dotnet publish src/Hippo -c Release -r ${{ matrix.rid }} -p:PublishAot=true -o artifacts/publish/${{ matrix.rid }}
 
       - name: Test the published binary
-        run: dotnet test -c Release
+        run: dotnet test tests/Hippo.Tests.E2E -c Release
         env:
           HIPPO_EXE: ${{ github.workspace }}/artifacts/publish/${{ matrix.rid }}/${{ matrix.exe }}
 

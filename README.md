@@ -7,9 +7,10 @@ Status: phase 0 (skeleton). `hippo` prints `hippo <version>: nothing indexed yet
 ## Layout
 
 ```
-src/Hippo/             the CLI (AOT-compatible; trim and AOT warnings are errors)
-src/Hippo.Migrations/  dev-time only: EF Core model for authoring migrations; never shipped
-tests/Hippo.Tests/     references both source projects
+src/Hippo/               the CLI (AOT-compatible; trim and AOT warnings are errors)
+src/Hippo.Migrations/    dev-time only: EF Core model for authoring migrations; never shipped
+tests/Hippo.Tests.Unit/  in-process tests of the CLI's code
+tests/Hippo.Tests.E2E/   runs hippo as a separate process, as a user would
 ```
 
 ## Build and test
@@ -19,11 +20,11 @@ dotnet build -c Release
 dotnet test -c Release
 ```
 
-To run the process tests against a published binary instead of the build output, set `HIPPO_EXE` to its absolute path:
+The E2E tests run the build output under the dotnet host. To run them against a published binary instead, set `HIPPO_EXE` to its absolute path:
 
 ```sh
 dotnet publish src/Hippo -c Release -r osx-arm64 -p:PublishAot=true -o artifacts/publish/osx-arm64
-HIPPO_EXE="$PWD/artifacts/publish/osx-arm64/hippo" dotnet test -c Release
+HIPPO_EXE="$PWD/artifacts/publish/osx-arm64/hippo" dotnet test tests/Hippo.Tests.E2E -c Release
 ```
 
 ## Distribution

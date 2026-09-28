@@ -1,4 +1,4 @@
-namespace Hippo.Tests;
+namespace Hippo.Tests.E2E;
 
 public class ProcessTests
 {

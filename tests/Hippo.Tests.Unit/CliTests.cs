@@ -1,4 +1,4 @@
-namespace Hippo.Tests;
+namespace Hippo.Tests.Unit;
 
 public class CliTests
 {

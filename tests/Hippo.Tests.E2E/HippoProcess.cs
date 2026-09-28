@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Hippo.Tests;
+namespace Hippo.Tests.E2E;
 
 /// <summary>
 /// Runs hippo as a separate process. Set HIPPO_EXE to the absolute path of a published binary to test that binary;
