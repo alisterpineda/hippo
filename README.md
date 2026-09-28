@@ -22,13 +22,13 @@ dotnet test -c Release
 To run the process tests against a published binary instead of the build output, set `HIPPO_EXE` to its absolute path:
 
 ```sh
-dotnet publish src/Hippo -c Release -r osx-arm64 --self-contained -p:PublishSingleFile=true -o artifacts/publish/osx-arm64
+dotnet publish src/Hippo -c Release -r osx-arm64 -p:PublishAot=true -o artifacts/publish/osx-arm64
 HIPPO_EXE="$PWD/artifacts/publish/osx-arm64/hippo" dotnet test -c Release
 ```
 
 ## Distribution
 
-Single files are built per platform (`osx-arm64`, `osx-x64`, `linux-x64`, `win-x64`) with the publish command above.
+Native AOT binaries are built per platform (`osx-arm64`, `osx-x64`, `linux-x64`, `win-x64`) with the publish command above. Native AOT cannot cross-compile between operating systems, so a Mac builds only the two macOS binaries; CI builds each binary on its own OS.
 
 The `dotnet tool` package installs from a local feed. `local-feed.nuget.config` limits the install to that feed, since the `hippo` ID is not reserved on nuget.org:
 

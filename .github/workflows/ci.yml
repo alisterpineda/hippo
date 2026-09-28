@@ -12,9 +12,9 @@ env:
 
 jobs:
   build:
-    # Every shipped form is built from one Mac.
-    runs-on: macos-latest
-    timeout-minutes: 30
+    # Builds, tests and packs the framework-dependent tool package, which runs on any OS.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
@@ -27,18 +27,6 @@ jobs:
 
       - name: Test
         run: dotnet test -c Release --no-build
-
-      - name: Publish single files
-        run: |
-          for rid in osx-arm64 osx-x64 linux-x64 win-x64; do
-            dotnet publish src/Hippo -c Release -r "$rid" --self-contained \
-              -p:PublishSingleFile=true -o "artifacts/publish/$rid"
-          done
-
-      - name: Test the published binary
-        run: dotnet test -c Release --no-build
-        env:
-          HIPPO_EXE: ${{ github.workspace }}/artifacts/publish/osx-arm64/hippo
 
       - name: Pack tool package
         run: dotnet pack src/Hippo -c Release -o artifacts/nupkg
@@ -53,21 +41,18 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: single-files
-          path: artifacts/publish/
-
-      - uses: actions/upload-artifact@v4
-        with:
           name: tool-package
           path: artifacts/nupkg/
 
-  run-published:
-    # Runs the tests against the single files built on the Mac, on each platform the build job cannot run them on itself.
-    needs: build
+  publish:
+    # Native AOT cannot cross-compile between operating systems, so each binary is built and tested on its own OS.
     strategy:
       fail-fast: false
       matrix:
         include:
+          - os: macos-latest
+            rid: osx-arm64
+            exe: hippo
           - os: macos-15-intel
             rid: osx-x64
             exe: hippo
@@ -78,7 +63,7 @@ jobs:
             rid: win-x64
             exe: hippo.exe
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -86,16 +71,15 @@ jobs:
         with:
           global-json-file: global.json
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: single-files
-          path: artifacts/publish
-
-      - name: Restore executable bit
-        if: runner.os != 'Windows'
-        run: chmod +x artifacts/publish/${{ matrix.rid }}/${{ matrix.exe }}
+      - name: Publish native AOT binary
+        run: dotnet publish src/Hippo -c Release -r ${{ matrix.rid }} -p:PublishAot=true -o artifacts/publish/${{ matrix.rid }}
 
       - name: Test the published binary
         run: dotnet test -c Release
         env:
           HIPPO_EXE: ${{ github.workspace }}/artifacts/publish/${{ matrix.rid }}/${{ matrix.exe }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hippo-${{ matrix.rid }}
+          path: artifacts/publish/${{ matrix.rid }}/
