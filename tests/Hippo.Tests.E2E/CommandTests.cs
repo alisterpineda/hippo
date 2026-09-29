@@ -407,13 +407,13 @@ public sealed class CommandTests : IDisposable
     [Fact]
     public async Task Keys_from_later_phases_warn_but_the_command_succeeds()
     {
-        _notebook.Write(".hippo.yaml", "version: 1\nbundles:\n  - root: wiki\n");
+        _notebook.Write(".hippo.yaml", "version: 1\nids:\n  field: sources[].id\n");
 
         var result = await _notebook.RunAsync("status");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("warning", result.Stderr);
-        Assert.Contains("'bundles'", result.Stderr);
+        Assert.Contains("'ids'", result.Stderr);
     }
 
     [Fact]

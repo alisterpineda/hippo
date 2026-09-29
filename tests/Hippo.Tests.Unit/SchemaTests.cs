@@ -25,7 +25,27 @@ public class SchemaTests
 
         var tables = connection.Query<string>(
             "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
-        Assert.Equal(["files"], tables);
+        Assert.Equal(["files", "links", "meta"], tables);
+        Assert.Equal(
+            """
+            column id INTEGER notnull=1 default= pk=1 hidden=0
+            column source_id INTEGER notnull=1 default= pk=0 hidden=0
+            column line INTEGER notnull=1 default= pk=0 hidden=0
+            column kind TEXT notnull=1 default= pk=0 hidden=0
+            column type TEXT notnull=1 default= pk=0 hidden=0
+            column raw TEXT notnull=1 default= pk=0 hidden=0
+            column target TEXT notnull=0 default= pk=0 hidden=0
+            index ix_links_source_id unique=0 partial=0 (source_id)
+            index ix_links_target unique=0 partial=0 (target)
+            fk source_id -> files.id update=NO ACTION delete=CASCADE
+            """.ReplaceLineEndings("\n"),
+            Describe(connection, "links"));
+        Assert.Equal(
+            """
+            column key TEXT notnull=1 default= pk=1 hidden=0
+            column value TEXT notnull=1 default= pk=0 hidden=0
+            """.ReplaceLineEndings("\n"),
+            Describe(connection, "meta"));
         Assert.Equal(
             """
             column id INTEGER notnull=1 default= pk=1 hidden=0
@@ -52,6 +72,35 @@ public class SchemaTests
             "INSERT INTO files (path, mtime, size, hash, hashed_at, kind) VALUES ('a', 0, 0, 'h', 0, 'other')"));
 
         Assert.Contains("CHECK constraint failed", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("other", "path", "a.md")]
+    [InlineData("body", "other", "a.md")]
+    [InlineData("body", "url", "a.md")]
+    public void The_scripts_enforce_the_link_checks(string kind, string type, string target)
+    {
+        using var database = new TestDatabase();
+        using var connection = database.Open();
+        connection.Execute("INSERT INTO files (path, mtime, size, hash, hashed_at, kind) VALUES ('a.md', 0, 0, 'h', 0, 'markdown')");
+
+        var ex = Assert.Throws<SqliteException>(() => connection.Execute(
+            "INSERT INTO links (source_id, line, kind, type, raw, target) VALUES (1, 1, @kind, @type, 'x', @target)", new { kind, type, target }));
+
+        Assert.Contains("CHECK constraint failed", ex.Message);
+    }
+
+    [Fact]
+    public void Deleting_a_file_deletes_its_links()
+    {
+        using var database = new TestDatabase();
+        using var connection = database.Open();
+        connection.Execute("INSERT INTO files (path, mtime, size, hash, hashed_at, kind) VALUES ('a.md', 0, 0, 'h', 0, 'markdown')");
+        connection.Execute("INSERT INTO links (source_id, line, kind, type, raw, target) VALUES (1, 1, 'body', 'path', 'b.md', 'b.md')");
+
+        connection.Execute("DELETE FROM files");
+
+        Assert.Equal(0, connection.ExecuteScalar<long>("SELECT count(*) FROM links"));
     }
 
     /// <summary>Columns, indexes and foreign keys, as SQLite reports them, in a form that compares as text.</summary>

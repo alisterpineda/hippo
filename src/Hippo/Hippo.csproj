@@ -33,6 +33,7 @@
     <PackageReference Include="Dapper.AOT" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" />
+    <PackageReference Include="Markdig" />
     <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 

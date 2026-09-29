@@ -12,6 +12,11 @@ namespace Hippo.Notebooks;
 /// file has no frontmatter.</summary>
 internal readonly record struct FrontmatterResult(string? Json, string? Error);
 
+/// <summary>A markdown file split at its frontmatter: the parsed <see cref="Result"/>, the YAML mapping behind it when it
+/// parsed cleanly, and the <see cref="Body"/> after the closing line, which starts on file line <see cref="BodyLine"/>.
+/// A file without a closed block is all body.</summary>
+internal sealed record FrontmatterBlock(FrontmatterResult Result, YamlMappingNode? Root, string Body, int BodyLine);
+
 /// <summary>
 /// Reads the YAML block that opens a markdown file between two <c>---</c> lines and converts it to JSON. Plain scalars
 /// resolve by the YAML 1.2 core schema (null, booleans, integers, floats); everything else stays a string. A malformed
@@ -24,7 +29,9 @@ internal static partial class Frontmatter
 
     public static FrontmatterResult Parse(ReadOnlySpan<byte> utf8) => Parse(Encoding.UTF8.GetString(utf8));
 
-    public static FrontmatterResult Parse(string text)
+    public static FrontmatterResult Parse(string text) => Read(text).Result;
+
+    public static FrontmatterBlock Read(string text)
     {
         if (text.StartsWith('\uFEFF'))
         {
@@ -34,13 +41,15 @@ internal static partial class Frontmatter
         var lines = new LineReader(text);
         if (!lines.TryNext(out var first) || !IsDelimiter(first))
         {
-            return default;
+            return new(default, null, text, 1);
         }
 
         var yamlStart = lines.Position;
         var yamlEnd = -1;
+        var closingLine = 1;
         while (lines.TryNext(out var line))
         {
+            closingLine++;
             if (IsDelimiter(line))
             {
                 yamlEnd = lines.LineStart;
@@ -49,32 +58,46 @@ internal static partial class Frontmatter
         }
         if (yamlEnd < 0)
         {
-            return new(null, "frontmatter opened on line 1 is never closed");
+            return new(new(null, "frontmatter opened on line 1 is never closed"), null, text, 1);
         }
 
+        var body = text[lines.Position..];
         try
         {
-            return new(ToJson(text[yamlStart..yamlEnd]), null);
+            var (json, root) = ToJson(text[yamlStart..yamlEnd]);
+            return new(new(json, null), root, body, closingLine + 1);
         }
         catch (YamlException ex)
         {
-            // The YAML starts on the file's second line.
-            return new(null, $"line {ex.Start.Line + 1}: {PositionPrefix().Replace(ex.Message, "")}");
+            return new(new(null, $"line {FileLine(ex.Start)}: {PositionPrefix().Replace(ex.Message, "")}"), null, body, closingLine + 1);
         }
         catch (FrontmatterException ex)
         {
-            return new(null, ex.Message);
+            return new(new(null, ex.Message), null, body, closingLine + 1);
         }
     }
 
     private static bool IsDelimiter(ReadOnlySpan<char> line) => line.TrimEnd() is "---";
 
-    private static string ToJson(string yaml)
+    /// <summary>The file line of a position in the YAML, which starts on the file's second line.</summary>
+    public static int FileLine(Mark mark) => (int)mark.Line + 1;
+
+    /// <summary>Whether a scalar is a string by its style or tag, whatever its text.</summary>
+    private static bool IsString(YamlScalarNode scalar) =>
+        scalar.Style is not (ScalarStyle.Plain or ScalarStyle.Any)
+        || scalar.Tag is { IsEmpty: false } tag && tag.Value is "tag:yaml.org,2002:str" or "!";
+
+    /// <summary>Whether a scalar is YAML null by the core schema: an untagged plain empty, <c>~</c> or <c>null</c>.</summary>
+    public static bool IsNull(YamlScalarNode scalar) =>
+        !IsString(scalar) && (scalar.Value ?? "") is "" or "~" or "null" or "Null" or "NULL";
+
+    private static (string Json, YamlMappingNode? Root) ToJson(string yaml)
     {
         var stream = new YamlStream();
         // Root mapping included, the same number of levels Write accepts.
         stream.Load(new DepthLimitedParser(new Parser(new StringReader(yaml)), MaxDepth + 1));
 
+        YamlMappingNode? root = null;
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer))
         {
@@ -83,17 +106,18 @@ internal static partial class Frontmatter
                 writer.WriteStartObject();
                 writer.WriteEndObject();
             }
-            else if (stream.Documents[0].RootNode is YamlMappingNode root)
+            else if (stream.Documents[0].RootNode is YamlMappingNode mapping)
             {
                 var nodes = 0;
-                Write(writer, root, 0, ref nodes);
+                Write(writer, mapping, 0, ref nodes);
+                root = mapping;
             }
             else
             {
                 throw new FrontmatterException("frontmatter is not a mapping");
             }
         }
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+        return (Encoding.UTF8.GetString(buffer.WrittenSpan), root);
     }
 
     private static void Write(Utf8JsonWriter writer, YamlNode node, int depth, ref int nodes)
@@ -112,11 +136,11 @@ internal static partial class Frontmatter
                 {
                     if (key is not YamlScalarNode { Value: { } name })
                     {
-                        throw new FrontmatterException($"line {key.Start.Line + 1}: keys must be plain values");
+                        throw new FrontmatterException($"line {FileLine(key.Start)}: keys must be plain values");
                     }
                     if (!keys.Add(name))
                     {
-                        throw new FrontmatterException($"line {key.Start.Line + 1}: duplicate key '{name}'");
+                        throw new FrontmatterException($"line {FileLine(key.Start)}: duplicate key '{name}'");
                     }
                     writer.WritePropertyName(name);
                     Write(writer, value, depth + 1, ref nodes);
@@ -135,20 +159,18 @@ internal static partial class Frontmatter
                 WriteScalar(writer, scalar);
                 break;
             default:
-                throw new FrontmatterException($"line {node.Start.Line + 1}: unresolved alias");
+                throw new FrontmatterException($"line {FileLine(node.Start)}: unresolved alias");
         }
     }
 
     private static void WriteScalar(Utf8JsonWriter writer, YamlScalarNode scalar)
     {
         var value = scalar.Value ?? "";
-        var isString = scalar.Style is not (ScalarStyle.Plain or ScalarStyle.Any)
-            || scalar.Tag is { IsEmpty: false } tag && tag.Value is "tag:yaml.org,2002:str" or "!";
-        if (isString)
+        if (IsString(scalar))
         {
             writer.WriteStringValue(value);
         }
-        else if (value is "" or "~" or "null" or "Null" or "NULL")
+        else if (IsNull(scalar))
         {
             writer.WriteNullValue();
         }

@@ -79,17 +79,99 @@ public class NotebookTests
             files:
               include: ["**/*"]
               typo: true
-            bundles:
-              - root: wiki
+            ids:
+              field: sources[].id
             lint:
               rules: [placement]
             """, warnings);
 
         Assert.Equal(["**/*"], config.Include);
         Assert.Equal(3, warnings.Count);
-        Assert.Contains(warnings, w => w.Contains("'bundles'"));
+        Assert.Contains(warnings, w => w.Contains("'ids'"));
         Assert.Contains(warnings, w => w.Contains("'lint'"));
         Assert.Contains(warnings, w => w.Contains("'files.typo'"));
+    }
+
+    [Fact]
+    public void Bundles_and_links_are_read_without_warnings()
+    {
+        var warnings = new List<string>();
+
+        var config = NotebookConfig.Parse("""
+            version: 1
+            bundles:
+              - root: wiki
+              - root: /docs/
+            links:
+              body: { resolve: bundle }
+              wikilinks: text
+              frontmatter:
+                - field: sources[].resource
+                  resolve: bundle
+                - field: related[]
+              roots: ["wiki/index.md"]
+            """, warnings);
+
+        Assert.Empty(warnings);
+        Assert.Equal(["wiki", "docs"], config.Bundles);
+        Assert.Equal(LinkBase.Bundle, config.Links.Body);
+        Assert.Equal(
+            [("sources[].resource", LinkBase.Bundle), ("related[]", LinkBase.Page)],
+            config.Links.Frontmatter.Select(f => (f.Field, f.Resolve)));
+        Assert.Equal(["wiki/index.md"], config.Links.Roots);
+    }
+
+    [Fact]
+    public void Without_a_links_section_body_links_resolve_from_the_page()
+    {
+        var config = NotebookConfig.Parse("version: 1\n", []);
+
+        Assert.Empty(config.Bundles);
+        Assert.Equal(LinkBase.Page, config.Links.Body);
+        Assert.Empty(config.Links.Frontmatter);
+        Assert.Empty(config.Links.Roots);
+    }
+
+    [Theory]
+    [InlineData("bundles: wiki\n", "bundles")]
+    [InlineData("bundles:\n  - root: ../outside\n", "bundles")]
+    [InlineData("bundles:\n  - {}\n", "bundles")]
+    [InlineData("links:\n  body: { resolve: folder }\n", "links.body.resolve")]
+    [InlineData("links:\n  wikilinks: resolve\n", "links.wikilinks")]
+    [InlineData("links:\n  frontmatter:\n    - resolve: page\n", "links.frontmatter")]
+    [InlineData("links:\n  frontmatter:\n    - field: a..b\n", "links.frontmatter")]
+    [InlineData("links:\n  frontmatter:\n    - field: a[]b\n", "links.frontmatter")]
+    [InlineData("links:\n  roots: wiki/index.md\n", "links.roots")]
+    public void Malformed_link_settings_are_errors(string yaml, string key)
+    {
+        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(yaml, []));
+
+        Assert.Contains(key, ex.Message);
+    }
+
+    [Fact]
+    public void Unknown_keys_inside_links_warn()
+    {
+        var warnings = new List<string>();
+
+        NotebookConfig.Parse("links:\n  typo: 1\n  body: { typo: 2 }\n", warnings);
+
+        Assert.Equal(2, warnings.Count);
+        Assert.Contains(warnings, w => w.Contains("'links.typo'"));
+        Assert.Contains(warnings, w => w.Contains("'links.body.typo'"));
+    }
+
+    [Fact]
+    public void The_link_fingerprint_changes_with_the_settings_that_shape_links_only()
+    {
+        string Fingerprint(string yaml) => NotebookConfig.Parse(yaml, []).LinkSettings.Fingerprint;
+        var baseline = Fingerprint("bundles: [{root: wiki}]\nlinks:\n  frontmatter: [{field: a}]\n");
+
+        Assert.Equal(baseline, Fingerprint("bundles: [{root: wiki}]\nlinks:\n  frontmatter: [{field: a}]\n  roots: [x.md]\nfiles:\n  exclude: [y/**]\n"));
+        Assert.NotEqual(baseline, Fingerprint("bundles: [{root: docs}]\nlinks:\n  frontmatter: [{field: a}]\n"));
+        Assert.NotEqual(baseline, Fingerprint("bundles: [{root: wiki}]\nlinks:\n  frontmatter: [{field: a, resolve: bundle}]\n"));
+        Assert.NotEqual(baseline, Fingerprint("bundles: [{root: wiki}]\nlinks:\n  body: {resolve: bundle}\n  frontmatter: [{field: a}]\n"));
+        Assert.NotEqual(baseline, Fingerprint("bundles: [{root: wiki}]\nlinks:\n  frontmatter: [{field: b}]\n"));
     }
 
     [Fact]

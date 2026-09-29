@@ -15,9 +15,10 @@ internal sealed record SweepResult(
     DateTimeOffset FinishedAt, TimeSpan Elapsed, IReadOnlyList<string> Warnings);
 
 /// <summary>
-/// Brings the <c>files</c> table in line with the notebook on disk: enumerate, stat, re-hash only when mtime or size
-/// changed or the row is racy, re-parse only when the hash changed, and drop rows for files that are gone. Every write
-/// is idempotent, so several processes may sweep the same notebook at once.
+/// Brings the <c>files</c> and <c>links</c> tables in line with the notebook on disk: enumerate, stat, re-hash only when
+/// mtime or size changed or the row is racy, re-parse only when the hash changed, and drop rows for files that are gone.
+/// A change to the settings that shape links re-parses every page. Every write is idempotent, so several processes may
+/// sweep the same notebook at once.
 /// </summary>
 internal static class Sweeper
 {
@@ -38,6 +39,18 @@ internal static class Sweeper
 
     internal sealed record PathRow(string Path);
 
+    /// <summary>A page's links are written only beside the file row they were parsed with, matched by hash, so a page's
+    /// links always belong to the content its row describes.</summary>
+    internal sealed record SourceRow(string Path, string Hash);
+
+    internal sealed record LinkRow(string Path, string Hash, int Line, string Kind, string Type, string Raw, string? Target);
+
+    internal sealed record MetaRow(string Key, string Value);
+
+    private sealed record ParsedFile(FileRow Row, List<LinkRow> Links);
+
+    private const string LinkSettingsKey = "links";
+
     public static SweepResult Run(Notebook notebook, SqliteConnection db, bool rebuild, TimeProvider clock)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -45,16 +58,25 @@ internal static class Sweeper
         // row look racy more often, never less.
         var hashedAt = Ticks(clock.GetUtcNow());
         var warnings = new List<string>();
+        // Links extracted under other settings would resolve differently now, so every page is parsed again. Only
+        // pages have links, so every other file is still skipped when its stats show it unchanged.
+        var settings = notebook.Config.LinkSettings;
+        var linkSettings = settings.Fingerprint;
+        var relink = db.QuerySingleOrDefault<string>("SELECT value FROM meta WHERE key = @LinkSettingsKey", new { LinkSettingsKey }) != linkSettings;
+        // A page that cannot be read keeps its old links, so the new settings are recorded only once every page was
+        // read under them; until then each sweep parses the pages again.
+        var unreadPage = false;
         var known = db.Query<KnownFile>("SELECT path, mtime, size, hash, hashed_at AS HashedAt FROM files").ToDictionary(k => k.Path, StringComparer.Ordinal);
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        var rows = new List<FileRow>();
+        var rows = new List<ParsedFile>();
         var stats = new List<StatRow>();
         int added = 0, updated = 0, hashed = 0;
         foreach (var file in Enumerate(notebook))
         {
             known.TryGetValue(file.Path, out var previous);
-            if (!rebuild && previous is not null && Unchanged(previous, file))
+            var reparse = rebuild || relink && Notebook.IsMarkdown(file.Path);
+            if (!reparse && previous is not null && Unchanged(previous, file))
             {
                 seen.Add(file.Path);
                 continue;
@@ -86,12 +108,13 @@ internal static class Sweeper
                 // Its row, if any, stays as it was until the file can be read again.
                 warnings.Add($"cannot read {file.Path}: {ex.Message}");
                 seen.Add(file.Path);
+                unreadPage |= Notebook.IsMarkdown(file.Path);
                 continue;
             }
             seen.Add(file.Path);
             hashed++;
 
-            if (!rebuild && previous is not null && previous.Hash == hash)
+            if (!reparse && previous is not null && previous.Hash == hash)
             {
                 // A row that would still be racy with the same stats gains nothing from a later hash time, so a file
                 // dated in the future costs no write on every sweep.
@@ -110,29 +133,42 @@ internal static class Sweeper
             {
                 updated++;
             }
-            rows.Add(Parse(file, hash, hashedAt, content));
+            var parsed = Parse(settings, file, hash, hashedAt, content, out var bodyError);
+            if (bodyError is not null)
+            {
+                warnings.Add($"cannot read the links in {file.Path}: {bodyError}");
+            }
+            rows.Add(parsed);
         }
 
         var removed = known.Keys.Where(path => !seen.Contains(path)).Select(path => new PathRow(path)).ToList();
-        if (rebuild)
+        if (rebuild || relink)
         {
             // One transaction, so a reader never sees a half-built index.
             // Rows of files that could not be read are kept, as an ordinary sweep keeps them.
             using var transaction = db.BeginTransaction(deferred: false);
-            db.Execute("DELETE FROM files WHERE path = @Path", rows.Select(r => new PathRow(r.Path)).Concat(removed).ToList(), transaction);
-            db.Execute(UpsertSql, rows, transaction);
+            db.Execute("DELETE FROM files WHERE path = @Path", rows.Select(r => new PathRow(r.Row.Path)).Concat(removed).ToList(), transaction);
+            Write(db, rows, transaction);
+            db.Execute("UPDATE files SET mtime = @Mtime, size = @Size, hashed_at = @HashedAt WHERE path = @Path AND hash = @Hash", stats, transaction);
+            if (!unreadPage)
+            {
+                db.Execute("""
+                    INSERT INTO meta (key, value) VALUES (@Key, @Value)
+                    ON CONFLICT (key) DO UPDATE SET value = excluded.value
+                    """, new MetaRow(LinkSettingsKey, linkSettings), transaction);
+            }
             transaction.Commit();
         }
         else
         {
             // Each call names its row type, which Dapper.AOT needs to generate the binding.
-            InBatches(db, rows, (batch, transaction) => db.Execute(UpsertSql, batch, transaction));
+            InBatches(db, rows, (batch, transaction) => Write(db, batch, transaction));
             InBatches(db, stats, (batch, transaction) =>
                 db.Execute("UPDATE files SET mtime = @Mtime, size = @Size, hashed_at = @HashedAt WHERE path = @Path AND hash = @Hash", batch, transaction));
             InBatches(db, removed, (batch, transaction) => db.Execute("DELETE FROM files WHERE path = @Path", batch, transaction));
         }
 
-        return new SweepResult(seen.Count, added, updated, removed.Count, hashed, rebuild, clock.GetUtcNow(), stopwatch.Elapsed, warnings);
+        return new SweepResult(seen.Count, added, updated, removed.Count, hashed, rebuild || relink, clock.GetUtcNow(), stopwatch.Elapsed, warnings);
     }
 
     /// <summary>A row changes only when its content does, so a second process writing the same file is a no-op.</summary>
@@ -144,6 +180,20 @@ internal static class Sweeper
             kind = excluded.kind, frontmatter = excluded.frontmatter, parse_error = excluded.parse_error
         WHERE excluded.hash != files.hash
         """;
+
+    /// <summary>Writes parsed files and replaces each page's links, in the caller's transaction so a reader never sees a
+    /// page without its links.</summary>
+    private static void Write(SqliteConnection db, List<ParsedFile> files, SqliteTransaction transaction)
+    {
+        db.Execute(UpsertSql, files.Select(f => f.Row).ToList(), transaction);
+        db.Execute(
+            "DELETE FROM links WHERE source_id = (SELECT id FROM files WHERE path = @Path AND hash = @Hash)",
+            files.Where(f => f.Row.Kind == "markdown").Select(f => new SourceRow(f.Row.Path, f.Row.Hash)).ToList(), transaction);
+        db.Execute("""
+            INSERT INTO links (source_id, line, kind, type, raw, target)
+            SELECT id, @Line, @Kind, @Type, @Raw, @Target FROM files WHERE path = @Path AND hash = @Hash
+            """, files.SelectMany(f => f.Links).ToList(), transaction);
+    }
 
     /// <summary>Whether the row still describes the file: same mtime and size, and not racy.</summary>
     private static bool Unchanged(KnownFile previous, DiskFile file) =>
@@ -167,14 +217,18 @@ internal static class Sweeper
         }
     }
 
-    private static FileRow Parse(DiskFile file, string hash, long hashedAt, byte[]? content)
+    private static ParsedFile Parse(LinkSettings settings, DiskFile file, string hash, long hashedAt, byte[]? content, out string? bodyError)
     {
+        bodyError = null;
         if (!Notebook.IsMarkdown(file.Path))
         {
-            return new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "plain", null, null);
+            return new ParsedFile(new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "plain", null, null), []);
         }
-        var frontmatter = Frontmatter.Parse(content!);
-        return new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "markdown", frontmatter.Json, frontmatter.Error);
+        var page = Page.Parse(file.Path, content!, settings);
+        bodyError = page.BodyError;
+        return new ParsedFile(
+            new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "markdown", page.Frontmatter.Json, page.Frontmatter.Error),
+            page.Links.Select(l => new LinkRow(file.Path, hash, l.Line, l.Kind, l.Type, l.Raw, l.Target)).ToList());
     }
 
     /// <summary>Lists the included files under the root. Symbolic links are skipped, so nothing outside the root is

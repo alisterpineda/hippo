@@ -20,12 +20,21 @@ internal sealed record FileOutput(string Path, string Kind, long Size, DateTimeO
 internal sealed record ShowOutput(
     string Path, string Kind, long Size, DateTimeOffset Modified, string Hash, JsonElement? Frontmatter, string? ParseError);
 
+internal sealed record TransitiveBackrefOutput(string Source);
+
+internal sealed record OrphanOutput(string Path);
+
 /// <summary>The <c>--json</c> shapes. Generated, so serialization needs no reflection under native AOT.</summary>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]
 [JsonSerializable(typeof(IndexOutput))]
 [JsonSerializable(typeof(StatusOutput))]
 [JsonSerializable(typeof(List<FileOutput>))]
 [JsonSerializable(typeof(ShowOutput))]
+[JsonSerializable(typeof(List<LinkOut>))]
+[JsonSerializable(typeof(List<LinkIn>))]
+[JsonSerializable(typeof(List<TransitiveBackrefOutput>))]
+[JsonSerializable(typeof(List<BrokenLink>))]
+[JsonSerializable(typeof(List<OrphanOutput>))]
 internal sealed partial class OutputJson : JsonSerializerContext;
 
 /// <summary>How values read as text. Named apart from the <c>*Output</c> shapes and the session's output writer.</summary>

@@ -447,6 +447,165 @@ public sealed class SweeperTests : IDisposable
         Assert.Equal(before, Snapshot());
     }
 
+    public sealed record StoredLink(string Source, long Line, string Kind, string Type, string Raw, string? Target);
+
+    private List<StoredLink> Links() =>
+        _db.Query<StoredLink>("""
+            SELECT f.path AS Source, l.line, l.kind, l.type, l.raw, l.target
+            FROM links l JOIN files f ON f.id = l.source_id
+            ORDER BY f.path, l.line, l.id
+            """).AsList();
+
+    [Fact]
+    public void A_sweep_stores_each_pages_links_with_source_line_kind_and_raw_text()
+    {
+        _notebook.Write(".hippo.yaml", "links:\n  frontmatter: [{field: \"related[]\"}]\n");
+        _notebook.Write("wiki/a.md", "---\nrelated: [c.md]\n---\n\nSee [B](b.md) and <https://example.com>.\n");
+        _notebook.Write("wiki/b.md", "[back](#top)\n");
+        _notebook.Write("wiki/c.txt", "[not](markdown.md)\n");
+
+        Sweep();
+
+        Assert.Equal(
+            [
+                new StoredLink("wiki/a.md", 2, "frontmatter", "path", "c.md", "wiki/c.md"),
+                new StoredLink("wiki/a.md", 5, "body", "path", "b.md", "wiki/b.md"),
+                new StoredLink("wiki/a.md", 5, "body", "url", "https://example.com", null),
+                new StoredLink("wiki/b.md", 1, "body", "anchor", "#top", null),
+            ],
+            Links());
+    }
+
+    [Fact]
+    public void Editing_a_page_replaces_its_links()
+    {
+        var path = _notebook.Write("a.md", "[b](b.md)\n[c](c.md)\n");
+        Sweep();
+        File.WriteAllText(path, "[d](d.md)\n");
+
+        Sweep();
+
+        Assert.Equal(["d.md"], Links().Select(l => l.Target));
+    }
+
+    [Fact]
+    public void Deleting_a_page_drops_its_links()
+    {
+        var path = _notebook.Write("a.md", "[b](b.md)\n");
+        _notebook.Write("b.md", "[a](a.md)\n");
+        Sweep();
+        File.Delete(path);
+
+        Sweep();
+
+        Assert.Equal([new StoredLink("b.md", 1, "body", "path", "a.md", "a.md")], Links());
+    }
+
+    [Fact]
+    public void A_touched_page_keeps_its_links()
+    {
+        var path = _notebook.Write("a.md", "[b](b.md)\n");
+        Sweep();
+        File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddMinutes(1));
+
+        Sweep();
+
+        Assert.Equal(["b.md"], Links().Select(l => l.Target));
+    }
+
+    [Fact]
+    public void A_rebuild_keeps_every_link()
+    {
+        _notebook.Write("a.md", "[b](b.md)\n");
+        _notebook.Write("b.md", "[a](a.md)\n");
+        Sweep();
+
+        Sweep(rebuild: true);
+
+        Assert.Equal(["b.md", "a.md"], Links().Select(l => l.Target));
+    }
+
+    [Fact]
+    public void Changing_the_link_settings_extracts_every_pages_links_again()
+    {
+        _notebook.Write("wiki/topics/a.md", "---\nsource: /x.md\n---\n[b](b.md)\n");
+        Sweep();
+        var before = Links();
+
+        _notebook.Write(".hippo.yaml", "bundles: [{root: wiki}]\nlinks:\n  body: {resolve: bundle}\n  frontmatter: [{field: source}]\n");
+        var changed = Sweep();
+        var after = Sweep();
+
+        Assert.Equal(["wiki/topics/b.md"], before.Select(l => l.Target));
+        Assert.Equal(["wiki/x.md", "wiki/b.md"], Links().Select(l => l.Target));
+        Assert.True(changed.Rebuilt);
+        Assert.False(after.Rebuilt);
+    }
+
+    [Fact]
+    public void Changing_the_link_settings_rehashes_only_pages()
+    {
+        _notebook.Write("a.md", "[b](b.md)\n");
+        _notebook.Write("raw/image.png", "png");
+        Sweep();
+
+        _notebook.Write(".hippo.yaml", "bundles: [{root: raw}]\n");
+        var changed = Sweep();
+
+        // The page, and the settings file that changed.
+        Assert.Equal(2, changed.Hashed);
+        Assert.True(changed.Rebuilt);
+        Assert.Equal(["b.md"], Links().Select(l => l.Target));
+    }
+
+    [Fact]
+    [UnsupportedOSPlatform("windows")] // MakeUnreadable skips the test there.
+    public void A_page_unreadable_when_the_link_settings_change_gets_its_links_under_them_once_readable()
+    {
+        var path = _notebook.Write("wiki/a.md", "[b](/b.md)\n");
+        Sweep();
+        MakeUnreadable(path);
+        try
+        {
+            _notebook.Write(".hippo.yaml", "bundles: [{root: wiki}]\n");
+            var locked = Sweep();
+            Assert.Contains(locked.Warnings, w => w.Contains("wiki/a.md"));
+        }
+        finally
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+
+        var unlocked = Sweep();
+
+        Assert.True(unlocked.Rebuilt);
+        Assert.Equal(["wiki/b.md"], Links().Select(l => l.Target));
+        Assert.False(Sweep().Rebuilt);
+    }
+
+    [Fact]
+    public void A_page_markdig_cannot_parse_warns_and_the_rest_still_index()
+    {
+        _notebook.Write("deep.md", new string('>', 200) + " x\n");
+        _notebook.Write("a.md", "[b](b.md)\n");
+
+        var result = Sweep();
+
+        Assert.Contains(result.Warnings, w => w.Contains("deep.md"));
+        Assert.Equal([".hippo.yaml", "a.md", "deep.md"], Rows().Select(r => r.Path));
+        Assert.Equal(["b.md"], Links().Select(l => l.Target));
+    }
+
+    [Fact]
+    public void Settings_that_do_not_shape_links_cause_no_rebuild()
+    {
+        _notebook.Write("a.md", "[b](b.md)\n");
+        Sweep();
+        _notebook.Write(".hippo.yaml", "links:\n  roots: [a.md]\n");
+
+        Assert.False(Sweep().Rebuilt);
+    }
+
     private string Snapshot() => string.Join('\n', Directory
         .EnumerateFileSystemEntries(_notebook.FullPath, "*", SearchOption.AllDirectories)
         .Order(StringComparer.Ordinal)

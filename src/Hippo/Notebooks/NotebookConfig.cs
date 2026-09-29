@@ -1,7 +1,78 @@
+using System.Buffers;
+using System.Text;
+using System.Text.Json;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
 namespace Hippo.Notebooks;
+
+/// <summary>What a relative link resolves against: the folder of the page it is on, or the root of that page's bundle.</summary>
+internal enum LinkBase
+{
+    Page,
+    Bundle,
+}
+
+/// <summary>A frontmatter field whose values are links. <see cref="Field"/> is dotted for nested mappings, and a part
+/// ending in <c>[]</c> stands for each element of a list, as in <c>sources[].resource</c>.</summary>
+internal sealed record FrontmatterLinkField(string Field, LinkBase Resolve)
+{
+    public IReadOnlyList<(string Name, bool Each)> Parts { get; } = Field.Split('.')
+        .Select(part => part.EndsWith("[]", StringComparison.Ordinal) ? (part[..^2], true) : (part, false))
+        .ToList();
+
+    /// <summary>Whether <see cref="Field"/> is dotted names, each optionally ending in <c>[]</c>, with no other
+    /// brackets.</summary>
+    public bool IsValid => Parts.All(part => part.Name.Length > 0 && part.Name.IndexOfAny(['[', ']']) < 0);
+}
+
+/// <summary>The <c>links</c> section: how body links resolve, which frontmatter fields hold links, and the
+/// <see cref="Roots"/> (globs) that need no inbound link to not be orphans.</summary>
+internal sealed record LinkConfig(LinkBase Body, IReadOnlyList<FrontmatterLinkField> Frontmatter, IReadOnlyList<string> Roots)
+{
+    public static LinkConfig Default { get; } = new(LinkBase.Page, [], []);
+}
+
+/// <summary>
+/// Every setting that shapes the links stored for a page, and nothing else: all that <see cref="Page.Parse(string, string, LinkSettings)"/>
+/// reads, so a setting it comes to need is added here, beside the <see cref="Fingerprint"/> that must cover it.
+/// </summary>
+internal sealed record LinkSettings(IReadOnlyList<string> Bundles, LinkBase Body, IReadOnlyList<FrontmatterLinkField> Frontmatter)
+{
+    /// <summary>These settings as one string. The index keeps the value its links were extracted under, and
+    /// re-extracts them all when it differs.</summary>
+    public string Fingerprint
+    {
+        get
+        {
+            var buffer = new ArrayBufferWriter<byte>();
+            using (var writer = new Utf8JsonWriter(buffer))
+            {
+                writer.WriteStartObject();
+                writer.WriteStartArray("bundles");
+                foreach (var bundle in Bundles)
+                {
+                    writer.WriteStringValue(bundle);
+                }
+                writer.WriteEndArray();
+                writer.WriteString("body", Name(Body));
+                writer.WriteStartArray("frontmatter");
+                foreach (var link in Frontmatter)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("field", link.Field);
+                    writer.WriteString("resolve", Name(link.Resolve));
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
+            return Encoding.UTF8.GetString(buffer.WrittenSpan);
+        }
+    }
+
+    private static string Name(LinkBase resolve) => resolve == LinkBase.Page ? "page" : "bundle";
+}
 
 /// <summary>
 /// The parts of <c>.hippo.yaml</c> this hippo understands. Keys it does not know, such as those a later phase adds,
@@ -14,6 +85,14 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
     private const int MaxDepth = 64;
 
     public static NotebookConfig Default { get; } = new(["**/*"], []);
+
+    /// <summary>Bundle roots, relative to the notebook root without leading or trailing <c>/</c>.</summary>
+    public IReadOnlyList<string> Bundles { get; init; } = [];
+
+    public LinkConfig Links { get; init; } = LinkConfig.Default;
+
+    /// <summary>The settings that shape the links stored for a page.</summary>
+    public LinkSettings LinkSettings => new(Bundles, Links.Body, Links.Frontmatter);
 
     public static NotebookConfig Parse(string yaml, ICollection<string> warnings)
     {
@@ -48,7 +127,13 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
                     }
                     break;
                 case "files":
-                    config = ParseFiles(value, warnings);
+                    config = ParseFiles(config, value, warnings);
+                    break;
+                case "bundles":
+                    config = config with { Bundles = ParseBundles(value, warnings) };
+                    break;
+                case "links":
+                    config = config with { Links = ParseLinks(value, warnings) };
                     break;
                 case var key:
                     warnings.Add(UnknownKey(key));
@@ -58,17 +143,11 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
         return config;
     }
 
-    private static NotebookConfig ParseFiles(YamlNode node, ICollection<string> warnings)
+    private static NotebookConfig ParseFiles(NotebookConfig config, YamlNode node, ICollection<string> warnings)
     {
-        if (node is not YamlMappingNode files)
+        foreach (var (key, value) in Mapping("files", node))
         {
-            throw Error("files must be a mapping");
-        }
-
-        var config = Default;
-        foreach (var (keyNode, value) in files.Children)
-        {
-            switch (Key(keyNode))
+            switch (key)
             {
                 case "include":
                     config = config with { Include = Patterns("files.include", value) };
@@ -76,12 +155,140 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
                 case "exclude":
                     config = config with { Exclude = Patterns("files.exclude", value) };
                     break;
-                case var key:
+                default:
                     warnings.Add(UnknownKey($"files.{key}"));
                     break;
             }
         }
         return config;
+    }
+
+    private static List<string> ParseBundles(YamlNode node, ICollection<string> warnings)
+    {
+        const string usage = "bundles must be a list of mappings, each with a root folder inside the notebook";
+        if (node is not YamlSequenceNode sequence)
+        {
+            throw Error(usage);
+        }
+
+        var roots = new List<string>();
+        foreach (var item in sequence.Children)
+        {
+            string? root = null;
+            foreach (var (key, value) in Mapping("bundles", item))
+            {
+                if (key == "root")
+                {
+                    root = value is YamlScalarNode { Value: { } text } ? text.Trim('/') : throw Error(usage);
+                }
+                else
+                {
+                    warnings.Add(UnknownKey($"bundles[].{key}"));
+                }
+            }
+            if (root is null || root.Length == 0 || root.Split('/').Any(part => part is "" or "." or ".."))
+            {
+                throw Error(usage);
+            }
+            roots.Add(root);
+        }
+        return roots;
+    }
+
+    private static LinkConfig ParseLinks(YamlNode node, ICollection<string> warnings)
+    {
+        var links = LinkConfig.Default;
+        foreach (var (key, value) in Mapping("links", node))
+        {
+            switch (key)
+            {
+                case "body":
+                    foreach (var (bodyKey, bodyValue) in Mapping("links.body", value))
+                    {
+                        if (bodyKey == "resolve")
+                        {
+                            links = links with { Body = Resolve("links.body.resolve", bodyValue) };
+                        }
+                        else
+                        {
+                            warnings.Add(UnknownKey($"links.body.{bodyKey}"));
+                        }
+                    }
+                    break;
+                case "wikilinks":
+                    // Resolving [[x]] is an open question; until it is settled, a notebook asking for it is told so
+                    // rather than getting answers that silently ignore its wikilinks.
+                    if (value is not YamlScalarNode { Value: "text" })
+                    {
+                        throw Error("links.wikilinks must be text; this version of hippo does not resolve wikilinks");
+                    }
+                    break;
+                case "frontmatter":
+                    links = links with { Frontmatter = ParseFrontmatterLinks(value, warnings) };
+                    break;
+                case "roots":
+                    links = links with { Roots = Patterns("links.roots", value) };
+                    break;
+                default:
+                    warnings.Add(UnknownKey($"links.{key}"));
+                    break;
+            }
+        }
+        return links;
+    }
+
+    private static List<FrontmatterLinkField> ParseFrontmatterLinks(YamlNode node, ICollection<string> warnings)
+    {
+        const string usage = "links.frontmatter must be a list of mappings, each with a field such as sources[].resource";
+        if (node is not YamlSequenceNode sequence)
+        {
+            throw Error(usage);
+        }
+
+        var fields = new List<FrontmatterLinkField>();
+        foreach (var item in sequence.Children)
+        {
+            string? field = null;
+            var resolve = LinkBase.Page;
+            foreach (var (key, value) in Mapping("links.frontmatter", item))
+            {
+                switch (key)
+                {
+                    case "field":
+                        field = value is YamlScalarNode { Value: { } text } ? text : throw Error(usage);
+                        break;
+                    case "resolve":
+                        resolve = Resolve("links.frontmatter[].resolve", value);
+                        break;
+                    default:
+                        warnings.Add(UnknownKey($"links.frontmatter[].{key}"));
+                        break;
+                }
+            }
+            var link = field is null ? null : new FrontmatterLinkField(field, resolve);
+            if (link is null || !link.IsValid)
+            {
+                throw Error(usage);
+            }
+            fields.Add(link);
+        }
+        return fields;
+    }
+
+    private static LinkBase Resolve(string key, YamlNode node) => node switch
+    {
+        YamlScalarNode { Value: "page" } => LinkBase.Page,
+        YamlScalarNode { Value: "bundle" } => LinkBase.Bundle,
+        _ => throw Error($"{key} must be page or bundle"),
+    };
+
+    private static IEnumerable<(string Key, YamlNode Value)> Mapping(string key, YamlNode node)
+    {
+        if (node is not YamlMappingNode mapping)
+        {
+            throw Error($"{key} must be a mapping");
+        }
+        return mapping.Children.Select(child => (Key(child.Key), child.Value));
     }
 
     private static List<string> Patterns(string key, YamlNode node)

@@ -19,6 +19,10 @@ public static class Cli
         root.Subcommands.Add(StatusCommand.Build());
         root.Subcommands.Add(FilesCommand.Build());
         root.Subcommands.Add(ShowCommand.Build());
+        root.Subcommands.Add(RefsCommand.Build());
+        root.Subcommands.Add(BackrefsCommand.Build());
+        root.Subcommands.Add(BrokenCommand.Build());
+        root.Subcommands.Add(OrphansCommand.Build());
         return root;
     }
 

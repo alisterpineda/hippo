@@ -2,11 +2,11 @@
 
 A standalone CLI that indexes a markdown notebook into a local SQLite cache and answers structural questions about it: what links where, what is broken, what breaks the notebook's conventions, and where a phrase appears.
 
-Status: phase 1 (index files). hippo indexes every file in the notebook and the frontmatter of every markdown file.
+Status: phase 2 (link graph). hippo indexes every file in the notebook, the frontmatter of every markdown file, and every link out of a markdown file.
 
 ## Commands
 
-Run from anywhere inside a notebook: hippo walks up to the first folder with a `.hippo.yaml`. Every command brings the index up to date first, prints text by default and JSON with `--json`, and exits 0 on success and 2 on error.
+Run from anywhere inside a notebook: hippo walks up to the first folder with a `.hippo.yaml`. Every command brings the index up to date first, prints text by default and JSON with `--json`, and exits 0 when clean, 1 when it reports findings (`broken`, `orphans`), and 2 on error.
 
 ```
 hippo index [--rebuild]      bring the index up to date; --rebuild re-reads every file
@@ -14,16 +14,32 @@ hippo status                 notebook root, database path, file counts, last swe
 hippo files [--glob <pattern>] [--where <field>=<value>]
                              list indexed files, filtered by path or frontmatter value
 hippo show <path>            what the index holds for one file
+hippo refs <path>            the links out of a file: line, kind, and file, missing, url or anchor
+hippo backrefs <path> [--kind body|frontmatter] [--transitive]
+                             the links into a path; --transitive lists every file that reaches it
+hippo broken                 links whose target is not an indexed file
+hippo orphans                pages no other file links to, except the declared roots
 ```
 
-`.hippo.yaml` chooses which files are indexed:
+`.hippo.yaml` chooses which files are indexed and how links resolve:
 
 ```yaml
 version: 1
 files:
   include: ["**/*"]
   exclude: [".git/**", ".obsidian/**", ".trash/**"]
+bundles:
+  - root: wiki                   # a leading "/" in a link resolves against this folder
+links:
+  body: { resolve: page }        # page (the page's own folder) or bundle (its bundle root)
+  wikilinks: text                # [[x]] is plain text, not a link
+  frontmatter:
+    - field: sources[].resource  # dotted for nested mappings; [] for each element of a list
+      resolve: bundle
+  roots: ["wiki/index.md"]       # pages that are not orphans without inbound links
 ```
+
+Body links are CommonMark links, images, reference links and autolinks; their destinations are URLs, so percent-encoding is decoded and a query or fragment dropped. Frontmatter values are literal paths: nothing is decoded and a `?` is part of the path, but a `#` still starts a fragment that is dropped, so a frontmatter value cannot name a file with `#` in its name. A link with a scheme is a URL, one starting with `#` is anchor-only, and any other is a file when it resolves to an indexed file and missing otherwise.
 
 The index lives in `<user cache>/hippo/<hash of notebook root>/index.db`; set `HIPPO_CACHE_DIR` to an absolute path to replace `<user cache>/hippo`.
 
