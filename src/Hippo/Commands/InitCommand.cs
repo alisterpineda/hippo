@@ -3,13 +3,13 @@ using Hippo.Notebooks;
 
 namespace Hippo.Commands;
 
-/// <summary>Makes the working directory a notebook by writing a starter <c>.hippo.yaml</c>. Unlike the other commands
+/// <summary>Makes the working directory a notebook by writing a starter <c>.hippo/config.json</c>. Unlike the other commands
 /// it needs no notebook, so it does not open a <see cref="NotebookSession"/>.</summary>
 internal static class InitCommand
 {
     public static Command Build()
     {
-        var command = new Command("init", "Make the current folder a notebook by writing a starter .hippo.yaml");
+        var command = new Command("init", $"Make the current folder a notebook by writing a starter {NotebookConfig.RelativePath}");
         command.SetAction(result =>
         {
             var output = result.InvocationConfiguration.Output;
@@ -17,7 +17,7 @@ internal static class InitCommand
             try
             {
                 var directory = Path.TrimEndingDirectorySeparator(Directory.GetCurrentDirectory());
-                var path = Path.Combine(directory, NotebookConfig.FileName);
+                var path = NotebookConfig.PathIn(directory);
                 // Found before the config is written, so it is the enclosing notebook, if any, and never this folder.
                 var enclosing = Notebook.FindRoot(directory);
                 Write(path);
@@ -44,13 +44,16 @@ internal static class InitCommand
         return command;
     }
 
-    /// <summary>Writes the starter config to <paramref name="path"/>, never over an existing file, and removes what it
-    /// created if the write fails partway so a rerun is not refused.</summary>
+    /// <summary>Writes the starter config to <paramref name="path"/>, creating its folder if need be, never over an
+    /// existing file, and removes what it created if the write fails partway so a rerun is not refused.</summary>
     private static void Write(string path)
     {
+        var folder = Path.GetDirectoryName(path)!;
+        var createdFolder = !Directory.Exists(folder);
         FileStream stream;
         try
         {
+            Directory.CreateDirectory(folder);
             // CreateNew is the existence check: an existing config, even one written a moment ago, is never overwritten.
             stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write);
         }
@@ -60,6 +63,7 @@ internal static class InitCommand
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            RemoveFolder(folder, createdFolder);
             throw new HippoException($"cannot write {path}: {ex.Message}");
         }
 
@@ -81,7 +85,25 @@ internal static class InitCommand
             {
                 // The write error below is the one worth reporting.
             }
+            RemoveFolder(folder, createdFolder);
             throw new HippoException($"cannot write {path}: {ex.Message}");
+        }
+    }
+
+    /// <summary>Removes <paramref name="folder"/> when this run <paramref name="created"/> it and it is still empty.</summary>
+    private static void RemoveFolder(string folder, bool created)
+    {
+        if (!created)
+        {
+            return;
+        }
+        try
+        {
+            Directory.Delete(folder);
+        }
+        catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
+        {
+            // The write error is the one worth reporting.
         }
     }
 }

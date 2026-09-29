@@ -1,8 +1,6 @@
 using System.Buffers;
 using System.Text;
 using System.Text.Json;
-using YamlDotNet.Core;
-using YamlDotNet.RepresentationModel;
 
 namespace Hippo.Notebooks;
 
@@ -75,32 +73,54 @@ internal sealed record LinkSettings(IReadOnlyList<string> Bundles, LinkBase Body
 }
 
 /// <summary>
-/// The parts of <c>.hippo.yaml</c> this hippo understands. Keys it does not know, such as those a later phase adds,
-/// are ignored so an older hippo still runs against a newer notebook.
+/// The parts of <c>.hippo/config.json</c> this hippo understands. Keys it does not know, such as those a later phase
+/// adds, are ignored so an older hippo still runs against a newer notebook. Comments and trailing commas are allowed.
 /// </summary>
 internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyList<string> Exclude)
 {
-    public const string FileName = ".hippo.yaml";
+    /// <summary>The folder at the notebook root that holds <see cref="FileName"/>.</summary>
+    public const string Folder = ".hippo";
+
+    public const string FileName = "config.json";
+
+    /// <summary>The config's path relative to the notebook root, as messages show it.</summary>
+    public const string RelativePath = Folder + "/" + FileName;
 
     /// <summary>What <c>hippo init</c> writes: every file but the usual tool folders, with the other sections shown
-    /// commented out. It mirrors the annotated example in README.md (less the default <c>wikilinks: text</c>), so change
-    /// both together; a unit test parses the commented sections to catch stale syntax.</summary>
+    /// commented out. It mirrors the annotated example in README.md (less the default <c>"wikilinks": "text"</c>), so
+    /// change both together; a unit test parses the commented sections to catch stale syntax.</summary>
     public const string Starter = """
-        files:
-          include: ["**/*"]
-          exclude: [".git/**", ".obsidian/**", ".trash/**"]
-        # bundles:
-        #   - root: wiki                   # a leading "/" in a link resolves against this folder
-        # links:
-        #   body: { resolve: page }        # page (the page's own folder) or bundle (its bundle root)
-        #   frontmatter:
-        #     - field: sources[].resource  # dotted for nested mappings; [] for each element of a list
-        #       resolve: bundle
-        #   roots: ["wiki/index.md"]       # pages that are not orphans without inbound links
+        {
+          "files": {
+            "include": ["**/*"],
+            "exclude": [".git/**", ".obsidian/**", ".trash/**"]
+          },
+          // "bundles": [
+          //   { "root": "wiki" }                  // a leading "/" in a link resolves against this folder
+          // ],
+          // "links": {
+          //   "body": { "resolve": "page" },      // page (the page's own folder) or bundle (its bundle root)
+          //   "frontmatter": [
+          //     {
+          //       "field": "sources[].resource",  // dotted for nested mappings; [] for each element of a list
+          //       "resolve": "bundle"
+          //     }
+          //   ],
+          //   "roots": ["wiki/index.md"]          // pages that are not orphans without inbound links
+          // }
+        }
 
         """;
 
     private const int MaxDepth = 64;
+
+    private static readonly JsonDocumentOptions Options = new()
+    {
+        CommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true,
+        AllowDuplicateProperties = false,
+        MaxDepth = MaxDepth,
+    };
 
     public static NotebookConfig Default { get; } = new(["**/*"], []);
 
@@ -112,49 +132,62 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
     /// <summary>The settings that shape the links stored for a page.</summary>
     public LinkSettings LinkSettings => new(Bundles, Links.Body, Links.Frontmatter);
 
-    public static NotebookConfig Parse(string yaml)
-    {
-        var stream = new YamlStream();
-        try
-        {
-            stream.Load(new DepthLimitedParser(new Parser(new StringReader(yaml)), MaxDepth));
-        }
-        catch (YamlException ex)
-        {
-            throw Error($"line {ex.Start.Line}: invalid YAML");
-        }
+    /// <summary>The config's full path in the notebook at <paramref name="root"/>.</summary>
+    public static string PathIn(string root) => Path.Combine(root, Folder, FileName);
 
-        if (stream.Documents.Count == 0 || stream.Documents[0].RootNode is YamlScalarNode { Value: null or "" })
+    public static NotebookConfig Parse(string json)
+    {
+        if (HasNoTokens(json))
         {
             return Default;
         }
-        if (stream.Documents[0].RootNode is not YamlMappingNode root)
+
+        JsonDocument document;
+        try
         {
-            throw Error("the top level must be a mapping");
+            document = JsonDocument.Parse(json, Options);
+        }
+        catch (JsonException ex)
+        {
+            // A duplicate key is reported without a position; its message names the key instead.
+            throw Error(ex.LineNumber is { } line ? $"line {line + 1}: invalid JSON" : $"invalid JSON: {ex.Message}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            // An escaped lone surrogate in a key, found when keys are unescaped to check for duplicates.
+            throw Error($"invalid JSON: {ex.Message}");
         }
 
-        var config = Default;
-        foreach (var (keyNode, value) in root.Children)
+        using (document)
         {
-            switch (Key(keyNode))
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
             {
-                case "files":
-                    config = ParseFiles(config, value);
-                    break;
-                case "bundles":
-                    config = config with { Bundles = ParseBundles(value) };
-                    break;
-                case "links":
-                    config = config with { Links = ParseLinks(value) };
-                    break;
+                throw Error("the top level must be an object");
             }
+
+            var config = Default;
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                switch (property.Name)
+                {
+                    case "files":
+                        config = ParseFiles(config, property.Value);
+                        break;
+                    case "bundles":
+                        config = config with { Bundles = ParseBundles(property.Value) };
+                        break;
+                    case "links":
+                        config = config with { Links = ParseLinks(property.Value) };
+                        break;
+                }
+            }
+            return config;
         }
-        return config;
     }
 
-    private static NotebookConfig ParseFiles(NotebookConfig config, YamlNode node)
+    private static NotebookConfig ParseFiles(NotebookConfig config, JsonElement element)
     {
-        foreach (var (key, value) in Mapping("files", node))
+        foreach (var (key, value) in Object("files", element))
         {
             switch (key)
             {
@@ -169,23 +202,23 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
         return config;
     }
 
-    private static List<string> ParseBundles(YamlNode node)
+    private static List<string> ParseBundles(JsonElement element)
     {
-        const string usage = "bundles must be a list of mappings, each with a root folder inside the notebook";
-        if (node is not YamlSequenceNode sequence)
+        const string usage = "bundles must be an array of objects, each with a root folder inside the notebook";
+        if (element.ValueKind != JsonValueKind.Array)
         {
             throw Error(usage);
         }
 
         var roots = new List<string>();
-        foreach (var item in sequence.Children)
+        foreach (var item in element.EnumerateArray())
         {
             string? root = null;
-            foreach (var (key, value) in Mapping("bundles", item))
+            foreach (var (key, value) in Object("bundles", item))
             {
                 if (key == "root")
                 {
-                    root = value is YamlScalarNode { Value: { } text } ? text.Trim('/') : throw Error(usage);
+                    root = String(value)?.Trim('/') ?? throw Error(usage);
                 }
             }
             if (root is null || root.Length == 0 || root.Split('/').Any(part => part is "" or "." or ".."))
@@ -197,15 +230,15 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
         return roots;
     }
 
-    private static LinkConfig ParseLinks(YamlNode node)
+    private static LinkConfig ParseLinks(JsonElement element)
     {
         var links = LinkConfig.Default;
-        foreach (var (key, value) in Mapping("links", node))
+        foreach (var (key, value) in Object("links", element))
         {
             switch (key)
             {
                 case "body":
-                    foreach (var (bodyKey, bodyValue) in Mapping("links.body", value))
+                    foreach (var (bodyKey, bodyValue) in Object("links.body", value))
                     {
                         if (bodyKey == "resolve")
                         {
@@ -216,7 +249,7 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
                 case "wikilinks":
                     // Resolving [[x]] is an open question; until it is settled, a notebook asking for it is told so
                     // rather than getting answers that silently ignore its wikilinks.
-                    if (value is not YamlScalarNode { Value: "text" })
+                    if (String(value) != "text")
                     {
                         throw Error("links.wikilinks must be text; this version of hippo does not resolve wikilinks");
                     }
@@ -232,25 +265,25 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
         return links;
     }
 
-    private static List<FrontmatterLinkField> ParseFrontmatterLinks(YamlNode node)
+    private static List<FrontmatterLinkField> ParseFrontmatterLinks(JsonElement element)
     {
-        const string usage = "links.frontmatter must be a list of mappings, each with a field such as sources[].resource";
-        if (node is not YamlSequenceNode sequence)
+        const string usage = "links.frontmatter must be an array of objects, each with a field such as sources[].resource";
+        if (element.ValueKind != JsonValueKind.Array)
         {
             throw Error(usage);
         }
 
         var fields = new List<FrontmatterLinkField>();
-        foreach (var item in sequence.Children)
+        foreach (var item in element.EnumerateArray())
         {
             string? field = null;
             var resolve = LinkBase.Page;
-            foreach (var (key, value) in Mapping("links.frontmatter", item))
+            foreach (var (key, value) in Object("links.frontmatter", item))
             {
                 switch (key)
                 {
                     case "field":
-                        field = value is YamlScalarNode { Value: { } text } ? text : throw Error(usage);
+                        field = String(value) ?? throw Error(usage);
                         break;
                     case "resolve":
                         resolve = Resolve("links.frontmatter[].resolve", value);
@@ -267,37 +300,71 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
         return fields;
     }
 
-    private static LinkBase Resolve(string key, YamlNode node) => node switch
+    private static LinkBase Resolve(string key, JsonElement element) => String(element) switch
     {
-        YamlScalarNode { Value: "page" } => LinkBase.Page,
-        YamlScalarNode { Value: "bundle" } => LinkBase.Bundle,
+        "page" => LinkBase.Page,
+        "bundle" => LinkBase.Bundle,
         _ => throw Error($"{key} must be page or bundle"),
     };
 
-    private static IEnumerable<(string Key, YamlNode Value)> Mapping(string key, YamlNode node)
+    private static IEnumerable<(string Key, JsonElement Value)> Object(string key, JsonElement element)
     {
-        if (node is not YamlMappingNode mapping)
+        if (element.ValueKind != JsonValueKind.Object)
         {
-            throw Error($"{key} must be a mapping");
+            throw Error($"{key} must be an object");
         }
-        return mapping.Children.Select(child => (Key(child.Key), child.Value));
+        return element.EnumerateObject().Select(property => (property.Name, property.Value));
     }
 
-    private static List<string> Patterns(string key, YamlNode node)
+    private static List<string> Patterns(string key, JsonElement element)
     {
-        if (node is not YamlSequenceNode sequence)
+        if (element.ValueKind != JsonValueKind.Array)
         {
-            throw Error($"{key} must be a list of glob patterns");
+            throw Error($"{key} must be an array of glob patterns");
         }
-        return sequence.Children
-            .Select(item => item is YamlScalarNode { Value: { Length: > 0 } pattern }
+        return element.EnumerateArray()
+            .Select(item => String(item) is { Length: > 0 } pattern
                 ? pattern
-                : throw Error($"{key} must be a list of glob patterns"))
+                : throw Error($"{key} must be an array of glob patterns"))
             .ToList();
     }
 
-    private static string Key(YamlNode node) =>
-        node is YamlScalarNode { Value: { } key } ? key : throw Error($"line {node.Start.Line}: keys must be plain values");
+    /// <summary>The element's text when it is a JSON string, else null.</summary>
+    private static string? String(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+        try
+        {
+            return element.GetString();
+        }
+        catch (InvalidOperationException ex)
+        {
+            // An escaped lone surrogate, which no .NET string can be decoded from.
+            throw Error($"invalid JSON: {ex.Message}");
+        }
+    }
 
-    private static HippoException Error(string message) => new($"{FileName}: {message}");
+    /// <summary>True when <paramref name="json"/> holds only whitespace and comments, which reads as the default
+    /// config as an empty file does.</summary>
+    private static bool HasNoTokens(string json)
+    {
+        // Not the final block, so running out of input is not itself an error; the appended newline ends a trailing
+        // line comment so it counts as consumed, while an unclosed block comment still does not.
+        var bytes = Encoding.UTF8.GetBytes(json + "\n");
+        var reader = new Utf8JsonReader(bytes, isFinalBlock: false,
+            new JsonReaderState(new JsonReaderOptions { CommentHandling = JsonCommentHandling.Skip }));
+        try
+        {
+            return !reader.Read() && reader.BytesConsumed == bytes.Length;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static HippoException Error(string message) => new($"{RelativePath}: {message}");
 }

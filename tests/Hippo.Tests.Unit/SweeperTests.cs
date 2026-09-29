@@ -18,7 +18,7 @@ public sealed class SweeperTests : IDisposable
 
     public SweeperTests()
     {
-        _notebook.Write(".hippo.yaml", "files:\n  include: [\"**/*\"]\n  exclude: [\".git/**\", \"inbox/**\", \"**/*.tmp\"]\n");
+        _notebook.Write(".hippo/config.json", """{ "files": { "include": ["**/*"], "exclude": [".git/**", "inbox/**", "**/*.tmp"] } }""");
         _db = _database.Open();
     }
 
@@ -47,7 +47,7 @@ public sealed class SweeperTests : IDisposable
 
         var result = Sweep();
 
-        Assert.Equal([".hippo.yaml", "a.md", "raw/image.png", "wiki/b.md"], Rows().Select(r => r.Path));
+        Assert.Equal([".hippo/config.json", "a.md", "raw/image.png", "wiki/b.md"], Rows().Select(r => r.Path));
         Assert.Equal(4, result.Added);
         Assert.Equal(4, result.Files);
     }
@@ -62,13 +62,13 @@ public sealed class SweeperTests : IDisposable
 
         Sweep();
 
-        Assert.Equal([".hippo.yaml", "a.md"], Rows().Select(r => r.Path));
+        Assert.Equal([".hippo/config.json", "a.md"], Rows().Select(r => r.Path));
     }
 
     [Fact]
     public void Only_included_files_are_indexed()
     {
-        _notebook.Write(".hippo.yaml", "files:\n  include: [\"wiki/**/*.md\"]\n");
+        _notebook.Write(".hippo/config.json", """{ "files": { "include": ["wiki/**/*.md"] } }""");
         _notebook.Write("wiki/a.md", "# A\n");
         _notebook.Write("wiki/deep/b.md", "# B\n");
         _notebook.Write("wiki/c.txt", "c");
@@ -307,7 +307,7 @@ public sealed class SweeperTests : IDisposable
     {
         _notebook.Write("inbox2/a.md", "# A\n");
         Sweep();
-        _notebook.Write(".hippo.yaml", "files:\n  exclude: [\"inbox2/**\"]\n");
+        _notebook.Write(".hippo/config.json", """{ "files": { "exclude": ["inbox2/**"] } }""");
 
         Sweep();
 
@@ -405,7 +405,7 @@ public sealed class SweeperTests : IDisposable
         }
         var removed = Sweep();
         Assert.Equal(count, removed.Removed);
-        Assert.Equal([".hippo.yaml"], Rows().Select(r => r.Path));
+        Assert.Equal([".hippo/config.json"], Rows().Select(r => r.Path));
     }
 
     [Fact]
@@ -430,7 +430,7 @@ public sealed class SweeperTests : IDisposable
 
         Sweep();
 
-        Assert.Equal([".hippo.yaml"], Rows().Select(r => r.Path));
+        Assert.Equal([".hippo/config.json"], Rows().Select(r => r.Path));
     }
 
     [Fact]
@@ -459,7 +459,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void A_sweep_stores_each_pages_links_with_source_line_kind_and_raw_text()
     {
-        _notebook.Write(".hippo.yaml", "links:\n  frontmatter: [{field: \"related[]\"}]\n");
+        _notebook.Write(".hippo/config.json", """{ "links": { "frontmatter": [{ "field": "related[]" }] } }""");
         _notebook.Write("wiki/a.md", "---\nrelated: [c.md]\n---\n\nSee [B](b.md) and <https://example.com>.\n");
         _notebook.Write("wiki/b.md", "[back](#top)\n");
         _notebook.Write("wiki/c.txt", "[not](markdown.md)\n");
@@ -532,7 +532,7 @@ public sealed class SweeperTests : IDisposable
         Sweep();
         var before = Links();
 
-        _notebook.Write(".hippo.yaml", "bundles: [{root: wiki}]\nlinks:\n  body: {resolve: bundle}\n  frontmatter: [{field: source}]\n");
+        _notebook.Write(".hippo/config.json", """{ "bundles": [{ "root": "wiki" }], "links": { "body": { "resolve": "bundle" }, "frontmatter": [{ "field": "source" }] } }""");
         var changed = Sweep();
         var after = Sweep();
 
@@ -549,7 +549,7 @@ public sealed class SweeperTests : IDisposable
         _notebook.Write("raw/image.png", "png");
         Sweep();
 
-        _notebook.Write(".hippo.yaml", "bundles: [{root: raw}]\n");
+        _notebook.Write(".hippo/config.json", """{ "bundles": [{ "root": "raw" }] }""");
         var changed = Sweep();
 
         // The page, and the settings file that changed.
@@ -567,7 +567,7 @@ public sealed class SweeperTests : IDisposable
         MakeUnreadable(path);
         try
         {
-            _notebook.Write(".hippo.yaml", "bundles: [{root: wiki}]\n");
+            _notebook.Write(".hippo/config.json", """{ "bundles": [{ "root": "wiki" }] }""");
             var locked = Sweep();
             Assert.Contains(locked.Warnings, w => w.Contains("wiki/a.md"));
         }
@@ -592,7 +592,7 @@ public sealed class SweeperTests : IDisposable
         var result = Sweep();
 
         Assert.Contains(result.Warnings, w => w.Contains("deep.md"));
-        Assert.Equal([".hippo.yaml", "a.md", "deep.md"], Rows().Select(r => r.Path));
+        Assert.Equal([".hippo/config.json", "a.md", "deep.md"], Rows().Select(r => r.Path));
         Assert.Equal(["b.md"], Links().Select(l => l.Target));
     }
 
@@ -601,7 +601,7 @@ public sealed class SweeperTests : IDisposable
     {
         _notebook.Write("a.md", "[b](b.md)\n");
         Sweep();
-        _notebook.Write(".hippo.yaml", "links:\n  roots: [a.md]\n");
+        _notebook.Write(".hippo/config.json", """{ "links": { "roots": ["a.md"] } }""");
 
         Assert.False(Sweep().Rebuilt);
     }

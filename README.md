@@ -6,10 +6,10 @@ Status: phase 2 (link graph). hippo indexes every file in the notebook, the fron
 
 ## Commands
 
-`hippo init` makes the current folder a notebook by writing a starter `.hippo.yaml`; it will not overwrite one, and warns when the folder is already inside another notebook. Every other command runs from anywhere inside a notebook: hippo walks up to the first folder with a `.hippo.yaml`. Each brings the index up to date first, prints text by default and JSON with `--json`, and exits 0 when clean, 1 when it reports findings (`broken`, `orphans`), and 2 on error.
+`hippo init` makes the current folder a notebook by writing a starter `.hippo/config.json`; it will not overwrite one, and warns when the folder is already inside another notebook. Every other command runs from anywhere inside a notebook: hippo walks up to the first folder with a `.hippo/config.json`. Each brings the index up to date first, prints text by default and JSON with `--json`, and exits 0 when clean, 1 when it reports findings (`broken`, `orphans`), and 2 on error.
 
 ```
-hippo init                   write a starter .hippo.yaml in the current folder
+hippo init                   write a starter .hippo/config.json in the current folder
 hippo index [--rebuild]      bring the index up to date; --rebuild re-reads every file
 hippo status                 notebook root, database path, file counts, last sweep
 hippo files [--glob <pattern>] [--where <field>=<value>]
@@ -22,21 +22,29 @@ hippo broken                 links whose target is not an indexed file
 hippo orphans                pages no other file links to, except the declared roots
 ```
 
-`.hippo.yaml` chooses which files are indexed and how links resolve:
+`.hippo/config.json` chooses which files are indexed and how links resolve. It is JSON that may hold `//` and `/* */` comments and trailing commas:
 
-```yaml
-files:
-  include: ["**/*"]
-  exclude: [".git/**", ".obsidian/**", ".trash/**"]
-bundles:
-  - root: wiki                   # a leading "/" in a link resolves against this folder
-links:
-  body: { resolve: page }        # page (the page's own folder) or bundle (its bundle root)
-  wikilinks: text                # [[x]] is plain text, not a link
-  frontmatter:
-    - field: sources[].resource  # dotted for nested mappings; [] for each element of a list
-      resolve: bundle
-  roots: ["wiki/index.md"]       # pages that are not orphans without inbound links
+```jsonc
+{
+  "files": {
+    "include": ["**/*"],
+    "exclude": [".git/**", ".obsidian/**", ".trash/**"]
+  },
+  "bundles": [
+    { "root": "wiki" }                  // a leading "/" in a link resolves against this folder
+  ],
+  "links": {
+    "body": { "resolve": "page" },      // page (the page's own folder) or bundle (its bundle root)
+    "wikilinks": "text",                // [[x]] is plain text, not a link
+    "frontmatter": [
+      {
+        "field": "sources[].resource",  // dotted for nested mappings; [] for each element of a list
+        "resolve": "bundle"
+      }
+    ],
+    "roots": ["wiki/index.md"]          // pages that are not orphans without inbound links
+  }
+}
 ```
 
 Body links are CommonMark links, images, reference links and autolinks; their destinations are URLs, so percent-encoding is decoded and a query or fragment dropped. Frontmatter values are literal paths: nothing is decoded and a `?` is part of the path, but a `#` still starts a fragment that is dropped, so a frontmatter value cannot name a file with `#` in its name. A link with a scheme is a URL, one starting with `#` is anchor-only, and any other is a file when it resolves to an indexed file and missing otherwise.

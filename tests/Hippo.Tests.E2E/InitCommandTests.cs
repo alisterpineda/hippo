@@ -9,12 +9,12 @@ public sealed class InitCommandTests : IDisposable
 
     public void Dispose() => _notebook.Dispose();
 
-    private string Config => _notebook.Combine(".hippo.yaml");
+    private string Config => _notebook.Combine(".hippo/config.json");
 
     [Fact]
     public async Task Init_makes_the_folder_a_notebook()
     {
-        File.Delete(Config);
+        Directory.Delete(_notebook.Combine(".hippo"), recursive: true);
         _notebook.Write("a.md", "# A\n");
         _notebook.Write(".git/HEAD", "ref: refs/heads/main\n");
 
@@ -27,20 +27,20 @@ public sealed class InitCommandTests : IDisposable
         Assert.True(files.ExitCode == 0, $"exit {files.ExitCode}: {files.Stderr}");
         Assert.Equal("", files.Stderr);
         var paths = JsonDocument.Parse(files.Stdout).RootElement.EnumerateArray().Select(file => file.GetProperty("path").GetString());
-        Assert.Equal([".hippo.yaml", "a.md"], paths.Order(StringComparer.Ordinal));
+        Assert.Equal([".hippo/config.json", "a.md"], paths.Order(StringComparer.Ordinal));
     }
 
     [Fact]
     public async Task Init_leaves_an_existing_config_alone()
     {
-        File.WriteAllText(Config, "links: { roots: [\"index.md\"] }\n");
+        File.WriteAllText(Config, """{ "links": { "roots": ["index.md"] } }""");
 
         var result = await _notebook.RunAsync("init");
 
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("already exists", result.Stderr);
         Assert.Equal("", result.Stdout);
-        Assert.Equal("links: { roots: [\"index.md\"] }\n", File.ReadAllText(Config));
+        Assert.Equal("""{ "links": { "roots": ["index.md"] } }""", File.ReadAllText(Config));
     }
 
     [Fact]
@@ -51,7 +51,7 @@ public sealed class InitCommandTests : IDisposable
         var result = await _notebook.RunInAsync(_notebook.Combine("inner"), "init");
 
         Assert.Equal(0, result.ExitCode);
-        Assert.True(File.Exists(_notebook.Combine("inner/.hippo.yaml")));
+        Assert.True(File.Exists(_notebook.Combine("inner/.hippo/config.json")));
         Assert.Contains("warning", result.Stderr);
         Assert.Contains($"inside the notebook at {_notebook.Root},", result.Stderr);
     }
@@ -86,6 +86,50 @@ public sealed class InitCommandTests : IDisposable
         finally
         {
             File.SetUnixFileMode(inner, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    [Fact]
+    public async Task Init_writes_into_an_existing_hippo_folder_without_a_config()
+    {
+        File.Delete(Config);
+
+        var result = await _notebook.RunAsync("init");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(File.Exists(Config));
+    }
+
+    [Fact]
+    [UnsupportedOSPlatform("windows")] // Skipped there.
+    public async Task A_failed_init_leaves_a_hippo_folder_it_did_not_create()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "Unix file modes only");
+        var folder = _notebook.Combine(".hippo");
+        File.Delete(Config);
+        File.SetUnixFileMode(folder, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            var probe = Path.Combine(folder, "probe");
+            try
+            {
+                File.WriteAllText(probe, "");
+                File.Delete(probe);
+                Assert.Skip("this user can write to a read-only folder");
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+
+            var result = await _notebook.RunAsync("init");
+
+            Assert.Equal(2, result.ExitCode);
+            Assert.Contains("cannot write", result.Stderr);
+            Assert.True(Directory.Exists(folder));
+        }
+        finally
+        {
+            File.SetUnixFileMode(folder, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
     }
 

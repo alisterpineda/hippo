@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.Text.Json;
 using Hippo.Indexing;
+using Hippo.Notebooks;
 using Microsoft.Extensions.FileSystemGlobbing;
 
 namespace Hippo.Commands;
@@ -9,7 +10,7 @@ internal static class OrphansCommand
 {
     public static Command Build()
     {
-        var command = new Command("orphans", "List pages no other file links to, except the roots in .hippo.yaml; exits 1 when there are any")
+        var command = new Command("orphans", $"List pages no other file links to, except the roots in {NotebookConfig.RelativePath}; exits 1 when there are any")
         {
             NotebookSession.JsonOption,
         };

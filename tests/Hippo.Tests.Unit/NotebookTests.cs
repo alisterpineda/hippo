@@ -8,7 +8,7 @@ public class NotebookTests
     public void The_root_is_the_nearest_folder_with_a_config()
     {
         using var dir = new TempDirectory();
-        dir.Write("notes/.hippo.yaml", "");
+        dir.Write("notes/.hippo/config.json", "");
         Directory.CreateDirectory(dir.Combine("notes/wiki/topics"));
 
         var notebook = Notebook.Open(dir.Combine("notes/wiki/topics"));
@@ -20,7 +20,7 @@ public class NotebookTests
     public void The_working_directory_itself_can_be_the_root()
     {
         using var dir = new TempDirectory();
-        dir.Write(".hippo.yaml", "");
+        dir.Write(".hippo/config.json", "");
 
         var notebook = Notebook.Open(dir.FullPath);
 
@@ -35,7 +35,16 @@ public class NotebookTests
 
         var ex = Assert.Throws<HippoException>(() => Notebook.Open(dir.Combine("a/b")));
 
-        Assert.Contains(".hippo.yaml", ex.Message);
+        Assert.Contains(".hippo/config.json", ex.Message);
+    }
+
+    [Fact]
+    public void A_hippo_folder_without_a_config_is_not_a_notebook()
+    {
+        using var dir = new TempDirectory();
+        Directory.CreateDirectory(dir.Combine(".hippo"));
+
+        Assert.Null(Notebook.FindRoot(dir.FullPath));
     }
 
     [Fact]
@@ -59,10 +68,12 @@ public class NotebookTests
     [Fact]
     public void The_starter_configs_commented_examples_parse()
     {
-        var uncommented = System.Text.RegularExpressions.Regex.Replace(NotebookConfig.Starter, "^# ", "",
+        var uncommented = System.Text.RegularExpressions.Regex.Replace(NotebookConfig.Starter, "^( *)// ", "$1",
             System.Text.RegularExpressions.RegexOptions.Multiline)
             // The example's page is the default, so it is swapped for bundle to show the line was actually read.
-            .Replace("body: { resolve: page }", "body: { resolve: bundle }");
+            .Replace("\"body\": { \"resolve\": \"page\" }", "\"body\": { \"resolve\": \"bundle\" }");
+
+        Assert.DoesNotContain("\"page\"", uncommented);
 
         var config = NotebookConfig.Parse(uncommented);
 
@@ -77,9 +88,7 @@ public class NotebookTests
     public void Files_section_sets_include_and_exclude()
     {
         var config = NotebookConfig.Parse("""
-            files:
-              include: ["**/*.md", "raw/**"]
-              exclude: [".git/**", "inbox/**"]
+            { "files": { "include": ["**/*.md", "raw/**"], "exclude": [".git/**", "inbox/**"] } }
             """);
 
         Assert.Equal(["**/*.md", "raw/**"], config.Include);
@@ -89,32 +98,48 @@ public class NotebookTests
     [Fact]
     public void Without_a_files_section_everything_is_included()
     {
-        var config = NotebookConfig.Parse("links: { roots: [\"index.md\"] }\n");
+        var config = NotebookConfig.Parse("""{ "links": { "roots": ["index.md"] } }""");
 
         Assert.Equal(["**/*"], config.Include);
         Assert.Empty(config.Exclude);
     }
 
-    [Fact]
-    public void An_empty_config_is_valid()
+    [Theory]
+    [InlineData("")]
+    [InlineData(" \n")]
+    [InlineData("{}")]
+    [InlineData("// nothing configured yet\n")]
+    [InlineData("// no trailing newline")]
+    [InlineData("/* block */ \n")]
+    public void An_empty_config_is_valid(string json)
     {
-        var config = NotebookConfig.Parse("");
+        var config = NotebookConfig.Parse(json);
 
         Assert.Equal(["**/*"], config.Include);
+    }
+
+    [Fact]
+    public void Comments_and_trailing_commas_are_allowed()
+    {
+        var config = NotebookConfig.Parse("""
+            {
+              // line comment
+              "files": { "include": ["**/*.md",], /* block comment */ },
+            }
+            """);
+
+        Assert.Equal(["**/*.md"], config.Include);
     }
 
     [Fact]
     public void Unknown_keys_are_ignored()
     {
         var config = NotebookConfig.Parse("""
-            files:
-              include: ["**/*.md"]
-              typo: true
-            ids:
-              field: sources[].id
-            links:
-              typo: 1
-              body: { resolve: bundle, typo: 2 }
+            {
+              "files": { "include": ["**/*.md"], "typo": true },
+              "ids": { "field": "sources[].id" },
+              "links": { "typo": 1, "body": { "resolve": "bundle", "typo": 2 } }
+            }
             """);
 
         Assert.Equal(["**/*.md"], config.Include);
@@ -125,17 +150,18 @@ public class NotebookTests
     public void Bundles_and_links_are_read()
     {
         var config = NotebookConfig.Parse("""
-            bundles:
-              - root: wiki
-              - root: /docs/
-            links:
-              body: { resolve: bundle }
-              wikilinks: text
-              frontmatter:
-                - field: sources[].resource
-                  resolve: bundle
-                - field: related[]
-              roots: ["wiki/index.md"]
+            {
+              "bundles": [{ "root": "wiki" }, { "root": "/docs/" }],
+              "links": {
+                "body": { "resolve": "bundle" },
+                "wikilinks": "text",
+                "frontmatter": [
+                  { "field": "sources[].resource", "resolve": "bundle" },
+                  { "field": "related[]" }
+                ],
+                "roots": ["wiki/index.md"]
+              }
+            }
             """);
 
         Assert.Equal(["wiki", "docs"], config.Bundles);
@@ -149,7 +175,7 @@ public class NotebookTests
     [Fact]
     public void Without_a_links_section_body_links_resolve_from_the_page()
     {
-        var config = NotebookConfig.Parse("files: { include: [\"**/*\"] }\n");
+        var config = NotebookConfig.Parse("""{ "files": { "include": ["**/*"] } }""");
 
         Assert.Empty(config.Bundles);
         Assert.Equal(LinkBase.Page, config.Links.Body);
@@ -158,18 +184,33 @@ public class NotebookTests
     }
 
     [Theory]
-    [InlineData("bundles: wiki\n", "bundles")]
-    [InlineData("bundles:\n  - root: ../outside\n", "bundles")]
-    [InlineData("bundles:\n  - {}\n", "bundles")]
-    [InlineData("links:\n  body: { resolve: folder }\n", "links.body.resolve")]
-    [InlineData("links:\n  wikilinks: resolve\n", "links.wikilinks")]
-    [InlineData("links:\n  frontmatter:\n    - resolve: page\n", "links.frontmatter")]
-    [InlineData("links:\n  frontmatter:\n    - field: a..b\n", "links.frontmatter")]
-    [InlineData("links:\n  frontmatter:\n    - field: a[]b\n", "links.frontmatter")]
-    [InlineData("links:\n  roots: wiki/index.md\n", "links.roots")]
-    public void Malformed_link_settings_are_errors(string yaml, string key)
+    [InlineData("""{ "bundles": "wiki" }""", "bundles")]
+    [InlineData("""{ "bundles": [{ "root": "../outside" }] }""", "bundles")]
+    [InlineData("""{ "bundles": [{}] }""", "bundles")]
+    [InlineData("""{ "bundles": [{ "root": 1 }] }""", "bundles")]
+    [InlineData("""{ "links": { "body": { "resolve": "folder" } } }""", "links.body.resolve")]
+    [InlineData("""{ "links": { "wikilinks": "resolve" } }""", "links.wikilinks")]
+    [InlineData("""{ "links": { "frontmatter": [{ "resolve": "page" }] } }""", "links.frontmatter")]
+    [InlineData("""{ "links": { "frontmatter": [{ "field": "a..b" }] } }""", "links.frontmatter")]
+    [InlineData("""{ "links": { "frontmatter": [{ "field": "a[]b" }] } }""", "links.frontmatter")]
+    [InlineData("""{ "links": { "roots": "wiki/index.md" } }""", "links.roots")]
+    public void Malformed_link_settings_are_errors(string json, string key)
     {
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(yaml));
+        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(json));
+
+        Assert.Contains(key, ex.Message);
+    }
+
+    [Theory]
+    [InlineData("""{ "files": { "include": ["**/*.md", 1] } }""", "files.include")]
+    [InlineData("""{ "files": { "exclude": [true] } }""", "files.exclude")]
+    [InlineData("""{ "links": { "roots": [null] } }""", "links.roots")]
+    [InlineData("""{ "links": { "frontmatter": [{ "field": 1 }] } }""", "links.frontmatter")]
+    [InlineData("""{ "links": { "body": { "resolve": true } } }""", "links.body.resolve")]
+    [InlineData("""{ "links": { "frontmatter": [{ "field": "a", "resolve": null }] } }""", "links.frontmatter[].resolve")]
+    public void Values_that_are_not_strings_are_errors(string json, string key)
+    {
+        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(json));
 
         Assert.Contains(key, ex.Message);
     }
@@ -177,46 +218,74 @@ public class NotebookTests
     [Fact]
     public void The_link_fingerprint_changes_with_the_settings_that_shape_links_only()
     {
-        string Fingerprint(string yaml) => NotebookConfig.Parse(yaml).LinkSettings.Fingerprint;
-        var baseline = Fingerprint("bundles: [{root: wiki}]\nlinks:\n  frontmatter: [{field: a}]\n");
+        string Fingerprint(string json) => NotebookConfig.Parse(json).LinkSettings.Fingerprint;
+        var baseline = Fingerprint("""{ "bundles": [{ "root": "wiki" }], "links": { "frontmatter": [{ "field": "a" }] } }""");
 
-        Assert.Equal(baseline, Fingerprint("bundles: [{root: wiki}]\nlinks:\n  frontmatter: [{field: a}]\n  roots: [x.md]\nfiles:\n  exclude: [y/**]\n"));
-        Assert.NotEqual(baseline, Fingerprint("bundles: [{root: docs}]\nlinks:\n  frontmatter: [{field: a}]\n"));
-        Assert.NotEqual(baseline, Fingerprint("bundles: [{root: wiki}]\nlinks:\n  frontmatter: [{field: a, resolve: bundle}]\n"));
-        Assert.NotEqual(baseline, Fingerprint("bundles: [{root: wiki}]\nlinks:\n  body: {resolve: bundle}\n  frontmatter: [{field: a}]\n"));
-        Assert.NotEqual(baseline, Fingerprint("bundles: [{root: wiki}]\nlinks:\n  frontmatter: [{field: b}]\n"));
+        Assert.Equal(baseline, Fingerprint("""{ "bundles": [{ "root": "wiki" }], "links": { "frontmatter": [{ "field": "a" }], "roots": ["x.md"] }, "files": { "exclude": ["y/**"] } }"""));
+        Assert.NotEqual(baseline, Fingerprint("""{ "bundles": [{ "root": "docs" }], "links": { "frontmatter": [{ "field": "a" }] } }"""));
+        Assert.NotEqual(baseline, Fingerprint("""{ "bundles": [{ "root": "wiki" }], "links": { "frontmatter": [{ "field": "a", "resolve": "bundle" }] } }"""));
+        Assert.NotEqual(baseline, Fingerprint("""{ "bundles": [{ "root": "wiki" }], "links": { "body": { "resolve": "bundle" }, "frontmatter": [{ "field": "a" }] } }"""));
+        Assert.NotEqual(baseline, Fingerprint("""{ "bundles": [{ "root": "wiki" }], "links": { "frontmatter": [{ "field": "b" }] } }"""));
     }
 
     [Fact]
-    public void Invalid_yaml_is_an_error()
+    public void Invalid_json_is_an_error()
     {
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("files: [unclosed\n"));
+        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("{\n  \"files\": [unclosed\n"));
 
-        Assert.Contains(".hippo.yaml", ex.Message);
+        Assert.Contains(".hippo/config.json: line 2: invalid JSON", ex.Message);
+    }
+
+    [Fact]
+    public void A_duplicate_key_is_an_error_that_names_the_key()
+    {
+        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("""{ "files": {}, "files": {} }"""));
+
+        Assert.Contains("invalid JSON", ex.Message);
+        Assert.Contains("'files'", ex.Message);
+        Assert.DoesNotContain("line :", ex.Message);
+    }
+
+    [Fact]
+    public void An_unclosed_comment_is_an_error()
+    {
+        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("/* unclosed"));
+
+        Assert.Contains("invalid JSON", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("""{ "\ud800": 1 }""")]
+    [InlineData("""{ "files": { "include": ["\ud800"] } }""")]
+    public void An_escaped_lone_surrogate_is_a_config_error_not_a_crash(string json)
+    {
+        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(json));
+
+        Assert.Contains(".hippo/config.json: invalid JSON", ex.Message);
     }
 
     [Fact]
     public void Deep_nesting_is_an_error_not_a_crash()
     {
-        var yaml = $"a: {new string('[', 100_000)}{new string(']', 100_000)}\n";
+        var json = $"{{ \"a\": {new string('[', 100_000)}{new string(']', 100_000)} }}";
 
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(yaml));
+        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(json));
 
-        Assert.Contains(".hippo.yaml", ex.Message);
+        Assert.Contains(".hippo/config.json", ex.Message);
     }
 
     [Fact]
     public void An_include_that_is_not_a_list_is_an_error()
     {
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("files:\n  include: \"**/*\"\n"));
+        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("""{ "files": { "include": "**/*" } }"""));
 
         Assert.Contains("files.include", ex.Message);
     }
 
     [Fact]
-    public void A_config_that_is_not_a_mapping_is_an_error()
+    public void A_config_that_is_not_an_object_is_an_error()
     {
-        Assert.Throws<HippoException>(() => NotebookConfig.Parse("- a\n- b\n"));
+        Assert.Throws<HippoException>(() => NotebookConfig.Parse("""["a", "b"]"""));
     }
 
     [Theory]

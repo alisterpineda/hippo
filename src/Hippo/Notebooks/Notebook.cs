@@ -2,26 +2,27 @@ using Microsoft.Extensions.FileSystemGlobbing;
 
 namespace Hippo.Notebooks;
 
-/// <summary>A notebook: the folder holding <c>.hippo.yaml</c>, and the conventions that file declares.</summary>
+/// <summary>A notebook: the folder holding <c>.hippo/config.json</c>, and the conventions that file declares.</summary>
 internal sealed record Notebook(string Root, NotebookConfig Config)
 {
     /// <summary>Finds the notebook by walking up from <paramref name="workingDirectory"/> to the first folder that has
-    /// a <c>.hippo.yaml</c>, and loads that config.</summary>
+    /// a <c>.hippo/config.json</c>, and loads that config.</summary>
     public static Notebook Open(string workingDirectory)
     {
         var root = FindRoot(workingDirectory)
-            ?? throw new HippoException($"no {NotebookConfig.FileName} in {Start(workingDirectory)} or any folder above it; run hippo init at the notebook root");
-        string yaml;
+            ?? throw new HippoException($"no {NotebookConfig.RelativePath} in {Start(workingDirectory)} or any folder above it; run hippo init at the notebook root");
+        var path = NotebookConfig.PathIn(root);
+        string json;
         try
         {
-            yaml = File.ReadAllText(Path.Combine(root, NotebookConfig.FileName));
+            json = File.ReadAllText(path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            throw new HippoException($"cannot read {Path.Combine(root, NotebookConfig.FileName)}: {ex.Message}");
+            throw new HippoException($"cannot read {path}: {ex.Message}");
         }
 
-        return new Notebook(root, NotebookConfig.Parse(yaml));
+        return new Notebook(root, NotebookConfig.Parse(json));
     }
 
     /// <summary>A file whose name ends in <c>.md</c> is markdown; every other file is plain.</summary>
@@ -54,13 +55,13 @@ internal sealed record Notebook(string Root, NotebookConfig Config)
     public HashSet<string> Match(Matcher matcher, IEnumerable<string> fullPaths) =>
         matcher.Match(Root, fullPaths).Files.Select(match => Key(match.Path)).ToHashSet(StringComparer.Ordinal);
 
-    /// <summary>The nearest folder at or above <paramref name="workingDirectory"/> that has a <c>.hippo.yaml</c>, or
-    /// null when none does.</summary>
+    /// <summary>The nearest folder at or above <paramref name="workingDirectory"/> that has a <c>.hippo/config.json</c>,
+    /// or null when none does.</summary>
     public static string? FindRoot(string workingDirectory)
     {
         for (var dir = new DirectoryInfo(Start(workingDirectory)); dir is not null; dir = dir.Parent)
         {
-            if (File.Exists(Path.Combine(dir.FullName, NotebookConfig.FileName)))
+            if (File.Exists(NotebookConfig.PathIn(dir.FullName)))
             {
                 return Path.TrimEndingDirectorySeparator(dir.FullName);
             }

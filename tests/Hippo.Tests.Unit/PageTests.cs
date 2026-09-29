@@ -5,14 +5,16 @@ namespace Hippo.Tests.Unit;
 public class PageTests
 {
     private static readonly NotebookConfig NotesConfig = NotebookConfig.Parse("""
-        bundles:
-          - root: wiki
-        links:
-          body: { resolve: page }
-          frontmatter:
-            - field: sources[].resource
-              resolve: bundle
-            - field: generated.from
+        {
+          "bundles": [{ "root": "wiki" }],
+          "links": {
+            "body": { "resolve": "page" },
+            "frontmatter": [
+              { "field": "sources[].resource", "resolve": "bundle" },
+              { "field": "generated.from" }
+            ]
+          }
+        }
         """);
 
     private static List<Link> Links(string path, string text, NotebookConfig? config = null) =>
@@ -123,7 +125,7 @@ public class PageTests
     [Fact]
     public void Body_links_can_resolve_from_the_bundle_root()
     {
-        var config = NotebookConfig.Parse("bundles: [{root: wiki}]\nlinks:\n  body: {resolve: bundle}\n");
+        var config = NotebookConfig.Parse("""{ "bundles": [{ "root": "wiki" }], "links": { "body": { "resolve": "bundle" } } }""");
 
         Assert.Equal("wiki/b.md", Only("wiki/topics/a.md", "[x](b.md)\n", config).Target);
     }
@@ -131,7 +133,7 @@ public class PageTests
     [Fact]
     public void The_deepest_bundle_holding_the_page_is_its_bundle()
     {
-        var config = NotebookConfig.Parse("bundles: [{root: wiki}, {root: wiki/sub}]\n");
+        var config = NotebookConfig.Parse("""{ "bundles": [{ "root": "wiki" }, { "root": "wiki/sub" }] }""");
 
         Assert.Equal("wiki/sub/b.md", Only("wiki/sub/deep/a.md", "[x](/b.md)\n", config).Target);
         Assert.Equal("wiki/b.md", Only("wiki/subway/a.md", "[x](/b.md)\n", config).Target);

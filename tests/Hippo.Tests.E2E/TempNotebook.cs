@@ -16,7 +16,7 @@ public sealed class TempNotebook : IDisposable
         _dir = RealPath(dir);
         Directory.CreateDirectory(Root);
         Directory.CreateDirectory(CacheDir);
-        Write(".hippo.yaml", "");
+        Write(".hippo/config.json", "");
     }
 
     public string Root => Path.Combine(_dir, "notebook");

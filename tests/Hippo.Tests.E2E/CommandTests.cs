@@ -178,7 +178,7 @@ public sealed class CommandTests : IDisposable
         var result = await _notebook.RunAsync("files");
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Equal([".hippo.yaml", "raw/b.txt", "wiki/a.md"], Lines(result.Stdout));
+        Assert.Equal([".hippo/config.json", "raw/b.txt", "wiki/a.md"], Lines(result.Stdout));
     }
 
     [Fact]
@@ -395,7 +395,7 @@ public sealed class CommandTests : IDisposable
     [Fact]
     public async Task Excluded_files_are_not_listed()
     {
-        _notebook.Write(".hippo.yaml", "files:\n  include: [\"**/*\"]\n  exclude: [\".hippo.yaml\", \"inbox/**\"]\n");
+        _notebook.Write(".hippo/config.json", """{ "files": { "include": ["**/*"], "exclude": [".hippo/**", "inbox/**"] } }""");
         _notebook.Write("a.md", "# A\n");
         _notebook.Write("inbox/b.md", "# B\n");
 
@@ -407,7 +407,7 @@ public sealed class CommandTests : IDisposable
     [Fact]
     public async Task Unknown_keys_are_ignored_silently()
     {
-        _notebook.Write(".hippo.yaml", "ids:\n  field: sources[].id\n");
+        _notebook.Write(".hippo/config.json", """{ "ids": { "field": "sources[].id" } }""");
 
         var result = await _notebook.RunAsync("status");
 
@@ -418,25 +418,25 @@ public sealed class CommandTests : IDisposable
     [Fact]
     public async Task A_malformed_config_is_an_error()
     {
-        _notebook.Write(".hippo.yaml", "files: [\"**/*\"]\n");
+        _notebook.Write(".hippo/config.json", """{ "files": ["**/*"] }""");
 
         var result = await _notebook.RunAsync("status");
 
         Assert.Equal(2, result.ExitCode);
-        Assert.Contains(".hippo.yaml", result.Stderr);
+        Assert.Contains(".hippo/config.json", result.Stderr);
     }
 
     [Fact]
     public async Task Without_a_notebook_every_command_is_an_error()
     {
-        File.Delete(_notebook.Combine(".hippo.yaml"));
+        File.Delete(_notebook.Combine(".hippo/config.json"));
 
         foreach (var command in new[] { "index", "status", "files" })
         {
             var result = await _notebook.RunAsync(command);
 
             Assert.Equal(2, result.ExitCode);
-            Assert.Contains(".hippo.yaml", result.Stderr);
+            Assert.Contains(".hippo/config.json", result.Stderr);
         }
     }
 

@@ -19,16 +19,16 @@ public sealed class LinkCommandTests : IDisposable
     /// <summary>A small notebook in the notes repo's shape: a wiki bundle whose pages cite raw files from frontmatter.</summary>
     private void WriteNotes()
     {
-        _notebook.Write(".hippo.yaml", """
-            bundles:
-              - root: wiki
-            links:
-              body: { resolve: page }
-              wikilinks: text
-              frontmatter:
-                - field: sources[].resource
-                  resolve: bundle
-              roots: ["wiki/index.md"]
+        _notebook.Write(".hippo/config.json", """
+            {
+              "bundles": [{ "root": "wiki" }],
+              "links": {
+                "body": { "resolve": "page" },
+                "wikilinks": "text",
+                "frontmatter": [{ "field": "sources[].resource", "resolve": "bundle" }],
+                "roots": ["wiki/index.md"]
+              }
+            }
             """);
         _notebook.Write("wiki/index.md", "# Index\n\n- [Topic](topics/topic.md)\n");
         _notebook.Write("wiki/topics/topic.md", """
@@ -225,7 +225,7 @@ public sealed class LinkCommandTests : IDisposable
         _notebook.Write("wiki/b.md", "# B\n");
         await _notebook.RunAsync("index");
 
-        _notebook.Write(".hippo.yaml", "bundles:\n  - root: wiki\n");
+        _notebook.Write(".hippo/config.json", """{ "bundles": [{ "root": "wiki" }] }""");
         var result = await _notebook.RunAsync("refs", "wiki/a.md");
 
         Assert.Equal(["1  body         file     wiki/b.md"], Lines(result.Stdout));
@@ -247,7 +247,7 @@ public sealed class LinkCommandTests : IDisposable
     [Fact]
     public async Task Clean_notebooks_exit_0_from_broken_and_orphans()
     {
-        _notebook.Write(".hippo.yaml", "links:\n  roots: [\"index.md\"]\n");
+        _notebook.Write(".hippo/config.json", """{ "links": { "roots": ["index.md"] } }""");
         _notebook.Write("index.md", "[a](a.md)\n");
         _notebook.Write("a.md", "[index](index.md)\n");
 
@@ -262,7 +262,7 @@ public sealed class LinkCommandTests : IDisposable
     [Fact]
     public async Task Roots_need_no_inbound_link_and_may_be_globs()
     {
-        _notebook.Write(".hippo.yaml", "links:\n  roots: [\"index.md\", \"**/hub.md\"]\n");
+        _notebook.Write(".hippo/config.json", """{ "links": { "roots": ["index.md", "**/hub.md"] } }""");
         _notebook.Write("index.md", "# Index\n");
         _notebook.Write("wiki/topics/hub.md", "# Hub\n");
 
@@ -274,7 +274,7 @@ public sealed class LinkCommandTests : IDisposable
     [Fact]
     public async Task Broken_names_a_link_to_the_notebook_root_as_such()
     {
-        _notebook.Write(".hippo.yaml", "");
+        _notebook.Write(".hippo/config.json", "");
         _notebook.Write("index.md", "[home](./)\n");
 
         var result = await _notebook.RunAsync("broken");
@@ -286,7 +286,7 @@ public sealed class LinkCommandTests : IDisposable
     [Fact]
     public async Task A_malformed_link_setting_is_an_error()
     {
-        _notebook.Write(".hippo.yaml", "links:\n  body: { resolve: folder }\n");
+        _notebook.Write(".hippo/config.json", """{ "links": { "body": { "resolve": "folder" } } }""");
 
         var result = await _notebook.RunAsync("broken");
 
