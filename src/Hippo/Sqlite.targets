@@ -1,0 +1,111 @@
+<Project>
+
+  <!--
+    Native AOT links SQLite into the binary, so nothing ships beside it. The SQLitePCLRaw provider calls a library named
+    e_sqlite3; DirectPInvoke turns those calls into ones the platform linker resolves against a static library built
+    here from the SQLite amalgamation, downloaded from sqlite.org. Builds run under the dotnet host still load the
+    package's e_sqlite3.
+  -->
+
+  <PropertyGroup>
+    <!-- The SQLite the package loads, so both builds run one version; SqliteVersionTests checks it. -->
+    <HippoSqliteVersion>3.53.3</HippoSqliteVersion>
+    <HippoSqliteUrl>https://sqlite.org/2026/sqlite-amalgamation-3530300.zip</HippoSqliteUrl>
+    <!-- Of the zip. Its sqlite3.c matches the SHA3-256 in sqlite.org's release log for this version. -->
+    <HippoSqliteSha256>646421e12aac110282ef8cc68f1a62d4bb15fc7b8f09da0b53e29ee690500431</HippoSqliteSha256>
+
+    <_HippoSqliteDownloadDir>$(BaseIntermediateOutputPath)sqlite-$(HippoSqliteVersion)/</_HippoSqliteDownloadDir>
+    <_HippoSqliteZip>$(_HippoSqliteDownloadDir)$([System.IO.Path]::GetFileName($(HippoSqliteUrl)))</_HippoSqliteZip>
+    <_HippoSqliteSource>$(_HippoSqliteDownloadDir)$([System.IO.Path]::GetFileNameWithoutExtension($(HippoSqliteUrl)))/sqlite3.c</_HippoSqliteSource>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(PublishAot)' == 'true'">
+    <DirectPInvoke Include="e_sqlite3" />
+    <!-- Native AOT cannot cross-compile between operating systems, so the host OS picks the library format. -->
+    <HippoSqliteLibrary Condition="$([MSBuild]::IsOSPlatform('Windows'))" Include="$(IntermediateOutputPath)sqlite/e_sqlite3.lib" />
+    <HippoSqliteLibrary Condition="!$([MSBuild]::IsOSPlatform('Windows'))" Include="$(IntermediateOutputPath)sqlite/libe_sqlite3.a" />
+    <NativeLibrary Include="@(HippoSqliteLibrary->'%(FullPath)')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The options the package's e_sqlite3 reports through sqlite3_compileoption_get, so both builds behave alike. -->
+    <HippoSqliteDefine Include="SQLITE_ENABLE_COLUMN_METADATA;SQLITE_ENABLE_FTS3_PARENTHESIS;SQLITE_ENABLE_FTS4;SQLITE_ENABLE_FTS5" />
+    <HippoSqliteDefine Include="SQLITE_ENABLE_GEOPOLY;SQLITE_ENABLE_MATH_FUNCTIONS;SQLITE_ENABLE_RTREE;SQLITE_ENABLE_SNAPSHOT" />
+    <HippoSqliteDefine Include="SQLITE_ENABLE_SESSION;SQLITE_ENABLE_PREUPDATE_HOOK" />
+    <HippoSqliteDefine Include="SQLITE_DEFAULT_FOREIGN_KEYS=1;SQLITE_DQS=0;SQLITE_LIKE_DOESNT_MATCH_BLOBS" />
+    <HippoSqliteDefine Condition="$([MSBuild]::IsOSPlatform('Windows'))" Include="SQLITE_OS_WIN;SQLITE_WIN32_FILEMAPPING_API=1" />
+    <HippoSqliteDefine Condition="!$([MSBuild]::IsOSPlatform('Windows'))" Include="SQLITE_OS_UNIX" />
+  </ItemGroup>
+
+  <!-- Downloads the amalgamation once into obj, shared by every runtime identifier, and checks it on each publish. -->
+  <Target Name="HippoDownloadSqlite" Condition="'$(PublishAot)' == 'true'">
+    <DownloadFile Condition="!Exists('$(_HippoSqliteZip)')" SourceUrl="$(HippoSqliteUrl)"
+                  DestinationFolder="$(_HippoSqliteDownloadDir)" Retries="3" />
+    <GetFileHash Files="$(_HippoSqliteZip)" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_HippoSqliteZipHash" />
+    </GetFileHash>
+    <!-- A bad download is deleted so the next publish fetches it again. -->
+    <Delete Condition="'$(_HippoSqliteZipHash)' != '$(HippoSqliteSha256)'" Files="$(_HippoSqliteZip)" />
+    <Error Condition="'$(_HippoSqliteZipHash)' != '$(HippoSqliteSha256)'"
+           Text="$(HippoSqliteUrl) has SHA-256 $(_HippoSqliteZipHash), not the pinned $(HippoSqliteSha256)." />
+    <Unzip SourceFiles="$(_HippoSqliteZip)" DestinationFolder="$(_HippoSqliteDownloadDir)" />
+  </Target>
+
+  <!-- Runs after SetupOSSpecificProps, so SQLite builds with the compiler and target the AOT link uses. -->
+  <Target Name="HippoBuildSqlite"
+          BeforeTargets="LinkNative"
+          DependsOnTargets="SetupOSSpecificProps;HippoDownloadSqlite"
+          Condition="'$(PublishAot)' == 'true'"
+          Inputs="$(_HippoSqliteSource);$(MSBuildThisFileFullPath)"
+          Outputs="@(HippoSqliteLibrary->'%(FullPath)')">
+
+    <PropertyGroup>
+      <_HippoSqliteLibrary>@(HippoSqliteLibrary->'%(FullPath)')</_HippoSqliteLibrary>
+      <_HippoSqliteDir>$([System.IO.Path]::GetDirectoryName($(_HippoSqliteLibrary)))</_HippoSqliteDir>
+      <!-- Set on macOS (architecture and minimum OS version) and when cross-compiling; gcc does not take it. -->
+      <_HippoSqliteTargetArg Condition="'$(TargetTriple)' != ''">--target=$(TargetTriple)</_HippoSqliteTargetArg>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_HippoSqliteDir)" />
+    <!-- ar adds to an existing archive rather than replacing it. -->
+    <Delete Files="$(_HippoSqliteLibrary)" />
+
+    <!-- Upstream clang, which the Linux AOT link uses, turns on neither hardening flag by default; cl's /GS is on already. -->
+    <Exec Condition="!$([MSBuild]::IsOSPlatform('Windows'))"
+          Command="&quot;$(CppCompilerAndLinker)&quot; $(_HippoSqliteTargetArg) -O2 -fPIC -fstack-protector-strong -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2 @(HippoSqliteDefine->'-D%(Identity)', ' ') -c &quot;$(_HippoSqliteSource)&quot; -o &quot;$(_HippoSqliteDir)/sqlite3.o&quot;" />
+    <Exec Condition="!$([MSBuild]::IsOSPlatform('Windows'))"
+          Command="&quot;$(CppLibCreator)&quot; crs &quot;$(_HippoSqliteLibrary)&quot; &quot;$(_HippoSqliteDir)/sqlite3.o&quot;" />
+
+    <!--
+      cl.exe needs the INCLUDE and LIB paths vcvarsall.bat sets, which the AOT targets find but do not keep, so this
+      finds Visual Studio the way their findvcvarsall.bat does. /MT matches the static C runtime the AOT runtime links.
+    -->
+    <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+      <_HippoVcTools>x86.x64</_HippoVcTools>
+      <_HippoVcTools Condition="'$(_targetArchitecture)' == 'arm64'">ARM64</_HippoVcTools>
+      <_HippoVcHost>amd64</_HippoVcHost>
+      <_HippoVcHost Condition="'$(PROCESSOR_ARCHITECTURE)' == 'ARM64'">arm64</_HippoVcHost>
+      <_HippoVcTarget>$(_targetArchitecture)</_HippoVcTarget>
+      <_HippoVcTarget Condition="'$(_targetArchitecture)' == 'x64'">amd64</_HippoVcTarget>
+      <_HippoVcEnvironment>$(_HippoVcHost)_$(_HippoVcTarget)</_HippoVcEnvironment>
+      <_HippoVcEnvironment Condition="'$(_HippoVcHost)' == '$(_HippoVcTarget)'">$(_HippoVcHost)</_HippoVcEnvironment>
+    </PropertyGroup>
+    <Exec Condition="$([MSBuild]::IsOSPlatform('Windows'))"
+          Command="&quot;$(MSBuildProgramFiles32)\Microsoft Visual Studio\Installer\vswhere.exe&quot; -latest -prerelease -products * -requires Microsoft.VisualStudio.Component.VC.Tools.$(_HippoVcTools) -property installationPath"
+          ConsoleToMSBuild="true" StandardOutputImportance="Low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_HippoVsBase" />
+    </Exec>
+    <Error Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(_HippoVsBase)' == ''"
+           Text="Visual Studio's C++ build tools were not found, so SQLite cannot be built for the native AOT binary." />
+    <Exec Condition="$([MSBuild]::IsOSPlatform('Windows'))"
+          Command="call &quot;$(_HippoVsBase)\VC\Auxiliary\Build\vcvarsall.bat&quot; $(_HippoVcEnvironment) &gt;NUL &amp;&amp; cl /nologo /O2 /MT @(HippoSqliteDefine->'/D%(Identity)', ' ') /c &quot;$(_HippoSqliteSource)&quot; /Fo&quot;$(_HippoSqliteDir)\sqlite3.obj&quot; &amp;&amp; lib /nologo /OUT:&quot;$(_HippoSqliteLibrary)&quot; &quot;$(_HippoSqliteDir)\sqlite3.obj&quot;" />
+  </Target>
+
+  <!-- The binary carries SQLite, so the package's copy of the library is left out of the published files. -->
+  <Target Name="HippoOmitSqliteLibrary" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(PublishAot)' == 'true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'libe_sqlite3' or '%(Filename)' == 'e_sqlite3'" />
+    </ItemGroup>
+  </Target>
+
+</Project>

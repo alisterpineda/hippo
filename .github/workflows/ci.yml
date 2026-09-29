@@ -74,6 +74,15 @@ jobs:
       - name: Publish native AOT binary
         run: dotnet publish src/Hippo -c Release -r ${{ matrix.rid }} -p:PublishAot=true -o artifacts/publish/${{ matrix.rid }}
 
+      # SQLite is linked into the binary, so the tests below pass only if that link works.
+      - name: Check no SQLite library ships beside the binary
+        shell: bash
+        run: |
+          if ls artifacts/publish/${{ matrix.rid }} | grep -i sqlite; then
+            echo "::error::A SQLite library was published beside the binary."
+            exit 1
+          fi
+
       - name: Test the published binary
         run: dotnet test tests/Hippo.Tests.E2E -c Release
         env:

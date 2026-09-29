@@ -46,4 +46,7 @@
     <InternalsVisibleTo Include="Hippo.Tests.Unit" />
   </ItemGroup>
 
+  <!-- Links SQLite into the native AOT binary. -->
+  <Import Project="Sqlite.targets" />
+
 </Project>
