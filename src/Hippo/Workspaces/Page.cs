@@ -5,12 +5,12 @@ using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 using YamlDotNet.RepresentationModel;
 
-namespace Hippo.Notebooks;
+namespace Hippo.Workspaces;
 
 /// <summary>
 /// A link out of a page. <see cref="Kind"/> is <c>body</c> or <c>frontmatter</c>; <see cref="Type"/> is <c>path</c>,
-/// <c>url</c> or <c>anchor</c> (within the page). A path link's <see cref="Target"/> is the notebook key it resolves to,
-/// or null when it leaves the notebook (<c>""</c> for the notebook root itself). <see cref="Line"/> counts from 1 at the
+/// <c>url</c> or <c>anchor</c> (within the page). A path link's <see cref="Target"/> is the workspace key it resolves to,
+/// or null when it leaves the workspace (<c>""</c> for the workspace root itself). <see cref="Line"/> counts from 1 at the
 /// top of the file.
 /// </summary>
 internal sealed record Link(int Line, string Kind, string Type, string Raw, string? Target);
@@ -54,7 +54,7 @@ internal static partial class Page
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             // Markdig throws on some inputs, such as blocks nested past its depth limit; one such page must not stop
-            // the rest of the notebook from indexing.
+            // the rest of the workspace from indexing.
             return new ParsedPage(block.Result, links.OrderBy(link => link.Line).ToList(), ex.Message);
         }
 
@@ -153,7 +153,7 @@ internal static partial class Page
     }
 
     /// <summary>Joins <paramref name="relative"/> onto <paramref name="folder"/> and removes <c>.</c> and <c>..</c>
-    /// segments. Null when the result climbs above the notebook root; <c>""</c> when it is the root itself.</summary>
+    /// segments. Null when the result climbs above the workspace root; <c>""</c> when it is the root itself.</summary>
     private static string? Normalize(string folder, string relative)
     {
         var parts = new List<string>();
@@ -184,7 +184,7 @@ internal static partial class Page
         return slash < 0 ? "" : path[..slash];
     }
 
-    /// <summary>The root of the deepest bundle holding <paramref name="path"/>, or the notebook root (<c>""</c>) when
+    /// <summary>The root of the deepest bundle holding <paramref name="path"/>, or the workspace root (<c>""</c>) when
     /// no bundle holds it.</summary>
     private static string BundleRoot(string path, IReadOnlyList<string> bundles) =>
         bundles.Where(root => path.StartsWith(root + "/", StringComparison.Ordinal)).MaxBy(root => root.Length) ?? "";

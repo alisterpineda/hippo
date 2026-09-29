@@ -9,8 +9,8 @@ internal sealed record LinkOut(long Line, string Kind, string Type, string Raw, 
 /// <summary>A link into a path, from <see cref="Source"/>.</summary>
 internal sealed record LinkIn(string Source, long Line, string Kind, string Raw);
 
-/// <summary>A path link whose <see cref="Target"/> is not an indexed file; null when it leaves the notebook, and
-/// <c>""</c> when it is the notebook root.</summary>
+/// <summary>A path link whose <see cref="Target"/> is not an indexed file; null when it leaves the workspace, and
+/// <c>""</c> when it is the workspace root.</summary>
 internal sealed record BrokenLink(string Source, long Line, string Kind, string Raw, string? Target);
 
 /// <summary>

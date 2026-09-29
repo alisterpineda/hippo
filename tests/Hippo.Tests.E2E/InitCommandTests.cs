@@ -5,21 +5,21 @@ namespace Hippo.Tests.E2E;
 
 public sealed class InitCommandTests : IDisposable
 {
-    private readonly TempNotebook _notebook = new();
+    private readonly TempWorkspace _workspace = new();
 
-    public void Dispose() => _notebook.Dispose();
+    public void Dispose() => _workspace.Dispose();
 
-    private string Config => _notebook.Combine(".hippo/config.json");
+    private string Config => _workspace.Combine(".hippo/config.json");
 
     [Fact]
-    public async Task Init_makes_the_folder_a_notebook()
+    public async Task Init_makes_the_folder_a_workspace()
     {
-        Directory.Delete(_notebook.Combine(".hippo"), recursive: true);
-        _notebook.Write("a.md", "# A\n");
-        _notebook.Write(".git/HEAD", "ref: refs/heads/main\n");
+        Directory.Delete(_workspace.Combine(".hippo"), recursive: true);
+        _workspace.Write("a.md", "# A\n");
+        _workspace.Write(".git/HEAD", "ref: refs/heads/main\n");
 
-        var init = await _notebook.RunAsync("init");
-        var files = await _notebook.RunAsync("files", "--json");
+        var init = await _workspace.RunAsync("init");
+        var files = await _workspace.RunAsync("files", "--json");
 
         Assert.Equal(0, init.ExitCode);
         Assert.Contains(Config, init.Stdout);
@@ -35,7 +35,7 @@ public sealed class InitCommandTests : IDisposable
     {
         File.WriteAllText(Config, """{ "links": { "roots": ["index.md"] } }""");
 
-        var result = await _notebook.RunAsync("init");
+        var result = await _workspace.RunAsync("init");
 
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("already exists", result.Stderr);
@@ -44,16 +44,16 @@ public sealed class InitCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Init_inside_a_notebook_warns_that_the_outer_one_still_indexes_it()
+    public async Task Init_inside_a_workspace_warns_that_the_outer_one_still_indexes_it()
     {
-        Directory.CreateDirectory(_notebook.Combine("inner"));
+        Directory.CreateDirectory(_workspace.Combine("inner"));
 
-        var result = await _notebook.RunInAsync(_notebook.Combine("inner"), "init");
+        var result = await _workspace.RunInAsync(_workspace.Combine("inner"), "init");
 
         Assert.Equal(0, result.ExitCode);
-        Assert.True(File.Exists(_notebook.Combine("inner/.hippo/config.json")));
+        Assert.True(File.Exists(_workspace.Combine("inner/.hippo/config.json")));
         Assert.Contains("warning", result.Stderr);
-        Assert.Contains($"inside the notebook at {_notebook.Root},", result.Stderr);
+        Assert.Contains($"inside the workspace at {_workspace.Root},", result.Stderr);
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public sealed class InitCommandTests : IDisposable
     public async Task Init_in_a_read_only_folder_reports_that_it_cannot_write()
     {
         Assert.SkipWhen(OperatingSystem.IsWindows(), "Unix file modes only");
-        var inner = _notebook.Combine("inner");
+        var inner = _workspace.Combine("inner");
         Directory.CreateDirectory(inner);
         File.SetUnixFileMode(inner, UnixFileMode.UserRead | UnixFileMode.UserExecute);
         try
@@ -77,7 +77,7 @@ public sealed class InitCommandTests : IDisposable
             {
             }
 
-            var result = await _notebook.RunInAsync(inner, "init");
+            var result = await _workspace.RunInAsync(inner, "init");
 
             Assert.Equal(2, result.ExitCode);
             Assert.Contains("cannot write", result.Stderr);
@@ -94,7 +94,7 @@ public sealed class InitCommandTests : IDisposable
     {
         File.Delete(Config);
 
-        var result = await _notebook.RunAsync("init");
+        var result = await _workspace.RunAsync("init");
 
         Assert.Equal(0, result.ExitCode);
         Assert.True(File.Exists(Config));
@@ -105,7 +105,7 @@ public sealed class InitCommandTests : IDisposable
     public async Task A_failed_init_leaves_a_hippo_folder_it_did_not_create()
     {
         Assert.SkipWhen(OperatingSystem.IsWindows(), "Unix file modes only");
-        var folder = _notebook.Combine(".hippo");
+        var folder = _workspace.Combine(".hippo");
         File.Delete(Config);
         File.SetUnixFileMode(folder, UnixFileMode.UserRead | UnixFileMode.UserExecute);
         try
@@ -121,7 +121,7 @@ public sealed class InitCommandTests : IDisposable
             {
             }
 
-            var result = await _notebook.RunAsync("init");
+            var result = await _workspace.RunAsync("init");
 
             Assert.Equal(2, result.ExitCode);
             Assert.Contains("cannot write", result.Stderr);
@@ -134,11 +134,11 @@ public sealed class InitCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Outside_a_notebook_the_error_points_to_init()
+    public async Task Outside_a_workspace_the_error_points_to_init()
     {
         File.Delete(Config);
 
-        var result = await _notebook.RunAsync("status");
+        var result = await _workspace.RunAsync("status");
 
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("hippo init", result.Stderr);

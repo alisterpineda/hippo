@@ -1,14 +1,14 @@
 namespace Hippo.Tests.E2E;
 
 /// <summary>
-/// A notebook folder and a cache folder under a fresh temp directory, deleted on dispose. hippo runs with the notebook
+/// A workspace folder and a cache folder under a fresh temp directory, deleted on dispose. hippo runs with the workspace
 /// as its working directory and <c>HIPPO_CACHE_DIR</c> pointing at the cache, so no test touches the user's cache.
 /// </summary>
-public sealed class TempNotebook : IDisposable
+public sealed class TempWorkspace : IDisposable
 {
     private readonly string _dir;
 
-    public TempNotebook()
+    public TempWorkspace()
     {
         // The real path, so it compares equal to the root hippo reports (macOS's temp folder sits behind /var -> /private/var).
         var dir = Path.Combine(Path.GetTempPath(), "hippo-e2e", Guid.NewGuid().ToString("n"));
@@ -19,7 +19,7 @@ public sealed class TempNotebook : IDisposable
         Write(".hippo/config.json", "");
     }
 
-    public string Root => Path.Combine(_dir, "notebook");
+    public string Root => Path.Combine(_dir, "workspace");
 
     public string CacheDir => Path.Combine(_dir, "cache");
 
@@ -49,7 +49,7 @@ public sealed class TempNotebook : IDisposable
     public Task<HippoProcess.Result> RunInAsync(string workingDirectory, params string[] args) =>
         HippoProcess.RunAsync(workingDirectory, new Dictionary<string, string> { ["HIPPO_CACHE_DIR"] = CacheDir }, args);
 
-    /// <summary>Runs hippo in the notebook with <paramref name="environment"/> in place of the cache override.</summary>
+    /// <summary>Runs hippo in the workspace with <paramref name="environment"/> in place of the cache override.</summary>
     public Task<HippoProcess.Result> RunWithAsync(IReadOnlyDictionary<string, string> environment, params string[] args) =>
         HippoProcess.RunAsync(Root, environment, args);
 

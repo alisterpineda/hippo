@@ -1,14 +1,14 @@
 using System.Runtime.Versioning;
 using Dapper;
 using Hippo.Indexing;
-using Hippo.Notebooks;
+using Hippo.Workspaces;
 using Microsoft.Data.Sqlite;
 
 namespace Hippo.Tests.Unit;
 
 public sealed class SweeperTests : IDisposable
 {
-    private readonly TempDirectory _notebook = new();
+    private readonly TempDirectory _workspace = new();
     private readonly TestDatabase _database = new();
     private readonly SqliteConnection _db;
 
@@ -18,7 +18,7 @@ public sealed class SweeperTests : IDisposable
 
     public SweeperTests()
     {
-        _notebook.Write(".hippo/config.json", """{ "files": { "include": ["**/*"], "exclude": [".git/**", "inbox/**", "**/*.tmp"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "files": { "include": ["**/*"], "exclude": [".git/**", "inbox/**", "**/*.tmp"] } }""");
         _db = _database.Open();
     }
 
@@ -26,10 +26,10 @@ public sealed class SweeperTests : IDisposable
     {
         _db.Dispose();
         _database.Dispose();
-        _notebook.Dispose();
+        _workspace.Dispose();
     }
 
-    private SweepResult Sweep(bool rebuild = false) => Sweeper.Run(Notebook.Open(_notebook.FullPath), _db, rebuild, _clock);
+    private SweepResult Sweep(bool rebuild = false) => Sweeper.Run(Workspace.Open(_workspace.FullPath), _db, rebuild, _clock);
 
     private void SetMtime(string path, TimeSpan fromNow) => File.SetLastWriteTimeUtc(path, (_clock.Now + fromNow).UtcDateTime);
 
@@ -41,9 +41,9 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void The_first_sweep_adds_every_included_file()
     {
-        _notebook.Write("a.md", "# A\n");
-        _notebook.Write("wiki/b.md", "# B\n");
-        _notebook.Write("raw/image.png", "png");
+        _workspace.Write("a.md", "# A\n");
+        _workspace.Write("wiki/b.md", "# B\n");
+        _workspace.Write("raw/image.png", "png");
 
         var result = Sweep();
 
@@ -55,10 +55,10 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void Excluded_files_and_folders_are_not_indexed()
     {
-        _notebook.Write("a.md", "# A\n");
-        _notebook.Write(".git/HEAD", "ref: refs/heads/main\n");
-        _notebook.Write("inbox/new.md", "# New\n");
-        _notebook.Write("wiki/scratch.tmp", "x");
+        _workspace.Write("a.md", "# A\n");
+        _workspace.Write(".git/HEAD", "ref: refs/heads/main\n");
+        _workspace.Write("inbox/new.md", "# New\n");
+        _workspace.Write("wiki/scratch.tmp", "x");
 
         Sweep();
 
@@ -68,11 +68,11 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void Only_included_files_are_indexed()
     {
-        _notebook.Write(".hippo/config.json", """{ "files": { "include": ["wiki/**/*.md"] } }""");
-        _notebook.Write("wiki/a.md", "# A\n");
-        _notebook.Write("wiki/deep/b.md", "# B\n");
-        _notebook.Write("wiki/c.txt", "c");
-        _notebook.Write("raw/d.md", "# D\n");
+        _workspace.Write(".hippo/config.json", """{ "files": { "include": ["wiki/**/*.md"] } }""");
+        _workspace.Write("wiki/a.md", "# A\n");
+        _workspace.Write("wiki/deep/b.md", "# B\n");
+        _workspace.Write("wiki/c.txt", "c");
+        _workspace.Write("raw/d.md", "# D\n");
 
         Sweep();
 
@@ -82,8 +82,8 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void Markdown_and_plain_files_get_their_kind()
     {
-        _notebook.Write("a.md", "# A\n");
-        _notebook.Write("b.txt", "b");
+        _workspace.Write("a.md", "# A\n");
+        _workspace.Write("b.txt", "b");
 
         Sweep();
 
@@ -94,7 +94,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void A_row_records_size_mtime_and_content_hash()
     {
-        var path = _notebook.Write("hello.txt", "hello");
+        var path = _workspace.Write("hello.txt", "hello");
         var mtime = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);
         File.SetLastWriteTimeUtc(path, mtime);
 
@@ -109,7 +109,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void Frontmatter_is_stored_as_json()
     {
-        _notebook.Write("a.md", "---\ntitle: A\ntype: Topic\n---\n# A\n");
+        _workspace.Write("a.md", "---\ntitle: A\ntype: Topic\n---\n# A\n");
 
         Sweep();
 
@@ -120,7 +120,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void Plain_files_are_not_parsed_for_frontmatter()
     {
-        _notebook.Write("a.txt", "---\ntitle: A\n---\n");
+        _workspace.Write("a.txt", "---\ntitle: A\n---\n");
 
         Sweep();
 
@@ -130,8 +130,8 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void Malformed_frontmatter_is_recorded_on_the_row_and_the_sweep_goes_on()
     {
-        _notebook.Write("bad.md", "---\ntitle: [unclosed\n---\n");
-        _notebook.Write("good.md", "---\ntitle: Good\n---\n");
+        _workspace.Write("bad.md", "---\ntitle: [unclosed\n---\n");
+        _workspace.Write("good.md", "---\ntitle: Good\n---\n");
 
         var result = Sweep();
 
@@ -144,7 +144,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void A_sweep_with_no_changes_reads_no_file()
     {
-        _notebook.Write("a.md", "# A\n");
+        _workspace.Write("a.md", "# A\n");
         Sweep();
 
         var result = Sweep();
@@ -156,7 +156,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void A_touched_file_is_rehashed_but_not_updated()
     {
-        var path = _notebook.Write("a.md", "---\ntitle: A\n---\n");
+        var path = _workspace.Write("a.md", "---\ntitle: A\n---\n");
         Sweep();
         File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddMinutes(1));
 
@@ -170,7 +170,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void A_same_size_edit_within_the_mtime_tick_of_the_last_hash_is_caught()
     {
-        var path = _notebook.Write("a.md", "---\nt: a\n---\n");
+        var path = _workspace.Write("a.md", "---\nt: a\n---\n");
         SetMtime(path, TimeSpan.FromSeconds(-0.5));
         Sweep();
         File.WriteAllText(path, "---\nt: b\n---\n");
@@ -185,7 +185,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void A_racy_row_is_trusted_once_it_is_rehashed_after_the_margin()
     {
-        var path = _notebook.Write("a.md", "---\nt: a\n---\n");
+        var path = _workspace.Write("a.md", "---\nt: a\n---\n");
         SetMtime(path, TimeSpan.FromSeconds(-0.5));
         Sweep();
         _clock.Now += TimeSpan.FromSeconds(3);
@@ -200,7 +200,7 @@ public sealed class SweeperTests : IDisposable
     /// <summary>Writes a.md and hashes it exactly <paramref name="afterMtime"/> after its stored mtime.</summary>
     private string HashAt(TimeSpan afterMtime)
     {
-        var path = _notebook.Write("a.md", "---\nt: a\n---\n");
+        var path = _workspace.Write("a.md", "---\nt: a\n---\n");
         SetMtime(path, TimeSpan.Zero);
         _clock.Now = new DateTimeOffset(File.GetLastWriteTimeUtc(path)) + afterMtime;
         Sweep();
@@ -234,7 +234,7 @@ public sealed class SweeperTests : IDisposable
     {
         // Every clock read is 10 s later than the last, so a row stamped with any read but the first would be trusted
         // and the same-size edit below missed.
-        var path = _notebook.Write("a.md", "---\nt: a\n---\n");
+        var path = _workspace.Write("a.md", "---\nt: a\n---\n");
         SetMtime(path, TimeSpan.FromSeconds(-0.5));
         var mtime = File.GetLastWriteTimeUtc(path);
         _clock.Step = TimeSpan.FromSeconds(10);
@@ -251,7 +251,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void A_future_mtime_is_rehashed_every_sweep_but_not_updated()
     {
-        var path = _notebook.Write("a.md", "# A\n");
+        var path = _workspace.Write("a.md", "# A\n");
         SetMtime(path, TimeSpan.FromMinutes(1));
         Sweep();
         var hashedAt = Row("a.md").HashedAt;
@@ -266,7 +266,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void An_unchanged_hash_leaves_the_parsed_frontmatter_alone()
     {
-        var path = _notebook.Write("a.md", "---\ntitle: A\n---\n");
+        var path = _workspace.Write("a.md", "---\ntitle: A\n---\n");
         Sweep();
         _db.Execute("UPDATE files SET frontmatter = '{\"marker\":1}'");
         File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddMinutes(1));
@@ -279,7 +279,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void An_edited_file_is_updated()
     {
-        var path = _notebook.Write("a.md", "---\ntitle: A\n---\n");
+        var path = _workspace.Write("a.md", "---\ntitle: A\n---\n");
         Sweep();
         File.WriteAllText(path, "---\ntitle: Changed title\n---\n");
 
@@ -292,7 +292,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void A_deleted_file_is_dropped()
     {
-        var path = _notebook.Write("a.md", "# A\n");
+        var path = _workspace.Write("a.md", "# A\n");
         Sweep();
         File.Delete(path);
 
@@ -305,9 +305,9 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void A_file_newly_excluded_is_dropped()
     {
-        _notebook.Write("inbox2/a.md", "# A\n");
+        _workspace.Write("inbox2/a.md", "# A\n");
         Sweep();
-        _notebook.Write(".hippo/config.json", """{ "files": { "exclude": ["inbox2/**"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "files": { "exclude": ["inbox2/**"] } }""");
 
         Sweep();
 
@@ -317,8 +317,8 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void A_rebuild_rereads_and_reparses_every_file()
     {
-        _notebook.Write("a.md", "---\ntitle: A\n---\n");
-        _notebook.Write("b.txt", "b");
+        _workspace.Write("a.md", "---\ntitle: A\n---\n");
+        _workspace.Write("b.txt", "b");
         Sweep();
         _db.Execute("UPDATE files SET frontmatter = '{\"marker\":1}'");
 
@@ -354,7 +354,7 @@ public sealed class SweeperTests : IDisposable
     [UnsupportedOSPlatform("windows")] // MakeUnreadable skips the test there.
     public void An_unreadable_file_keeps_its_row_and_warns(bool rebuild)
     {
-        var path = _notebook.Write("locked.md", "---\ntitle: Locked\n---\n");
+        var path = _workspace.Write("locked.md", "---\ntitle: Locked\n---\n");
         Sweep();
         MakeUnreadable(path);
         File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddMinutes(1));
@@ -377,7 +377,7 @@ public sealed class SweeperTests : IDisposable
     public void Changes_to_more_files_than_one_batch_are_all_written()
     {
         const int count = 450;
-        var paths = Enumerable.Range(0, count).Select(i => _notebook.Write($"n/{i:d3}.md", $"---\nn: {i}\n---\n")).ToList();
+        var paths = Enumerable.Range(0, count).Select(i => _workspace.Write($"n/{i:d3}.md", $"---\nn: {i}\n---\n")).ToList();
 
         var added = Sweep();
         Assert.Equal((count + 1, count + 1), (added.Added, Rows().Count));
@@ -412,7 +412,7 @@ public sealed class SweeperTests : IDisposable
     public void A_backslash_in_a_file_name_is_kept_on_unix()
     {
         Assert.SkipWhen(OperatingSystem.IsWindows(), "a backslash separates folders on Windows");
-        _notebook.Write("a\\b.md", "# A\n");
+        _workspace.Write("a\\b.md", "# A\n");
 
         Sweep();
 
@@ -425,8 +425,8 @@ public sealed class SweeperTests : IDisposable
         Assert.SkipWhen(OperatingSystem.IsWindows(), "creating symbolic links needs privileges on Windows");
         using var outside = new TempDirectory();
         outside.Write("secret.md", "# Outside\n");
-        Directory.CreateSymbolicLink(_notebook.Combine("linked"), outside.FullPath);
-        File.CreateSymbolicLink(_notebook.Combine("link.md"), outside.Combine("secret.md"));
+        Directory.CreateSymbolicLink(_workspace.Combine("linked"), outside.FullPath);
+        File.CreateSymbolicLink(_workspace.Combine("link.md"), outside.Combine("secret.md"));
 
         Sweep();
 
@@ -434,11 +434,11 @@ public sealed class SweeperTests : IDisposable
     }
 
     [Fact]
-    public void Sweeping_never_changes_the_notebook()
+    public void Sweeping_never_changes_the_workspace()
     {
-        _notebook.Write("a.md", "---\ntitle: A\n---\n");
-        _notebook.Write("bad.md", "---\n: [\n---\n");
-        _notebook.Write("raw/b.txt", "b");
+        _workspace.Write("a.md", "---\ntitle: A\n---\n");
+        _workspace.Write("bad.md", "---\n: [\n---\n");
+        _workspace.Write("raw/b.txt", "b");
         var before = Snapshot();
 
         Sweep();
@@ -459,10 +459,10 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void A_sweep_stores_each_pages_links_with_source_line_kind_and_raw_text()
     {
-        _notebook.Write(".hippo/config.json", """{ "links": { "frontmatter": [{ "field": "related[]" }] } }""");
-        _notebook.Write("wiki/a.md", "---\nrelated: [c.md]\n---\n\nSee [B](b.md) and <https://example.com>.\n");
-        _notebook.Write("wiki/b.md", "[back](#top)\n");
-        _notebook.Write("wiki/c.txt", "[not](markdown.md)\n");
+        _workspace.Write(".hippo/config.json", """{ "links": { "frontmatter": [{ "field": "related[]" }] } }""");
+        _workspace.Write("wiki/a.md", "---\nrelated: [c.md]\n---\n\nSee [B](b.md) and <https://example.com>.\n");
+        _workspace.Write("wiki/b.md", "[back](#top)\n");
+        _workspace.Write("wiki/c.txt", "[not](markdown.md)\n");
 
         Sweep();
 
@@ -479,7 +479,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void Editing_a_page_replaces_its_links()
     {
-        var path = _notebook.Write("a.md", "[b](b.md)\n[c](c.md)\n");
+        var path = _workspace.Write("a.md", "[b](b.md)\n[c](c.md)\n");
         Sweep();
         File.WriteAllText(path, "[d](d.md)\n");
 
@@ -491,8 +491,8 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void Deleting_a_page_drops_its_links()
     {
-        var path = _notebook.Write("a.md", "[b](b.md)\n");
-        _notebook.Write("b.md", "[a](a.md)\n");
+        var path = _workspace.Write("a.md", "[b](b.md)\n");
+        _workspace.Write("b.md", "[a](a.md)\n");
         Sweep();
         File.Delete(path);
 
@@ -504,7 +504,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void A_touched_page_keeps_its_links()
     {
-        var path = _notebook.Write("a.md", "[b](b.md)\n");
+        var path = _workspace.Write("a.md", "[b](b.md)\n");
         Sweep();
         File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddMinutes(1));
 
@@ -516,8 +516,8 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void A_rebuild_keeps_every_link()
     {
-        _notebook.Write("a.md", "[b](b.md)\n");
-        _notebook.Write("b.md", "[a](a.md)\n");
+        _workspace.Write("a.md", "[b](b.md)\n");
+        _workspace.Write("b.md", "[a](a.md)\n");
         Sweep();
 
         Sweep(rebuild: true);
@@ -528,11 +528,11 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void Changing_the_link_settings_extracts_every_pages_links_again()
     {
-        _notebook.Write("wiki/topics/a.md", "---\nsource: /x.md\n---\n[b](b.md)\n");
+        _workspace.Write("wiki/topics/a.md", "---\nsource: /x.md\n---\n[b](b.md)\n");
         Sweep();
         var before = Links();
 
-        _notebook.Write(".hippo/config.json", """{ "bundles": [{ "root": "wiki" }], "links": { "body": { "resolve": "bundle" }, "frontmatter": [{ "field": "source" }] } }""");
+        _workspace.Write(".hippo/config.json", """{ "bundles": [{ "root": "wiki" }], "links": { "body": { "resolve": "bundle" }, "frontmatter": [{ "field": "source" }] } }""");
         var changed = Sweep();
         var after = Sweep();
 
@@ -545,11 +545,11 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void Changing_the_link_settings_rehashes_only_pages()
     {
-        _notebook.Write("a.md", "[b](b.md)\n");
-        _notebook.Write("raw/image.png", "png");
+        _workspace.Write("a.md", "[b](b.md)\n");
+        _workspace.Write("raw/image.png", "png");
         Sweep();
 
-        _notebook.Write(".hippo/config.json", """{ "bundles": [{ "root": "raw" }] }""");
+        _workspace.Write(".hippo/config.json", """{ "bundles": [{ "root": "raw" }] }""");
         var changed = Sweep();
 
         // The page, and the settings file that changed.
@@ -562,12 +562,12 @@ public sealed class SweeperTests : IDisposable
     [UnsupportedOSPlatform("windows")] // MakeUnreadable skips the test there.
     public void A_page_unreadable_when_the_link_settings_change_gets_its_links_under_them_once_readable()
     {
-        var path = _notebook.Write("wiki/a.md", "[b](/b.md)\n");
+        var path = _workspace.Write("wiki/a.md", "[b](/b.md)\n");
         Sweep();
         MakeUnreadable(path);
         try
         {
-            _notebook.Write(".hippo/config.json", """{ "bundles": [{ "root": "wiki" }] }""");
+            _workspace.Write(".hippo/config.json", """{ "bundles": [{ "root": "wiki" }] }""");
             var locked = Sweep();
             Assert.Contains(locked.Warnings, w => w.Contains("wiki/a.md"));
         }
@@ -586,8 +586,8 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void A_page_markdig_cannot_parse_warns_and_the_rest_still_index()
     {
-        _notebook.Write("deep.md", new string('>', 200) + " x\n");
-        _notebook.Write("a.md", "[b](b.md)\n");
+        _workspace.Write("deep.md", new string('>', 200) + " x\n");
+        _workspace.Write("a.md", "[b](b.md)\n");
 
         var result = Sweep();
 
@@ -599,15 +599,15 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void Settings_that_do_not_shape_links_cause_no_rebuild()
     {
-        _notebook.Write("a.md", "[b](b.md)\n");
+        _workspace.Write("a.md", "[b](b.md)\n");
         Sweep();
-        _notebook.Write(".hippo/config.json", """{ "links": { "roots": ["a.md"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "links": { "roots": ["a.md"] } }""");
 
         Assert.False(Sweep().Rebuilt);
     }
 
     private string Snapshot() => string.Join('\n', Directory
-        .EnumerateFileSystemEntries(_notebook.FullPath, "*", SearchOption.AllDirectories)
+        .EnumerateFileSystemEntries(_workspace.FullPath, "*", SearchOption.AllDirectories)
         .Order(StringComparer.Ordinal)
         .Select(p => File.Exists(p)
             ? $"{p} {File.GetLastWriteTimeUtc(p).Ticks} {File.ReadAllText(p)}"

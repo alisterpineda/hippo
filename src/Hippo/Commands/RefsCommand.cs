@@ -8,15 +8,15 @@ internal static class RefsCommand
 {
     public static Command Build()
     {
-        var path = new Argument<string>("path") { Description = "A file in the notebook, relative to the working directory" };
-        var command = new Command("refs", "List the links out of a file, and whether each target exists") { path, NotebookSession.JsonOption };
-        command.SetAction(result => NotebookSession.Run(result, rebuild: false, session =>
+        var path = new Argument<string>("path") { Description = "A file in the workspace, relative to the working directory" };
+        var command = new Command("refs", "List the links out of a file, and whether each target exists") { path, WorkspaceSession.JsonOption };
+        command.SetAction(result => WorkspaceSession.Run(result, rebuild: false, session =>
         {
-            var relative = session.Notebook.KeyOf(result.GetValue(path)!);
+            var relative = session.Workspace.KeyOf(result.GetValue(path)!);
             _ = FileQueries.Get(session.Db, relative) ?? throw new HippoException($"{relative} is not in the index");
             var links = LinkQueries.Refs(session.Db, relative);
 
-            if (result.GetValue(NotebookSession.JsonOption))
+            if (result.GetValue(WorkspaceSession.JsonOption))
             {
                 session.Output.WriteLine(JsonSerializer.Serialize(links, OutputJson.Default.ListLinkOut));
             }

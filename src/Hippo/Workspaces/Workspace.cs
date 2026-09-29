@@ -1,17 +1,17 @@
 using Microsoft.Extensions.FileSystemGlobbing;
 
-namespace Hippo.Notebooks;
+namespace Hippo.Workspaces;
 
-/// <summary>A notebook: the folder holding <c>.hippo/config.json</c>, and the conventions that file declares.</summary>
-internal sealed record Notebook(string Root, NotebookConfig Config)
+/// <summary>A workspace: the folder holding <c>.hippo/config.json</c>, and the conventions that file declares.</summary>
+internal sealed record Workspace(string Root, WorkspaceConfig Config)
 {
-    /// <summary>Finds the notebook by walking up from <paramref name="workingDirectory"/> to the first folder that has
+    /// <summary>Finds the workspace by walking up from <paramref name="workingDirectory"/> to the first folder that has
     /// a <c>.hippo/config.json</c>, and loads that config.</summary>
-    public static Notebook Open(string workingDirectory)
+    public static Workspace Open(string workingDirectory)
     {
         var root = FindRoot(workingDirectory)
-            ?? throw new HippoException($"no {NotebookConfig.RelativePath} in {Start(workingDirectory)} or any folder above it; run hippo init at the notebook root");
-        var path = NotebookConfig.PathIn(root);
+            ?? throw new HippoException($"no {WorkspaceConfig.RelativePath} in {Start(workingDirectory)} or any folder above it; run hippo init at the workspace root");
+        var path = WorkspaceConfig.PathIn(root);
         string json;
         try
         {
@@ -22,7 +22,7 @@ internal sealed record Notebook(string Root, NotebookConfig Config)
             throw new HippoException($"cannot read {path}: {ex.Message}");
         }
 
-        return new Notebook(root, NotebookConfig.Parse(json));
+        return new Workspace(root, WorkspaceConfig.Parse(json));
     }
 
     /// <summary>A file whose name ends in <c>.md</c> is markdown; every other file is plain.</summary>
@@ -36,13 +36,13 @@ internal sealed record Notebook(string Root, NotebookConfig Config)
         Path.DirectorySeparatorChar == '\\' ? relativePath.Replace('\\', '/') : relativePath;
 
     /// <summary>Resolves <paramref name="path"/> against the working directory and returns its key, or throws when
-    /// it is not inside the notebook.</summary>
+    /// it is not inside the workspace.</summary>
     public string KeyOf(string path)
     {
         var relative = Path.GetRelativePath(Root, Path.GetFullPath(path));
         if (relative == "." || Path.IsPathRooted(relative) || relative == ".." || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
         {
-            throw new HippoException($"{path} is not a file inside the notebook at {Root}");
+            throw new HippoException($"{path} is not a file inside the workspace at {Root}");
         }
         return Key(relative);
     }
@@ -61,7 +61,7 @@ internal sealed record Notebook(string Root, NotebookConfig Config)
     {
         for (var dir = new DirectoryInfo(Start(workingDirectory)); dir is not null; dir = dir.Parent)
         {
-            if (File.Exists(NotebookConfig.PathIn(dir.FullName)))
+            if (File.Exists(WorkspaceConfig.PathIn(dir.FullName)))
             {
                 return Path.TrimEndingDirectorySeparator(dir.FullName);
             }

@@ -1,10 +1,10 @@
-using Hippo.Notebooks;
+using Hippo.Workspaces;
 
 namespace Hippo.Tests.Unit;
 
 public class PageTests
 {
-    private static readonly NotebookConfig NotesConfig = NotebookConfig.Parse("""
+    private static readonly WorkspaceConfig NotesConfig = WorkspaceConfig.Parse("""
         {
           "bundles": [{ "root": "wiki" }],
           "links": {
@@ -17,10 +17,10 @@ public class PageTests
         }
         """);
 
-    private static List<Link> Links(string path, string text, NotebookConfig? config = null) =>
+    private static List<Link> Links(string path, string text, WorkspaceConfig? config = null) =>
         Page.Parse(path, text, (config ?? NotesConfig).LinkSettings).Links;
 
-    private static Link Only(string path, string text, NotebookConfig? config = null) => Assert.Single(Links(path, text, config));
+    private static Link Only(string path, string text, WorkspaceConfig? config = null) => Assert.Single(Links(path, text, config));
 
     [Fact]
     public void An_inline_link_resolves_from_the_pages_folder()
@@ -96,7 +96,7 @@ public class PageTests
     }
 
     [Fact]
-    public void A_link_that_leaves_the_notebook_has_no_target()
+    public void A_link_that_leaves_the_workspace_has_no_target()
     {
         Assert.Equal(new Link(1, "body", "path", "../../x.md", null), Only("wiki/a.md", "[x](../../x.md)\n"));
     }
@@ -105,7 +105,7 @@ public class PageTests
     [InlineData("index.md", "./")]
     [InlineData("raw/a.md", "/")]
     [InlineData("wiki/a.md", "../")]
-    public void A_link_to_the_notebook_root_targets_the_empty_key_not_outside(string path, string destination)
+    public void A_link_to_the_workspace_root_targets_the_empty_key_not_outside(string path, string destination)
     {
         Assert.Equal("", Only(path, $"[home]({destination})\n").Target);
     }
@@ -117,7 +117,7 @@ public class PageTests
     }
 
     [Fact]
-    public void A_leading_slash_outside_any_bundle_resolves_against_the_notebook_root()
+    public void A_leading_slash_outside_any_bundle_resolves_against_the_workspace_root()
     {
         Assert.Equal("topics/b.md", Only("raw/a.md", "[x](/topics/b.md)\n").Target);
     }
@@ -125,7 +125,7 @@ public class PageTests
     [Fact]
     public void Body_links_can_resolve_from_the_bundle_root()
     {
-        var config = NotebookConfig.Parse("""{ "bundles": [{ "root": "wiki" }], "links": { "body": { "resolve": "bundle" } } }""");
+        var config = WorkspaceConfig.Parse("""{ "bundles": [{ "root": "wiki" }], "links": { "body": { "resolve": "bundle" } } }""");
 
         Assert.Equal("wiki/b.md", Only("wiki/topics/a.md", "[x](b.md)\n", config).Target);
     }
@@ -133,7 +133,7 @@ public class PageTests
     [Fact]
     public void The_deepest_bundle_holding_the_page_is_its_bundle()
     {
-        var config = NotebookConfig.Parse("""{ "bundles": [{ "root": "wiki" }, { "root": "wiki/sub" }] }""");
+        var config = WorkspaceConfig.Parse("""{ "bundles": [{ "root": "wiki" }, { "root": "wiki/sub" }] }""");
 
         Assert.Equal("wiki/sub/b.md", Only("wiki/sub/deep/a.md", "[x](/b.md)\n", config).Target);
         Assert.Equal("wiki/b.md", Only("wiki/subway/a.md", "[x](/b.md)\n", config).Target);

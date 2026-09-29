@@ -1,8 +1,8 @@
-using Hippo.Notebooks;
+using Hippo.Workspaces;
 
 namespace Hippo.Tests.Unit;
 
-public class NotebookTests
+public class WorkspaceTests
 {
     [Fact]
     public void The_root_is_the_nearest_folder_with_a_config()
@@ -11,9 +11,9 @@ public class NotebookTests
         dir.Write("notes/.hippo/config.json", "");
         Directory.CreateDirectory(dir.Combine("notes/wiki/topics"));
 
-        var notebook = Notebook.Open(dir.Combine("notes/wiki/topics"));
+        var workspace = Workspace.Open(dir.Combine("notes/wiki/topics"));
 
-        Assert.Equal(dir.Combine("notes"), notebook.Root);
+        Assert.Equal(dir.Combine("notes"), workspace.Root);
     }
 
     [Fact]
@@ -22,9 +22,9 @@ public class NotebookTests
         using var dir = new TempDirectory();
         dir.Write(".hippo/config.json", "");
 
-        var notebook = Notebook.Open(dir.FullPath);
+        var workspace = Workspace.Open(dir.FullPath);
 
-        Assert.Equal(dir.FullPath, notebook.Root);
+        Assert.Equal(dir.FullPath, workspace.Root);
     }
 
     [Fact]
@@ -33,18 +33,18 @@ public class NotebookTests
         using var dir = new TempDirectory();
         Directory.CreateDirectory(dir.Combine("a/b"));
 
-        var ex = Assert.Throws<HippoException>(() => Notebook.Open(dir.Combine("a/b")));
+        var ex = Assert.Throws<HippoException>(() => Workspace.Open(dir.Combine("a/b")));
 
         Assert.Contains(".hippo/config.json", ex.Message);
     }
 
     [Fact]
-    public void A_hippo_folder_without_a_config_is_not_a_notebook()
+    public void A_hippo_folder_without_a_config_is_not_a_workspace()
     {
         using var dir = new TempDirectory();
         Directory.CreateDirectory(dir.Combine(".hippo"));
 
-        Assert.Null(Notebook.FindRoot(dir.FullPath));
+        Assert.Null(Workspace.FindRoot(dir.FullPath));
     }
 
     [Fact]
@@ -52,30 +52,30 @@ public class NotebookTests
     {
         using var dir = new TempDirectory();
 
-        Assert.Null(Notebook.FindRoot(dir.FullPath));
+        Assert.Null(Workspace.FindRoot(dir.FullPath));
     }
 
     [Fact]
     public void The_starter_config_parses()
     {
-        var config = NotebookConfig.Parse(NotebookConfig.Starter);
+        var config = WorkspaceConfig.Parse(WorkspaceConfig.Starter);
 
         Assert.Equal(["**/*"], config.Include);
         Assert.Equal([".git/**", ".obsidian/**", ".trash/**"], config.Exclude);
-        Assert.Equal(NotebookConfig.Default.LinkSettings.Fingerprint, config.LinkSettings.Fingerprint);
+        Assert.Equal(WorkspaceConfig.Default.LinkSettings.Fingerprint, config.LinkSettings.Fingerprint);
     }
 
     [Fact]
     public void The_starter_configs_commented_examples_parse()
     {
-        var uncommented = System.Text.RegularExpressions.Regex.Replace(NotebookConfig.Starter, "^( *)// ", "$1",
+        var uncommented = System.Text.RegularExpressions.Regex.Replace(WorkspaceConfig.Starter, "^( *)// ", "$1",
             System.Text.RegularExpressions.RegexOptions.Multiline)
             // The example's page is the default, so it is swapped for bundle to show the line was actually read.
             .Replace("\"body\": { \"resolve\": \"page\" }", "\"body\": { \"resolve\": \"bundle\" }");
 
         Assert.DoesNotContain("\"page\"", uncommented);
 
-        var config = NotebookConfig.Parse(uncommented);
+        var config = WorkspaceConfig.Parse(uncommented);
 
         // Every commented key is checked, since a misspelt one would be ignored rather than rejected.
         Assert.Equal(["wiki"], config.Bundles);
@@ -87,7 +87,7 @@ public class NotebookTests
     [Fact]
     public void Files_section_sets_include_and_exclude()
     {
-        var config = NotebookConfig.Parse("""
+        var config = WorkspaceConfig.Parse("""
             { "files": { "include": ["**/*.md", "raw/**"], "exclude": [".git/**", "inbox/**"] } }
             """);
 
@@ -98,7 +98,7 @@ public class NotebookTests
     [Fact]
     public void Without_a_files_section_everything_is_included()
     {
-        var config = NotebookConfig.Parse("""{ "links": { "roots": ["index.md"] } }""");
+        var config = WorkspaceConfig.Parse("""{ "links": { "roots": ["index.md"] } }""");
 
         Assert.Equal(["**/*"], config.Include);
         Assert.Empty(config.Exclude);
@@ -113,7 +113,7 @@ public class NotebookTests
     [InlineData("/* block */ \n")]
     public void An_empty_config_is_valid(string json)
     {
-        var config = NotebookConfig.Parse(json);
+        var config = WorkspaceConfig.Parse(json);
 
         Assert.Equal(["**/*"], config.Include);
     }
@@ -121,7 +121,7 @@ public class NotebookTests
     [Fact]
     public void Comments_and_trailing_commas_are_allowed()
     {
-        var config = NotebookConfig.Parse("""
+        var config = WorkspaceConfig.Parse("""
             {
               // line comment
               "files": { "include": ["**/*.md",], /* block comment */ },
@@ -134,7 +134,7 @@ public class NotebookTests
     [Fact]
     public void Unknown_keys_are_ignored()
     {
-        var config = NotebookConfig.Parse("""
+        var config = WorkspaceConfig.Parse("""
             {
               "files": { "include": ["**/*.md"], "typo": true },
               "ids": { "field": "sources[].id" },
@@ -149,7 +149,7 @@ public class NotebookTests
     [Fact]
     public void Bundles_and_links_are_read()
     {
-        var config = NotebookConfig.Parse("""
+        var config = WorkspaceConfig.Parse("""
             {
               "bundles": [{ "root": "wiki" }, { "root": "/docs/" }],
               "links": {
@@ -175,7 +175,7 @@ public class NotebookTests
     [Fact]
     public void Without_a_links_section_body_links_resolve_from_the_page()
     {
-        var config = NotebookConfig.Parse("""{ "files": { "include": ["**/*"] } }""");
+        var config = WorkspaceConfig.Parse("""{ "files": { "include": ["**/*"] } }""");
 
         Assert.Empty(config.Bundles);
         Assert.Equal(LinkBase.Page, config.Links.Body);
@@ -196,7 +196,7 @@ public class NotebookTests
     [InlineData("""{ "links": { "roots": "wiki/index.md" } }""", "links.roots")]
     public void Malformed_link_settings_are_errors(string json, string key)
     {
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(json));
+        var ex = Assert.Throws<HippoException>(() => WorkspaceConfig.Parse(json));
 
         Assert.Contains(key, ex.Message);
     }
@@ -210,7 +210,7 @@ public class NotebookTests
     [InlineData("""{ "links": { "frontmatter": [{ "field": "a", "resolve": null }] } }""", "links.frontmatter[].resolve")]
     public void Values_that_are_not_strings_are_errors(string json, string key)
     {
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(json));
+        var ex = Assert.Throws<HippoException>(() => WorkspaceConfig.Parse(json));
 
         Assert.Contains(key, ex.Message);
     }
@@ -218,7 +218,7 @@ public class NotebookTests
     [Fact]
     public void The_link_fingerprint_changes_with_the_settings_that_shape_links_only()
     {
-        string Fingerprint(string json) => NotebookConfig.Parse(json).LinkSettings.Fingerprint;
+        string Fingerprint(string json) => WorkspaceConfig.Parse(json).LinkSettings.Fingerprint;
         var baseline = Fingerprint("""{ "bundles": [{ "root": "wiki" }], "links": { "frontmatter": [{ "field": "a" }] } }""");
 
         Assert.Equal(baseline, Fingerprint("""{ "bundles": [{ "root": "wiki" }], "links": { "frontmatter": [{ "field": "a" }], "roots": ["x.md"] }, "files": { "exclude": ["y/**"] } }"""));
@@ -231,7 +231,7 @@ public class NotebookTests
     [Fact]
     public void Invalid_json_is_an_error()
     {
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("{\n  \"files\": [unclosed\n"));
+        var ex = Assert.Throws<HippoException>(() => WorkspaceConfig.Parse("{\n  \"files\": [unclosed\n"));
 
         Assert.Contains(".hippo/config.json: line 2: invalid JSON", ex.Message);
     }
@@ -239,7 +239,7 @@ public class NotebookTests
     [Fact]
     public void A_duplicate_key_is_an_error_that_names_the_key()
     {
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("""{ "files": {}, "files": {} }"""));
+        var ex = Assert.Throws<HippoException>(() => WorkspaceConfig.Parse("""{ "files": {}, "files": {} }"""));
 
         Assert.Contains("invalid JSON", ex.Message);
         Assert.Contains("'files'", ex.Message);
@@ -249,7 +249,7 @@ public class NotebookTests
     [Fact]
     public void An_unclosed_comment_is_an_error()
     {
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("/* unclosed"));
+        var ex = Assert.Throws<HippoException>(() => WorkspaceConfig.Parse("/* unclosed"));
 
         Assert.Contains("invalid JSON", ex.Message);
     }
@@ -259,7 +259,7 @@ public class NotebookTests
     [InlineData("""{ "files": { "include": ["\ud800"] } }""")]
     public void An_escaped_lone_surrogate_is_a_config_error_not_a_crash(string json)
     {
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(json));
+        var ex = Assert.Throws<HippoException>(() => WorkspaceConfig.Parse(json));
 
         Assert.Contains(".hippo/config.json: invalid JSON", ex.Message);
     }
@@ -269,7 +269,7 @@ public class NotebookTests
     {
         var json = $"{{ \"a\": {new string('[', 100_000)}{new string(']', 100_000)} }}";
 
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(json));
+        var ex = Assert.Throws<HippoException>(() => WorkspaceConfig.Parse(json));
 
         Assert.Contains(".hippo/config.json", ex.Message);
     }
@@ -277,7 +277,7 @@ public class NotebookTests
     [Fact]
     public void An_include_that_is_not_a_list_is_an_error()
     {
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("""{ "files": { "include": "**/*" } }"""));
+        var ex = Assert.Throws<HippoException>(() => WorkspaceConfig.Parse("""{ "files": { "include": "**/*" } }"""));
 
         Assert.Contains("files.include", ex.Message);
     }
@@ -285,7 +285,7 @@ public class NotebookTests
     [Fact]
     public void A_config_that_is_not_an_object_is_an_error()
     {
-        Assert.Throws<HippoException>(() => NotebookConfig.Parse("""["a", "b"]"""));
+        Assert.Throws<HippoException>(() => WorkspaceConfig.Parse("""["a", "b"]"""));
     }
 
     [Theory]
@@ -296,6 +296,6 @@ public class NotebookTests
     [InlineData("image.png", false)]
     public void Only_names_ending_in_md_are_markdown(string path, bool expected)
     {
-        Assert.Equal(expected, Notebook.IsMarkdown(path));
+        Assert.Equal(expected, Workspace.IsMarkdown(path));
     }
 }

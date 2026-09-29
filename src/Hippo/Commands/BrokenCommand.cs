@@ -8,11 +8,11 @@ internal static class BrokenCommand
 {
     public static Command Build()
     {
-        var command = new Command("broken", "List links whose target is not a file in the index; exits 1 when there are any") { NotebookSession.JsonOption };
-        command.SetAction(result => NotebookSession.Run(result, rebuild: false, session =>
+        var command = new Command("broken", "List links whose target is not a file in the index; exits 1 when there are any") { WorkspaceSession.JsonOption };
+        command.SetAction(result => WorkspaceSession.Run(result, rebuild: false, session =>
         {
             var links = LinkQueries.Broken(session.Db);
-            if (result.GetValue(NotebookSession.JsonOption))
+            if (result.GetValue(WorkspaceSession.JsonOption))
             {
                 session.Output.WriteLine(JsonSerializer.Serialize(links, OutputJson.Default.ListBrokenLink));
             }
@@ -22,8 +22,8 @@ internal static class BrokenCommand
                 {
                     var target = link.Target switch
                     {
-                        null => "outside the notebook",
-                        "" => "the notebook root",
+                        null => "outside the workspace",
+                        "" => "the workspace root",
                         var path => Format.Safe(path),
                     };
                     session.Output.WriteLine($"{Format.Safe(link.Source)}:{link.Line}  {link.Kind,-11}  {Format.Safe(link.Raw)} -> {target}");

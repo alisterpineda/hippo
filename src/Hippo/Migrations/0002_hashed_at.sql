@@ -1,4 +1,4 @@
--- files is derived: NotebookSession forces a full reindex after any script runs, so its rows need not survive.
+-- files is derived: WorkspaceSession forces a full reindex after any script runs, so its rows need not survive.
 DROP TABLE files;
 
 CREATE TABLE files (

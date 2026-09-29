@@ -1,4 +1,4 @@
-using Hippo.Notebooks;
+using Hippo.Workspaces;
 
 namespace Hippo.Tests.Unit;
 

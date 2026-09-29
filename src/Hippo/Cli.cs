@@ -13,7 +13,7 @@ public static class Cli
 
     public static RootCommand Build()
     {
-        var root = new RootCommand("Indexes a markdown notebook and answers structural questions about it.");
+        var root = new RootCommand("Indexes a markdown workspace and answers structural questions about it.");
         root.SetAction(result => new HelpAction().Invoke(result));
         root.Subcommands.Add(InitCommand.Build());
         root.Subcommands.Add(IndexCommand.Build());

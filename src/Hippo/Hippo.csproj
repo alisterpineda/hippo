@@ -16,7 +16,7 @@
     <PackageId>hippo</PackageId>
     <Authors>Alister Pineda</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Description>Indexes a markdown notebook into a local SQLite cache and answers structural questions about it.</Description>
+    <Description>Indexes a markdown workspace into a local SQLite cache and answers structural questions about it.</Description>
   </PropertyGroup>
 
   <PropertyGroup>

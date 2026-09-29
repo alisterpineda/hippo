@@ -18,7 +18,7 @@ public class CacheLocationTests
     }
 
     [Fact]
-    public void Each_notebook_root_gets_its_own_folder()
+    public void Each_workspace_root_gets_its_own_folder()
     {
         var env = Env(("HIPPO_CACHE_DIR", "/tmp/cache"));
 

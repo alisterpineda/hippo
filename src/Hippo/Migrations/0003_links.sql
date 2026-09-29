@@ -1,4 +1,4 @@
--- links is derived: NotebookSession forces a full reindex after any script runs, which fills it.
+-- links is derived: WorkspaceSession forces a full reindex after any script runs, which fills it.
 -- type is path, url or anchor; whether a path link's target is a file or missing is read from files when asked, so it
 -- stays right when the target comes or goes without the linking page changing.
 CREATE TABLE links (
@@ -8,7 +8,7 @@ CREATE TABLE links (
     kind TEXT NOT NULL CHECK (kind IN ('body', 'frontmatter')),
     type TEXT NOT NULL CHECK (type IN ('path', 'url', 'anchor')),
     raw TEXT NOT NULL,
-    -- The notebook key a path link resolves to; null for a path that leaves the notebook, and for every other type.
+    -- The workspace key a path link resolves to; null for a path that leaves the workspace, and for every other type.
     target TEXT NULL CHECK (type = 'path' OR target IS NULL)
 );
 

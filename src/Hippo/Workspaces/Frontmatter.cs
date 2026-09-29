@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
-namespace Hippo.Notebooks;
+namespace Hippo.Workspaces;
 
 /// <summary>The frontmatter of a markdown file as a JSON object, or why it could not be read. Both are null when the
 /// file has no frontmatter.</summary>

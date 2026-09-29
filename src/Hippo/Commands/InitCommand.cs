@@ -1,15 +1,15 @@
 using System.CommandLine;
-using Hippo.Notebooks;
+using Hippo.Workspaces;
 
 namespace Hippo.Commands;
 
-/// <summary>Makes the working directory a notebook by writing a starter <c>.hippo/config.json</c>. Unlike the other commands
-/// it needs no notebook, so it does not open a <see cref="NotebookSession"/>.</summary>
+/// <summary>Makes the working directory a workspace by writing a starter <c>.hippo/config.json</c>. Unlike the other commands
+/// it needs no workspace, so it does not open a <see cref="WorkspaceSession"/>.</summary>
 internal static class InitCommand
 {
     public static Command Build()
     {
-        var command = new Command("init", $"Make the current folder a notebook by writing a starter {NotebookConfig.RelativePath}");
+        var command = new Command("init", $"Make the current folder a workspace by writing a starter {WorkspaceConfig.RelativePath}");
         command.SetAction(result =>
         {
             var output = result.InvocationConfiguration.Output;
@@ -17,14 +17,14 @@ internal static class InitCommand
             try
             {
                 var directory = Path.TrimEndingDirectorySeparator(Directory.GetCurrentDirectory());
-                var path = NotebookConfig.PathIn(directory);
-                // Found before the config is written, so it is the enclosing notebook, if any, and never this folder.
-                var enclosing = Notebook.FindRoot(directory);
+                var path = WorkspaceConfig.PathIn(directory);
+                // Found before the config is written, so it is the enclosing workspace, if any, and never this folder.
+                var enclosing = Workspace.FindRoot(directory);
                 Write(path);
 
                 if (enclosing is not null)
                 {
-                    error.WriteLine($"hippo: warning: {Format.Safe(directory)} is inside the notebook at {Format.Safe(enclosing)}, " +
+                    error.WriteLine($"hippo: warning: {Format.Safe(directory)} is inside the workspace at {Format.Safe(enclosing)}, " +
                         "which may still index its files; exclude this folder there to keep them apart");
                 }
                 output.WriteLine($"Created {Format.Safe(path)}. Edit it to choose which files are indexed, then run hippo index.");
@@ -72,7 +72,7 @@ internal static class InitCommand
             using (stream)
             using (var writer = new StreamWriter(stream))
             {
-                writer.Write(NotebookConfig.Starter);
+                writer.Write(WorkspaceConfig.Starter);
             }
         }
         catch (Exception ex)

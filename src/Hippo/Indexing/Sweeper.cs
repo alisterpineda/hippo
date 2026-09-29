@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.IO.Enumeration;
 using System.Security.Cryptography;
 using Dapper;
-using Hippo.Notebooks;
+using Hippo.Workspaces;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.FileSystemGlobbing;
 
@@ -15,10 +15,10 @@ internal sealed record SweepResult(
     DateTimeOffset FinishedAt, TimeSpan Elapsed, IReadOnlyList<string> Warnings);
 
 /// <summary>
-/// Brings the <c>files</c> and <c>links</c> tables in line with the notebook on disk: enumerate, stat, re-hash only when
+/// Brings the <c>files</c> and <c>links</c> tables in line with the workspace on disk: enumerate, stat, re-hash only when
 /// mtime or size changed or the row is racy, re-parse only when the hash changed, and drop rows for files that are gone.
 /// A change to the settings that shape links re-parses every page. Every write is idempotent, so several processes may
-/// sweep the same notebook at once.
+/// sweep the same workspace at once.
 /// </summary>
 internal static class Sweeper
 {
@@ -51,7 +51,7 @@ internal static class Sweeper
 
     private const string LinkSettingsKey = "links";
 
-    public static SweepResult Run(Notebook notebook, SqliteConnection db, bool rebuild, TimeProvider clock)
+    public static SweepResult Run(Workspace workspace, SqliteConnection db, bool rebuild, TimeProvider clock)
     {
         var stopwatch = Stopwatch.StartNew();
         // Read once, before any file is listed, so it is no later than any read below; an earlier time can only make a
@@ -60,7 +60,7 @@ internal static class Sweeper
         var warnings = new List<string>();
         // Links extracted under other settings would resolve differently now, so every page is parsed again. Only
         // pages have links, so every other file is still skipped when its stats show it unchanged.
-        var settings = notebook.Config.LinkSettings;
+        var settings = workspace.Config.LinkSettings;
         var linkSettings = settings.Fingerprint;
         var relink = db.QuerySingleOrDefault<string>("SELECT value FROM meta WHERE key = @LinkSettingsKey", new { LinkSettingsKey }) != linkSettings;
         // A page that cannot be read keeps its old links, so the new settings are recorded only once every page was
@@ -72,10 +72,10 @@ internal static class Sweeper
         var rows = new List<ParsedFile>();
         var stats = new List<StatRow>();
         int added = 0, updated = 0, hashed = 0;
-        foreach (var file in Enumerate(notebook))
+        foreach (var file in Enumerate(workspace))
         {
             known.TryGetValue(file.Path, out var previous);
-            var reparse = rebuild || relink && Notebook.IsMarkdown(file.Path);
+            var reparse = rebuild || relink && Workspace.IsMarkdown(file.Path);
             if (!reparse && previous is not null && Unchanged(previous, file))
             {
                 seen.Add(file.Path);
@@ -88,7 +88,7 @@ internal static class Sweeper
             string hash;
             try
             {
-                if (Notebook.IsMarkdown(file.Path))
+                if (Workspace.IsMarkdown(file.Path))
                 {
                     content = File.ReadAllBytes(file.FullPath);
                     hash = Convert.ToHexStringLower(SHA256.HashData(content));
@@ -108,7 +108,7 @@ internal static class Sweeper
                 // Its row, if any, stays as it was until the file can be read again.
                 warnings.Add($"cannot read {file.Path}: {ex.Message}");
                 seen.Add(file.Path);
-                unreadPage |= Notebook.IsMarkdown(file.Path);
+                unreadPage |= Workspace.IsMarkdown(file.Path);
                 continue;
             }
             seen.Add(file.Path);
@@ -220,7 +220,7 @@ internal static class Sweeper
     private static ParsedFile Parse(LinkSettings settings, DiskFile file, string hash, long hashedAt, byte[]? content, out string? bodyError)
     {
         bodyError = null;
-        if (!Notebook.IsMarkdown(file.Path))
+        if (!Workspace.IsMarkdown(file.Path))
         {
             return new ParsedFile(new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "plain", null, null), []);
         }
@@ -233,10 +233,10 @@ internal static class Sweeper
 
     /// <summary>Lists the included files under the root. Symbolic links are skipped, so nothing outside the root is
     /// read, and a folder that an exclude pattern ending in <c>/**</c> covers is never entered.</summary>
-    private static List<DiskFile> Enumerate(Notebook notebook)
+    private static List<DiskFile> Enumerate(Workspace workspace)
     {
-        var root = notebook.Root;
-        var pruned = notebook.Config.Exclude
+        var root = workspace.Root;
+        var pruned = workspace.Config.Exclude
             .Where(pattern => pattern.EndsWith("/**", StringComparison.Ordinal))
             .Select(pattern =>
             {
@@ -274,9 +274,9 @@ internal static class Sweeper
         }.ToList();
 
         var matcher = new Matcher(StringComparison.Ordinal);
-        matcher.AddIncludePatterns(notebook.Config.Include);
-        matcher.AddExcludePatterns(notebook.Config.Exclude);
-        var included = notebook.Match(matcher, files.Select(f => f.FullPath));
+        matcher.AddIncludePatterns(workspace.Config.Include);
+        matcher.AddExcludePatterns(workspace.Config.Exclude);
+        var included = workspace.Match(matcher, files.Select(f => f.FullPath));
         return files.Where(f => included.Contains(f.Path)).ToList();
     }
 
@@ -286,6 +286,6 @@ internal static class Sweeper
     {
         var directory = entry.Directory[entry.RootDirectory.Length..].TrimStart(['/', '\\']);
         var path = directory.IsEmpty ? entry.FileName.ToString() : $"{directory}/{entry.FileName}";
-        return Notebook.Key(path);
+        return Workspace.Key(path);
     }
 }

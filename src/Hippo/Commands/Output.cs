@@ -50,7 +50,7 @@ internal static class Format
 
     /// <summary>
     /// Replaces control characters other than tab with visible <c>\xNN</c> escapes. File names, YAML keys and the
-    /// messages that quote them come from the notebook, and printed raw they could drive the terminal (retitle it,
+    /// messages that quote them come from the workspace, and printed raw they could drive the terminal (retitle it,
     /// write the clipboard, rewrite earlier output).
     /// </summary>
     public static string Safe(string text)

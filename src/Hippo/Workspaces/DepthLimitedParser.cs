@@ -1,7 +1,7 @@
 using YamlDotNet.Core;
 using YamlDotNet.Core.Events;
 
-namespace Hippo.Notebooks;
+namespace Hippo.Workspaces;
 
 /// <summary>
 /// Passes a YAML parser's events through, throwing a <see cref="YamlException"/> once mappings and sequences nest

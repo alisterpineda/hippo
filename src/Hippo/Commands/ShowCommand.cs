@@ -8,15 +8,15 @@ internal static class ShowCommand
 {
     public static Command Build()
     {
-        var path = new Argument<string>("path") { Description = "A file in the notebook, relative to the working directory" };
-        var command = new Command("show", "Show what the index holds for one file") { path, NotebookSession.JsonOption };
-        command.SetAction(result => NotebookSession.Run(result, rebuild: false, session =>
+        var path = new Argument<string>("path") { Description = "A file in the workspace, relative to the working directory" };
+        var command = new Command("show", "Show what the index holds for one file") { path, WorkspaceSession.JsonOption };
+        command.SetAction(result => WorkspaceSession.Run(result, rebuild: false, session =>
         {
-            var relative = session.Notebook.KeyOf(result.GetValue(path)!);
+            var relative = session.Workspace.KeyOf(result.GetValue(path)!);
             var file = FileQueries.Get(session.Db, relative) ?? throw new HippoException($"{relative} is not in the index");
             JsonElement? frontmatter = file.Frontmatter is null ? null : JsonDocument.Parse(file.Frontmatter).RootElement.Clone();
 
-            if (result.GetValue(NotebookSession.JsonOption))
+            if (result.GetValue(WorkspaceSession.JsonOption))
             {
                 var output = new ShowOutput(file.Path, file.Kind, file.Size, Format.Modified(file.Mtime), file.Hash, frontmatter, file.ParseError);
                 session.Output.WriteLine(JsonSerializer.Serialize(output, OutputJson.Default.ShowOutput));

@@ -2,7 +2,7 @@ using System.Buffers;
 using System.Text;
 using System.Text.Json;
 
-namespace Hippo.Notebooks;
+namespace Hippo.Workspaces;
 
 /// <summary>What a relative link resolves against: the folder of the page it is on, or the root of that page's bundle.</summary>
 internal enum LinkBase
@@ -74,16 +74,16 @@ internal sealed record LinkSettings(IReadOnlyList<string> Bundles, LinkBase Body
 
 /// <summary>
 /// The parts of <c>.hippo/config.json</c> this hippo understands. Keys it does not know, such as those a later phase
-/// adds, are ignored so an older hippo still runs against a newer notebook. Comments and trailing commas are allowed.
+/// adds, are ignored so an older hippo still runs against a newer workspace. Comments and trailing commas are allowed.
 /// </summary>
-internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyList<string> Exclude)
+internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyList<string> Exclude)
 {
-    /// <summary>The folder at the notebook root that holds <see cref="FileName"/>.</summary>
+    /// <summary>The folder at the workspace root that holds <see cref="FileName"/>.</summary>
     public const string Folder = ".hippo";
 
     public const string FileName = "config.json";
 
-    /// <summary>The config's path relative to the notebook root, as messages show it.</summary>
+    /// <summary>The config's path relative to the workspace root, as messages show it.</summary>
     public const string RelativePath = Folder + "/" + FileName;
 
     /// <summary>What <c>hippo init</c> writes: every file but the usual tool folders, with the other sections shown
@@ -122,9 +122,9 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
         MaxDepth = MaxDepth,
     };
 
-    public static NotebookConfig Default { get; } = new(["**/*"], []);
+    public static WorkspaceConfig Default { get; } = new(["**/*"], []);
 
-    /// <summary>Bundle roots, relative to the notebook root without leading or trailing <c>/</c>.</summary>
+    /// <summary>Bundle roots, relative to the workspace root without leading or trailing <c>/</c>.</summary>
     public IReadOnlyList<string> Bundles { get; init; } = [];
 
     public LinkConfig Links { get; init; } = LinkConfig.Default;
@@ -132,10 +132,10 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
     /// <summary>The settings that shape the links stored for a page.</summary>
     public LinkSettings LinkSettings => new(Bundles, Links.Body, Links.Frontmatter);
 
-    /// <summary>The config's full path in the notebook at <paramref name="root"/>.</summary>
+    /// <summary>The config's full path in the workspace at <paramref name="root"/>.</summary>
     public static string PathIn(string root) => Path.Combine(root, Folder, FileName);
 
-    public static NotebookConfig Parse(string json)
+    public static WorkspaceConfig Parse(string json)
     {
         if (HasNoTokens(json))
         {
@@ -185,7 +185,7 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
         }
     }
 
-    private static NotebookConfig ParseFiles(NotebookConfig config, JsonElement element)
+    private static WorkspaceConfig ParseFiles(WorkspaceConfig config, JsonElement element)
     {
         foreach (var (key, value) in Object("files", element))
         {
@@ -204,7 +204,7 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
 
     private static List<string> ParseBundles(JsonElement element)
     {
-        const string usage = "bundles must be an array of objects, each with a root folder inside the notebook";
+        const string usage = "bundles must be an array of objects, each with a root folder inside the workspace";
         if (element.ValueKind != JsonValueKind.Array)
         {
             throw Error(usage);
@@ -247,7 +247,7 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
                     }
                     break;
                 case "wikilinks":
-                    // Resolving [[x]] is an open question; until it is settled, a notebook asking for it is told so
+                    // Resolving [[x]] is an open question; until it is settled, a workspace asking for it is told so
                     // rather than getting answers that silently ignore its wikilinks.
                     if (String(value) != "text")
                     {
