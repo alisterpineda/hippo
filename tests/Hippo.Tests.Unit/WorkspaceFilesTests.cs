@@ -42,7 +42,7 @@ public sealed class WorkspaceFilesTests : IDisposable
     [Fact]
     public void A_file_has_its_full_path_size_and_mtime()
     {
-        var path = _workspace.Write("wiki/a.md", "# A\n");
+        var path = _workspace.Write(Path.Combine("wiki", "a.md"), "# A\n");
         var mtime = new DateTimeOffset(2026, 9, 1, 12, 30, 0, TimeSpan.Zero);
         File.SetLastWriteTimeUtc(path, mtime.UtcDateTime);
 

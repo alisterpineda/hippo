@@ -101,6 +101,18 @@ public sealed class TempWorkspace : IDisposable
     {
         try
         {
+            // git writes its objects read-only, and Windows will not delete a read-only file.
+            if (OperatingSystem.IsWindows())
+            {
+                foreach (var file in Directory.EnumerateFiles(_dir, "*", SearchOption.AllDirectories))
+                {
+                    var attributes = File.GetAttributes(file);
+                    if (attributes.HasFlag(FileAttributes.ReadOnly))
+                    {
+                        File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+                    }
+                }
+            }
             Directory.Delete(_dir, recursive: true);
         }
         catch (IOException)

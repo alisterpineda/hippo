@@ -12,9 +12,9 @@ public class CacheLocationTests
     {
         var path = CacheLocation.DatabasePath("/notes", Env(("HIPPO_CACHE_DIR", "/tmp/cache"), ("HOME", "/home/me")));
 
-        Assert.Equal("index.db", Path.GetFileName(path));
-        Assert.Equal("/tmp/cache", Path.GetDirectoryName(Path.GetDirectoryName(path)));
-        Assert.Matches("^[0-9a-f]{64}$", Path.GetFileName(Path.GetDirectoryName(path)));
+        var hash = Path.GetFileName(Path.GetDirectoryName(path))!;
+        Assert.Matches("^[0-9a-f]{64}$", hash);
+        Assert.Equal(Path.Combine("/tmp/cache", hash, "index.db"), path);
     }
 
     [Fact]
