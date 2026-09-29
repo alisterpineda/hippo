@@ -19,11 +19,12 @@ internal sealed record Link(int Line, string Kind, string Type, string Raw, stri
 /// <see cref="Links"/> holds only its frontmatter links.</summary>
 internal sealed record ParsedPage(FrontmatterResult Frontmatter, List<Link> Links, string? BodyError = null);
 
-/// <summary>Parses a markdown page: its frontmatter, and its links from the body (through Markdig) and from the
-/// frontmatter fields the config names, each resolved per the config.</summary>
+/// <summary>Parses a markdown page: its frontmatter, and its links from the body (through Markdig), resolved from the
+/// page's folder (or its bundle root when they start with <c>/</c>), and from the frontmatter fields the config names,
+/// each resolved per the config.</summary>
 internal static partial class Page
 {
-    // Plain CommonMark: [[x]] stays text, as links.wikilinks: text requires.
+    // Plain CommonMark: [[x]] stays text.
     private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().UsePreciseSourceLocation().Build();
 
     public static ParsedPage Parse(string path, ReadOnlySpan<byte> utf8, LinkSettings settings) =>
@@ -64,13 +65,13 @@ internal static partial class Page
             switch (node)
             {
                 case LinkInline link:
-                    links.Add(Resolve(path, bundle, settings.Body, line, "body", link.Url ?? "", isUrl: true));
+                    links.Add(Resolve(path, bundle, LinkBase.Page, line, "body", link.Url ?? "", isUrl: true));
                     break;
                 case AutolinkInline { IsEmail: true } email:
                     links.Add(new Link(line, "body", "url", email.Url, null));
                     break;
                 case AutolinkInline autolink:
-                    links.Add(Resolve(path, bundle, settings.Body, line, "body", autolink.Url, isUrl: true));
+                    links.Add(Resolve(path, bundle, LinkBase.Page, line, "body", autolink.Url, isUrl: true));
                     break;
             }
         }

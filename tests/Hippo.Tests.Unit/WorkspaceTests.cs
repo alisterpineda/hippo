@@ -62,26 +62,19 @@ public class WorkspaceTests
 
         Assert.Equal(["**/*"], config.Include);
         Assert.Equal([".git/**", ".obsidian/**", ".trash/**"], config.Exclude);
-        Assert.Equal(WorkspaceConfig.Default.LinkSettings.Fingerprint, config.LinkSettings.Fingerprint);
+        Assert.Equal(WorkspaceConfig.Default.Links.Fingerprint, config.Links.Fingerprint);
     }
 
     [Fact]
     public void The_starter_configs_commented_examples_parse()
     {
         var uncommented = System.Text.RegularExpressions.Regex.Replace(WorkspaceConfig.Starter, "^( *)// ", "$1",
-            System.Text.RegularExpressions.RegexOptions.Multiline)
-            // The example's page is the default, so it is swapped for bundle to show the line was actually read.
-            .Replace("\"body\": { \"resolve\": \"page\" }", "\"body\": { \"resolve\": \"bundle\" }");
-
-        Assert.DoesNotContain("\"page\"", uncommented);
+            System.Text.RegularExpressions.RegexOptions.Multiline);
 
         var config = WorkspaceConfig.Parse(uncommented);
 
-        // Every commented key is checked, since a misspelt one would be ignored rather than rejected.
-        Assert.Equal(["wiki"], config.Bundles);
-        Assert.Equal(LinkBase.Bundle, config.Links.Body);
+        Assert.Equal(["wiki"], config.Links.Bundles);
         Assert.Equal([("sources[].resource", LinkBase.Bundle)], config.Links.Frontmatter.Select(f => (f.Field, f.Resolve)));
-        Assert.Equal(["wiki/index.md"], config.Links.Roots);
     }
 
     [Fact]
@@ -98,7 +91,7 @@ public class WorkspaceTests
     [Fact]
     public void Without_a_files_section_everything_is_included()
     {
-        var config = WorkspaceConfig.Parse("""{ "links": { "roots": ["index.md"] } }""");
+        var config = WorkspaceConfig.Parse("""{ "links": { "bundles": ["wiki"] } }""");
 
         Assert.Equal(["**/*"], config.Include);
         Assert.Empty(config.Exclude);
@@ -131,69 +124,57 @@ public class WorkspaceTests
         Assert.Equal(["**/*.md"], config.Include);
     }
 
-    [Fact]
-    public void Unknown_keys_are_ignored()
+    [Theory]
+    [InlineData("""{ "fils": {} }""", "unknown key fils; expected files or links")]
+    [InlineData("""{ "files": { "exlcude": [] } }""", "unknown key files.exlcude; expected include or exclude")]
+    [InlineData("""{ "links": { "roots": [] } }""", "unknown key links.roots; expected bundles or frontmatter")]
+    [InlineData("""{ "links": { "frontmatter": [{ "field": "a", "reslove": "page" }] } }""", "unknown key links.frontmatter[].reslove")]
+    public void Unknown_keys_are_errors_that_name_the_key(string json, string message)
     {
-        var config = WorkspaceConfig.Parse("""
-            {
-              "files": { "include": ["**/*.md"], "typo": true },
-              "ids": { "field": "sources[].id" },
-              "links": { "typo": 1, "body": { "resolve": "bundle", "typo": 2 } }
-            }
-            """);
+        var ex = Assert.Throws<HippoException>(() => WorkspaceConfig.Parse(json));
 
-        Assert.Equal(["**/*.md"], config.Include);
-        Assert.Equal(LinkBase.Bundle, config.Links.Body);
+        Assert.Contains(message, ex.Message);
     }
 
     [Fact]
-    public void Bundles_and_links_are_read()
+    public void Links_are_read()
     {
         var config = WorkspaceConfig.Parse("""
             {
-              "bundles": [{ "root": "wiki" }, { "root": "/docs/" }],
               "links": {
-                "body": { "resolve": "bundle" },
-                "wikilinks": "text",
+                "bundles": ["wiki", "/docs/"],
                 "frontmatter": [
                   { "field": "sources[].resource", "resolve": "bundle" },
                   { "field": "related[]" }
-                ],
-                "roots": ["wiki/index.md"]
+                ]
               }
             }
             """);
 
-        Assert.Equal(["wiki", "docs"], config.Bundles);
-        Assert.Equal(LinkBase.Bundle, config.Links.Body);
+        Assert.Equal(["wiki", "docs"], config.Links.Bundles);
         Assert.Equal(
             [("sources[].resource", LinkBase.Bundle), ("related[]", LinkBase.Page)],
             config.Links.Frontmatter.Select(f => (f.Field, f.Resolve)));
-        Assert.Equal(["wiki/index.md"], config.Links.Roots);
     }
 
     [Fact]
-    public void Without_a_links_section_body_links_resolve_from_the_page()
+    public void Without_a_links_section_there_are_no_bundles_or_frontmatter_links()
     {
         var config = WorkspaceConfig.Parse("""{ "files": { "include": ["**/*"] } }""");
 
-        Assert.Empty(config.Bundles);
-        Assert.Equal(LinkBase.Page, config.Links.Body);
+        Assert.Empty(config.Links.Bundles);
         Assert.Empty(config.Links.Frontmatter);
-        Assert.Empty(config.Links.Roots);
     }
 
     [Theory]
-    [InlineData("""{ "bundles": "wiki" }""", "bundles")]
-    [InlineData("""{ "bundles": [{ "root": "../outside" }] }""", "bundles")]
-    [InlineData("""{ "bundles": [{}] }""", "bundles")]
-    [InlineData("""{ "bundles": [{ "root": 1 }] }""", "bundles")]
-    [InlineData("""{ "links": { "body": { "resolve": "folder" } } }""", "links.body.resolve")]
-    [InlineData("""{ "links": { "wikilinks": "resolve" } }""", "links.wikilinks")]
+    [InlineData("""{ "links": { "bundles": "wiki" } }""", "links.bundles")]
+    [InlineData("""{ "links": { "bundles": ["../outside"] } }""", "links.bundles")]
+    [InlineData("""{ "links": { "bundles": ["/"] } }""", "links.bundles")]
+    [InlineData("""{ "links": { "bundles": [{ "root": "wiki" }] } }""", "links.bundles")]
     [InlineData("""{ "links": { "frontmatter": [{ "resolve": "page" }] } }""", "links.frontmatter")]
     [InlineData("""{ "links": { "frontmatter": [{ "field": "a..b" }] } }""", "links.frontmatter")]
     [InlineData("""{ "links": { "frontmatter": [{ "field": "a[]b" }] } }""", "links.frontmatter")]
-    [InlineData("""{ "links": { "roots": "wiki/index.md" } }""", "links.roots")]
+    [InlineData("""{ "links": { "frontmatter": [{ "field": "a", "resolve": "folder" }] } }""", "links.frontmatter[].resolve")]
     public void Malformed_link_settings_are_errors(string json, string key)
     {
         var ex = Assert.Throws<HippoException>(() => WorkspaceConfig.Parse(json));
@@ -204,9 +185,8 @@ public class WorkspaceTests
     [Theory]
     [InlineData("""{ "files": { "include": ["**/*.md", 1] } }""", "files.include")]
     [InlineData("""{ "files": { "exclude": [true] } }""", "files.exclude")]
-    [InlineData("""{ "links": { "roots": [null] } }""", "links.roots")]
+    [InlineData("""{ "links": { "bundles": [null] } }""", "links.bundles")]
     [InlineData("""{ "links": { "frontmatter": [{ "field": 1 }] } }""", "links.frontmatter")]
-    [InlineData("""{ "links": { "body": { "resolve": true } } }""", "links.body.resolve")]
     [InlineData("""{ "links": { "frontmatter": [{ "field": "a", "resolve": null }] } }""", "links.frontmatter[].resolve")]
     public void Values_that_are_not_strings_are_errors(string json, string key)
     {
@@ -218,14 +198,13 @@ public class WorkspaceTests
     [Fact]
     public void The_link_fingerprint_changes_with_the_settings_that_shape_links_only()
     {
-        string Fingerprint(string json) => WorkspaceConfig.Parse(json).LinkSettings.Fingerprint;
-        var baseline = Fingerprint("""{ "bundles": [{ "root": "wiki" }], "links": { "frontmatter": [{ "field": "a" }] } }""");
+        string Fingerprint(string json) => WorkspaceConfig.Parse(json).Links.Fingerprint;
+        var baseline = Fingerprint("""{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "a" }] } }""");
 
-        Assert.Equal(baseline, Fingerprint("""{ "bundles": [{ "root": "wiki" }], "links": { "frontmatter": [{ "field": "a" }], "roots": ["x.md"] }, "files": { "exclude": ["y/**"] } }"""));
-        Assert.NotEqual(baseline, Fingerprint("""{ "bundles": [{ "root": "docs" }], "links": { "frontmatter": [{ "field": "a" }] } }"""));
-        Assert.NotEqual(baseline, Fingerprint("""{ "bundles": [{ "root": "wiki" }], "links": { "frontmatter": [{ "field": "a", "resolve": "bundle" }] } }"""));
-        Assert.NotEqual(baseline, Fingerprint("""{ "bundles": [{ "root": "wiki" }], "links": { "body": { "resolve": "bundle" }, "frontmatter": [{ "field": "a" }] } }"""));
-        Assert.NotEqual(baseline, Fingerprint("""{ "bundles": [{ "root": "wiki" }], "links": { "frontmatter": [{ "field": "b" }] } }"""));
+        Assert.Equal(baseline, Fingerprint("""{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "a" }] }, "files": { "exclude": ["y/**"] } }"""));
+        Assert.NotEqual(baseline, Fingerprint("""{ "links": { "bundles": ["docs"], "frontmatter": [{ "field": "a" }] } }"""));
+        Assert.NotEqual(baseline, Fingerprint("""{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "a", "resolve": "bundle" }] } }"""));
+        Assert.NotEqual(baseline, Fingerprint("""{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "b" }] } }"""));
     }
 
     [Fact]

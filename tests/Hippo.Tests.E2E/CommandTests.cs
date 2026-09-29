@@ -405,14 +405,14 @@ public sealed class CommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Unknown_keys_are_ignored_silently()
+    public async Task A_misspelt_key_is_an_error_that_names_it()
     {
-        _workspace.Write(".hippo/config.json", """{ "ids": { "field": "sources[].id" } }""");
+        _workspace.Write(".hippo/config.json", """{ "files": { "exlcude": ["inbox/**"] } }""");
 
         var result = await _workspace.RunAsync("status");
 
-        Assert.Equal(0, result.ExitCode);
-        Assert.Equal("", result.Stderr);
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains(".hippo/config.json: unknown key files.exlcude; expected include or exclude", result.Stderr);
     }
 
     [Fact]

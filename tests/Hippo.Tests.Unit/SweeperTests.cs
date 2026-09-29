@@ -542,15 +542,15 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void Changing_the_link_settings_extracts_every_pages_links_again()
     {
-        _workspace.Write("wiki/topics/a.md", "---\nsource: /x.md\n---\n[b](b.md)\n");
+        _workspace.Write("wiki/topics/a.md", "---\nsource: x.md\n---\n[b](/b.md)\n");
         Sweep();
         var before = Links();
 
-        _workspace.Write(".hippo/config.json", """{ "bundles": [{ "root": "wiki" }], "links": { "body": { "resolve": "bundle" }, "frontmatter": [{ "field": "source" }] } }""");
+        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "source", "resolve": "bundle" }] } }""");
         var changed = Sweep();
         var after = Sweep();
 
-        Assert.Equal(["wiki/topics/b.md"], before.Select(l => l.Target));
+        Assert.Equal(["b.md"], before.Select(l => l.Target));
         Assert.Equal(["wiki/x.md", "wiki/b.md"], Links().Select(l => l.Target));
         Assert.True(changed.Rebuilt);
         Assert.False(after.Rebuilt);
@@ -563,7 +563,7 @@ public sealed class SweeperTests : IDisposable
         _workspace.Write("raw/image.png", "png");
         Sweep();
 
-        _workspace.Write(".hippo/config.json", """{ "bundles": [{ "root": "raw" }] }""");
+        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["raw"] } }""");
         var changed = Sweep();
 
         // The page, and the settings file that changed.
@@ -580,7 +580,7 @@ public sealed class SweeperTests : IDisposable
         var before = _db.Query<string>("SELECT path || '=' || id FROM files ORDER BY path").AsList();
         File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddMinutes(1));
 
-        _workspace.Write(".hippo/config.json", """{ "bundles": [{ "root": "raw" }] }""");
+        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["raw"] } }""");
         var changed = Sweep();
         var after = Sweep();
 
@@ -598,7 +598,7 @@ public sealed class SweeperTests : IDisposable
         MakeUnreadable(path);
         try
         {
-            _workspace.Write(".hippo/config.json", """{ "bundles": [{ "root": "wiki" }] }""");
+            _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["wiki"] } }""");
             var locked = Sweep();
             Assert.Contains(locked.Warnings, w => w.Contains("wiki/a.md"));
         }
@@ -632,7 +632,7 @@ public sealed class SweeperTests : IDisposable
     {
         _workspace.Write("a.md", "[b](b.md)\n");
         Sweep();
-        _workspace.Write(".hippo/config.json", """{ "links": { "roots": ["a.md"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "files": { "exclude": ["inbox/**"] } }""");
 
         Assert.False(Sweep().Rebuilt);
     }

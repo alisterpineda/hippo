@@ -19,10 +19,10 @@ hippo refs <path>            the links out of a file: line, kind, and file, miss
 hippo backrefs <path> [--kind body|frontmatter] [--transitive]
                              the links into a path; --transitive lists every file that reaches it
 hippo broken                 links whose target is not an indexed file
-hippo orphans                pages no other file links to, except the declared roots
+hippo orphans                pages with no link to or from another file
 ```
 
-`.hippo/config.json` chooses which files are indexed and how links resolve. It is JSON that may hold `//` and `/* */` comments and trailing commas:
+`.hippo/config.json` chooses which files are indexed and how links resolve. It is JSON that may hold `//` and `/* */` comments and trailing commas, and a key hippo does not know is an error:
 
 ```jsonc
 {
@@ -30,22 +30,19 @@ hippo orphans                pages no other file links to, except the declared r
     "include": ["**/*"],
     "exclude": [".git/**", ".obsidian/**", ".trash/**"]
   },
-  "bundles": [
-    { "root": "wiki" }                  // a leading "/" in a link resolves against this folder
-  ],
   "links": {
-    "body": { "resolve": "page" },      // page (the page's own folder) or bundle (its bundle root)
-    "wikilinks": "text",                // [[x]] is plain text, not a link
+    "bundles": ["wiki"],                // a leading "/" in a link on a page in wiki resolves against wiki
     "frontmatter": [
       {
         "field": "sources[].resource",  // dotted for nested mappings; [] for each element of a list
-        "resolve": "bundle"
+        "resolve": "bundle"             // page (the page's own folder, the default) or bundle (its bundle root)
       }
-    ],
-    "roots": ["wiki/index.md"]          // pages that are not orphans without inbound links
+    ]
   }
 }
 ```
+
+A bundle is a folder whose pages treat it as their root: a leading `/` in a link resolves against the deepest bundle holding the page, or against the workspace root for a page in none. Other body links resolve from the page's folder; `[[x]]` is plain text, not a link. An orphan is a page with no link to or from another indexed file; links to itself, URLs, anchors and missing targets do not count.
 
 Body links are CommonMark links, images, reference links and autolinks; their destinations are URLs, so percent-encoding is decoded and a query or fragment dropped. Frontmatter values are literal paths: nothing is decoded and a `?` is part of the path, but a `#` still starts a fragment that is dropped, so a frontmatter value cannot name a file with `#` in its name. A link with a scheme is a URL, one starting with `#` is anchor-only, and any other is a file when it resolves to an indexed file and missing otherwise.
 
@@ -55,7 +52,7 @@ The index lives in `<user cache>/hippo/<hash of workspace root>/index.db`; set `
 
 - **Pathological markdown parses slowly.** A long run of text with no spaces or line breaks that holds many unclosed `[x](` takes time that grows with the square of its length: about 1 s at 50 KB and 14 s at 200 KB. Ordinary pages, even large ones full of links, parse in milliseconds. The cost is paid when the file changes, not on every command, and the answers stay correct. Minified code pasted outside a code block is the realistic way to hit it.
 - **A page Markdig cannot parse has no body links.** Blocks nested past Markdig's depth limit make it give up on the page; hippo warns, keeps the page's frontmatter links, and indexes the rest of the workspace.
-- **An unreadable page after a link-settings change slows every command.** Changing `bundles` or `links` makes hippo re-read every page to redo its links. If a page cannot be read then, hippo keeps its old links and does not record the new settings as applied, so each later command re-reads every page again, with a warning naming the file, until that page can be read. The answers stay correct; fixing the file's permissions ends it.
+- **An unreadable page after a link-settings change slows every command.** Changing `links` makes hippo re-read every page to redo its links. If a page cannot be read then, hippo keeps its old links and does not record the new settings as applied, so each later command re-reads every page again, with a warning naming the file, until that page can be read. The answers stay correct; fixing the file's permissions ends it.
 - **A same-size edit can hide on a skewed clock.** hippo re-reads a file whose mtime is within 2 s of when it was last read, which catches an edit made in the same mtime tick. On a filesystem whose clock is more than 2 s off this machine's, such as some network shares, such an edit can still be missed; `hippo index --rebuild` re-reads everything.
 - **A file dated in the future is re-read on every command** until the clock passes its mtime, though its row is not rewritten.
 

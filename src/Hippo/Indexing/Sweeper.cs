@@ -60,7 +60,7 @@ internal static class Sweeper
         var warnings = new List<string>();
         // Links extracted under other settings would resolve differently now, so every page is parsed again. Only
         // pages have links, so every other file is still skipped when its stats show it unchanged.
-        var settings = workspace.Config.LinkSettings;
+        var settings = workspace.Config.Links;
         var linkSettings = settings.Fingerprint;
         var relink = db.QuerySingleOrDefault<string>("SELECT value FROM meta WHERE key = @LinkSettingsKey", new { LinkSettingsKey }) != linkSettings;
         // A page that cannot be read keeps its old links, so the new settings are recorded only once every page was

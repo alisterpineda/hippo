@@ -1,10 +1,12 @@
 using System.Buffers;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 
 namespace Hippo.Workspaces;
 
-/// <summary>What a relative link resolves against: the folder of the page it is on, or the root of that page's bundle.</summary>
+/// <summary>What a relative frontmatter link resolves against: the folder of the page it is on, or the root of that
+/// page's bundle.</summary>
 internal enum LinkBase
 {
     Page,
@@ -24,19 +26,16 @@ internal sealed record FrontmatterLinkField(string Field, LinkBase Resolve)
     public bool IsValid => Parts.All(part => part.Name.Length > 0 && part.Name.IndexOfAny(['[', ']']) < 0);
 }
 
-/// <summary>The <c>links</c> section: how body links resolve, which frontmatter fields hold links, and the
-/// <see cref="Roots"/> (globs) that need no inbound link to not be orphans.</summary>
-internal sealed record LinkConfig(LinkBase Body, IReadOnlyList<FrontmatterLinkField> Frontmatter, IReadOnlyList<string> Roots)
-{
-    public static LinkConfig Default { get; } = new(LinkBase.Page, [], []);
-}
-
 /// <summary>
-/// Every setting that shapes the links stored for a page, and nothing else: all that <see cref="Page.Parse(string, string, LinkSettings)"/>
-/// reads, so a setting it comes to need is added here, beside the <see cref="Fingerprint"/> that must cover it.
+/// The <c>links</c> section: every setting that shapes the links stored for a page, and nothing else. It is all that
+/// <see cref="Page.Parse(string, string, LinkSettings)"/> reads, so a setting it comes to need is added here, beside the
+/// <see cref="Fingerprint"/> that must cover it. <see cref="Bundles"/> are folder roots, relative to the workspace root
+/// without leading or trailing <c>/</c>.
 /// </summary>
-internal sealed record LinkSettings(IReadOnlyList<string> Bundles, LinkBase Body, IReadOnlyList<FrontmatterLinkField> Frontmatter)
+internal sealed record LinkSettings(IReadOnlyList<string> Bundles, IReadOnlyList<FrontmatterLinkField> Frontmatter)
 {
+    public static LinkSettings Default { get; } = new([], []);
+
     /// <summary>These settings as one string. The index keeps the value its links were extracted under, and
     /// re-extracts them all when it differs.</summary>
     public string Fingerprint
@@ -53,7 +52,6 @@ internal sealed record LinkSettings(IReadOnlyList<string> Bundles, LinkBase Body
                     writer.WriteStringValue(bundle);
                 }
                 writer.WriteEndArray();
-                writer.WriteString("body", Name(Body));
                 writer.WriteStartArray("frontmatter");
                 foreach (var link in Frontmatter)
                 {
@@ -73,8 +71,8 @@ internal sealed record LinkSettings(IReadOnlyList<string> Bundles, LinkBase Body
 }
 
 /// <summary>
-/// The parts of <c>.hippo/config.json</c> this hippo understands. Keys it does not know, such as those a later phase
-/// adds, are ignored so an older hippo still runs against a newer workspace. Comments and trailing commas are allowed.
+/// <c>.hippo/config.json</c>. A key it does not know is an error, so a misspelt one is caught rather than silently
+/// left at its default. Comments and trailing commas are allowed.
 /// </summary>
 internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyList<string> Exclude)
 {
@@ -86,27 +84,23 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
     /// <summary>The config's path relative to the workspace root, as messages show it.</summary>
     public const string RelativePath = Folder + "/" + FileName;
 
-    /// <summary>What <c>hippo init</c> writes: every file but the usual tool folders, with the other sections shown
-    /// commented out. It mirrors the annotated example in README.md (less the default <c>"wikilinks": "text"</c>), so
-    /// change both together; a unit test parses the commented sections to catch stale syntax.</summary>
+    /// <summary>What <c>hippo init</c> writes: every file but the usual tool folders, with the <c>links</c> section
+    /// shown commented out. It mirrors the annotated example in README.md, so change both together; a unit test parses
+    /// the commented section to catch stale syntax.</summary>
     public const string Starter = """
         {
           "files": {
             "include": ["**/*"],
             "exclude": [".git/**", ".obsidian/**", ".trash/**"]
           },
-          // "bundles": [
-          //   { "root": "wiki" }                  // a leading "/" in a link resolves against this folder
-          // ],
           // "links": {
-          //   "body": { "resolve": "page" },      // page (the page's own folder) or bundle (its bundle root)
+          //   "bundles": ["wiki"],                // a leading "/" in a link on a page in wiki resolves against wiki
           //   "frontmatter": [
           //     {
           //       "field": "sources[].resource",  // dotted for nested mappings; [] for each element of a list
-          //       "resolve": "bundle"
+          //       "resolve": "bundle"             // page (the page's own folder, the default) or bundle (its bundle root)
           //     }
-          //   ],
-          //   "roots": ["wiki/index.md"]          // pages that are not orphans without inbound links
+          //   ]
           // }
         }
 
@@ -124,13 +118,7 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
 
     public static WorkspaceConfig Default { get; } = new(["**/*"], []);
 
-    /// <summary>Bundle roots, relative to the workspace root without leading or trailing <c>/</c>.</summary>
-    public IReadOnlyList<string> Bundles { get; init; } = [];
-
-    public LinkConfig Links { get; init; } = LinkConfig.Default;
-
-    /// <summary>The settings that shape the links stored for a page.</summary>
-    public LinkSettings LinkSettings => new(Bundles, Links.Body, Links.Frontmatter);
+    public LinkSettings Links { get; init; } = LinkSettings.Default;
 
     /// <summary>The config's full path in the workspace at <paramref name="root"/>.</summary>
     public static string PathIn(string root) => Path.Combine(root, Folder, FileName);
@@ -166,20 +154,14 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
             }
 
             var config = Default;
-            foreach (var property in document.RootElement.EnumerateObject())
+            foreach (var (key, value) in Properties(null, document.RootElement, "files", "links"))
             {
-                switch (property.Name)
+                config = key switch
                 {
-                    case "files":
-                        config = ParseFiles(config, property.Value);
-                        break;
-                    case "bundles":
-                        config = config with { Bundles = ParseBundles(property.Value) };
-                        break;
-                    case "links":
-                        config = config with { Links = ParseLinks(property.Value) };
-                        break;
-                }
+                    "files" => ParseFiles(config, value),
+                    "links" => config with { Links = ParseLinks(value) },
+                    _ => throw new UnreachableException(key),
+                };
             }
             return config;
         }
@@ -187,24 +169,36 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
 
     private static WorkspaceConfig ParseFiles(WorkspaceConfig config, JsonElement element)
     {
-        foreach (var (key, value) in Object("files", element))
+        foreach (var (key, value) in Object("files", element, "include", "exclude"))
         {
-            switch (key)
+            config = key switch
             {
-                case "include":
-                    config = config with { Include = Patterns("files.include", value) };
-                    break;
-                case "exclude":
-                    config = config with { Exclude = Patterns("files.exclude", value) };
-                    break;
-            }
+                "include" => config with { Include = Patterns("files.include", value) },
+                "exclude" => config with { Exclude = Patterns("files.exclude", value) },
+                _ => throw new UnreachableException(key),
+            };
         }
         return config;
     }
 
+    private static LinkSettings ParseLinks(JsonElement element)
+    {
+        var links = LinkSettings.Default;
+        foreach (var (key, value) in Object("links", element, "bundles", "frontmatter"))
+        {
+            links = key switch
+            {
+                "bundles" => links with { Bundles = ParseBundles(value) },
+                "frontmatter" => links with { Frontmatter = ParseFrontmatterLinks(value) },
+                _ => throw new UnreachableException(key),
+            };
+        }
+        return links;
+    }
+
     private static List<string> ParseBundles(JsonElement element)
     {
-        const string usage = "bundles must be an array of objects, each with a root folder inside the workspace";
+        const string usage = "links.bundles must be an array of folders inside the workspace";
         if (element.ValueKind != JsonValueKind.Array)
         {
             throw Error(usage);
@@ -213,56 +207,14 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
         var roots = new List<string>();
         foreach (var item in element.EnumerateArray())
         {
-            string? root = null;
-            foreach (var (key, value) in Object("bundles", item))
-            {
-                if (key == "root")
-                {
-                    root = String(value)?.Trim('/') ?? throw Error(usage);
-                }
-            }
-            if (root is null || root.Length == 0 || root.Split('/').Any(part => part is "" or "." or ".."))
+            var root = String(item)?.Trim('/') ?? throw Error(usage);
+            if (root.Length == 0 || root.Split('/').Any(part => part is "" or "." or ".."))
             {
                 throw Error(usage);
             }
             roots.Add(root);
         }
         return roots;
-    }
-
-    private static LinkConfig ParseLinks(JsonElement element)
-    {
-        var links = LinkConfig.Default;
-        foreach (var (key, value) in Object("links", element))
-        {
-            switch (key)
-            {
-                case "body":
-                    foreach (var (bodyKey, bodyValue) in Object("links.body", value))
-                    {
-                        if (bodyKey == "resolve")
-                        {
-                            links = links with { Body = Resolve("links.body.resolve", bodyValue) };
-                        }
-                    }
-                    break;
-                case "wikilinks":
-                    // Resolving [[x]] is an open question; until it is settled, a workspace asking for it is told so
-                    // rather than getting answers that silently ignore its wikilinks.
-                    if (String(value) != "text")
-                    {
-                        throw Error("links.wikilinks must be text; this version of hippo does not resolve wikilinks");
-                    }
-                    break;
-                case "frontmatter":
-                    links = links with { Frontmatter = ParseFrontmatterLinks(value) };
-                    break;
-                case "roots":
-                    links = links with { Roots = Patterns("links.roots", value) };
-                    break;
-            }
-        }
-        return links;
     }
 
     private static List<FrontmatterLinkField> ParseFrontmatterLinks(JsonElement element)
@@ -278,7 +230,7 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
         {
             string? field = null;
             var resolve = LinkBase.Page;
-            foreach (var (key, value) in Object("links.frontmatter", item))
+            foreach (var (key, value) in Object("links.frontmatter[]", item, "field", "resolve"))
             {
                 switch (key)
                 {
@@ -288,6 +240,8 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
                     case "resolve":
                         resolve = Resolve("links.frontmatter[].resolve", value);
                         break;
+                    default:
+                        throw new UnreachableException(key);
                 }
             }
             var link = field is null ? null : new FrontmatterLinkField(field, resolve);
@@ -307,13 +261,29 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
         _ => throw Error($"{key} must be page or bundle"),
     };
 
-    private static IEnumerable<(string Key, JsonElement Value)> Object(string key, JsonElement element)
+    private static IEnumerable<(string Key, JsonElement Value)> Object(string key, JsonElement element, params string[] known)
     {
         if (element.ValueKind != JsonValueKind.Object)
         {
             throw Error($"{key} must be an object");
         }
-        return element.EnumerateObject().Select(property => (property.Name, property.Value));
+        return Properties(key, element, known);
+    }
+
+    /// <summary>The properties of the object <paramref name="element"/> at <paramref name="key"/> (null for the top
+    /// level), each of which must be one of <paramref name="known"/>.</summary>
+    private static List<(string Key, JsonElement Value)> Properties(string? key, JsonElement element, params string[] known)
+    {
+        var properties = element.EnumerateObject().Select(property => (property.Name, property.Value)).ToList();
+        foreach (var (name, _) in properties)
+        {
+            if (!known.Contains(name))
+            {
+                var path = key is null ? name : $"{key}.{name}";
+                throw Error($"unknown key {path}; expected {string.Join(" or ", known)}");
+            }
+        }
+        return properties;
     }
 
     private static List<string> Patterns(string key, JsonElement element)

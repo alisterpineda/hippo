@@ -33,14 +33,14 @@ public sealed class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_leaves_an_existing_config_alone()
     {
-        File.WriteAllText(Config, """{ "links": { "roots": ["index.md"] } }""");
+        File.WriteAllText(Config, """{ "links": { "bundles": ["wiki"] } }""");
 
         var result = await _workspace.RunAsync("init");
 
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("already exists", result.Stderr);
         Assert.Equal("", result.Stdout);
-        Assert.Equal("""{ "links": { "roots": ["index.md"] } }""", File.ReadAllText(Config));
+        Assert.Equal("""{ "links": { "bundles": ["wiki"] } }""", File.ReadAllText(Config));
     }
 
     [Fact]

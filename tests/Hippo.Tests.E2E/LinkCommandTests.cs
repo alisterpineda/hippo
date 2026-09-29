@@ -21,12 +21,9 @@ public sealed class LinkCommandTests : IDisposable
     {
         _workspace.Write(".hippo/config.json", """
             {
-              "bundles": [{ "root": "wiki" }],
               "links": {
-                "body": { "resolve": "page" },
-                "wikilinks": "text",
-                "frontmatter": [{ "field": "sources[].resource", "resolve": "bundle" }],
-                "roots": ["wiki/index.md"]
+                "bundles": ["wiki"],
+                "frontmatter": [{ "field": "sources[].resource", "resolve": "bundle" }]
               }
             }
             """);
@@ -225,14 +222,14 @@ public sealed class LinkCommandTests : IDisposable
         _workspace.Write("wiki/b.md", "# B\n");
         await _workspace.RunAsync("index");
 
-        _workspace.Write(".hippo/config.json", """{ "bundles": [{ "root": "wiki" }] }""");
+        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["wiki"] } }""");
         var result = await _workspace.RunAsync("refs", "wiki/a.md");
 
         Assert.Equal(["1  body         file     wiki/b.md"], Lines(result.Stdout));
     }
 
     [Fact]
-    public async Task Orphans_lists_pages_nothing_links_to_except_roots_and_exits_1()
+    public async Task Orphans_lists_pages_with_no_link_in_or_out_and_exits_1()
     {
         WriteNotes();
 
@@ -247,7 +244,7 @@ public sealed class LinkCommandTests : IDisposable
     [Fact]
     public async Task Clean_workspaces_exit_0_from_broken_and_orphans()
     {
-        _workspace.Write(".hippo/config.json", """{ "links": { "roots": ["index.md"] } }""");
+        _workspace.Write(".hippo/config.json", "");
         _workspace.Write("index.md", "[a](a.md)\n");
         _workspace.Write("a.md", "[index](index.md)\n");
 
@@ -260,15 +257,16 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Roots_need_no_inbound_link_and_may_be_globs()
+    public async Task A_page_that_only_links_out_is_not_an_orphan_but_one_linking_only_outside_the_index_is()
     {
-        _workspace.Write(".hippo/config.json", """{ "links": { "roots": ["index.md", "**/hub.md"] } }""");
-        _workspace.Write("index.md", "# Index\n");
-        _workspace.Write("wiki/topics/hub.md", "# Hub\n");
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("index.md", "[a](a.md)\n");
+        _workspace.Write("a.md", "# A\n");
+        _workspace.Write("web.md", "[web](https://example.com) and [gone](gone.md)\n");
 
-        var orphans = await _workspace.RunAsync("orphans", "--json");
+        var orphans = await _workspace.RunAsync("orphans");
 
-        Assert.Equal(0, Json(orphans).GetArrayLength());
+        Assert.Equal(["web.md"], Lines(orphans.Stdout));
     }
 
     [Fact]
@@ -298,12 +296,12 @@ public sealed class LinkCommandTests : IDisposable
     [Fact]
     public async Task A_malformed_link_setting_is_an_error()
     {
-        _workspace.Write(".hippo/config.json", """{ "links": { "body": { "resolve": "folder" } } }""");
+        _workspace.Write(".hippo/config.json", """{ "links": { "frontmatter": [{ "field": "a", "resolve": "folder" }] } }""");
 
         var result = await _workspace.RunAsync("broken");
 
         Assert.Equal(2, result.ExitCode);
-        Assert.Contains("links.body.resolve", result.Stderr);
+        Assert.Contains("links.frontmatter[].resolve", result.Stderr);
     }
 
     [Fact]

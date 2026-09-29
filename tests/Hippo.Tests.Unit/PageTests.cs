@@ -6,9 +6,8 @@ public class PageTests
 {
     private static readonly WorkspaceConfig NotesConfig = WorkspaceConfig.Parse("""
         {
-          "bundles": [{ "root": "wiki" }],
           "links": {
-            "body": { "resolve": "page" },
+            "bundles": ["wiki"],
             "frontmatter": [
               { "field": "sources[].resource", "resolve": "bundle" },
               { "field": "generated.from" }
@@ -18,7 +17,7 @@ public class PageTests
         """);
 
     private static List<Link> Links(string path, string text, WorkspaceConfig? config = null) =>
-        Page.Parse(path, text, (config ?? NotesConfig).LinkSettings).Links;
+        Page.Parse(path, text, (config ?? NotesConfig).Links).Links;
 
     private static Link Only(string path, string text, WorkspaceConfig? config = null) => Assert.Single(Links(path, text, config));
 
@@ -123,17 +122,9 @@ public class PageTests
     }
 
     [Fact]
-    public void Body_links_can_resolve_from_the_bundle_root()
-    {
-        var config = WorkspaceConfig.Parse("""{ "bundles": [{ "root": "wiki" }], "links": { "body": { "resolve": "bundle" } } }""");
-
-        Assert.Equal("wiki/b.md", Only("wiki/topics/a.md", "[x](b.md)\n", config).Target);
-    }
-
-    [Fact]
     public void The_deepest_bundle_holding_the_page_is_its_bundle()
     {
-        var config = WorkspaceConfig.Parse("""{ "bundles": [{ "root": "wiki" }, { "root": "wiki/sub" }] }""");
+        var config = WorkspaceConfig.Parse("""{ "links": { "bundles": ["wiki", "wiki/sub"] } }""");
 
         Assert.Equal("wiki/sub/b.md", Only("wiki/sub/deep/a.md", "[x](/b.md)\n", config).Target);
         Assert.Equal("wiki/b.md", Only("wiki/subway/a.md", "[x](/b.md)\n", config).Target);
@@ -212,7 +203,7 @@ public class PageTests
     {
         var text = $"---\ngenerated:\n  from: b.md\n---\n{new string('>', 200)} x\n";
 
-        var page = Page.Parse("a.md", text, NotesConfig.LinkSettings);
+        var page = Page.Parse("a.md", text, NotesConfig.Links);
 
         Assert.NotNull(page.BodyError);
         Assert.Equal("b.md", Assert.Single(page.Links).Target);
@@ -221,7 +212,7 @@ public class PageTests
     [Fact]
     public void Malformed_frontmatter_has_no_links_but_the_body_still_does()
     {
-        var page = Page.Parse("a.md", "---\nsources: [\n---\n[b](b.md)\n", NotesConfig.LinkSettings);
+        var page = Page.Parse("a.md", "---\nsources: [\n---\n[b](b.md)\n", NotesConfig.Links);
 
         Assert.NotNull(page.Frontmatter.Error);
         Assert.Equal(new Link(4, "body", "path", "b.md", "b.md"), Assert.Single(page.Links));
@@ -238,7 +229,7 @@ public class PageTests
     [Fact]
     public void Page_parse_returns_the_frontmatter_as_json()
     {
-        var page = Page.Parse("a.md", "---\ntitle: A\n---\n", NotesConfig.LinkSettings);
+        var page = Page.Parse("a.md", "---\ntitle: A\n---\n", NotesConfig.Links);
 
         Assert.Equal("""{"title":"A"}""", page.Frontmatter.Json);
     }
