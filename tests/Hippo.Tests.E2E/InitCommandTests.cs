@@ -9,7 +9,7 @@ public sealed class InitCommandTests : IDisposable
 
     public void Dispose() => _workspace.Dispose();
 
-    private string Config => _workspace.Combine(".hippo/config.json");
+    private string Config => _workspace.Combine(Path.Combine(".hippo", "config.json"));
 
     [Fact]
     public async Task Init_makes_the_folder_a_workspace()
