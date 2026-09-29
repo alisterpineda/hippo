@@ -86,14 +86,13 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
     public const string RelativePath = Folder + "/" + FileName;
 
     /// <summary>What <c>hippo init</c> writes: every file but the ones git ignores and the usual tool folders, with the
-    /// <c>links</c> section shown commented out. It mirrors the annotated example in README.md, so change both together; a unit test parses
-    /// the commented section to catch stale syntax.</summary>
+    /// <c>links</c> section shown commented out. It sets only what differs from <see cref="Default"/>; the annotated example
+    /// in README.md spells out every key, so change both together. A unit test parses the commented section to catch stale
+    /// syntax.</summary>
     public const string Starter = """
         {
           "files": {
-            "include": ["**/*"],
-            "exclude": [".git/**", ".obsidian/**", ".trash/**"],
-            "gitignore": true                      // leave out the files git ignores, whatever include says
+            "exclude": [".git/**", ".obsidian/**", ".trash/**"]
           },
           // "links": {
           //   "bundles": ["wiki"],                // a leading "/" in a link on a page in wiki resolves against wiki
