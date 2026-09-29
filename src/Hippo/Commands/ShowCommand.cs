@@ -6,44 +6,39 @@ namespace Hippo.Commands;
 
 internal static class ShowCommand
 {
-    public static Command Build()
+    public static Command Build(CliEnvironment environment)
     {
         var path = new Argument<string>("path") { Description = "A file in the workspace, relative to the working directory" };
         var command = new Command("show", "Show what the index holds for one file") { path, WorkspaceSession.JsonOption };
-        command.SetAction(result => WorkspaceSession.Run(result, rebuild: false, session =>
+        command.SetAction(result => WorkspaceSession.Run(result, environment, rebuild: false, session =>
         {
-            var relative = session.Workspace.KeyOf(result.GetValue(path)!);
+            var relative = session.KeyOf(result.GetValue(path)!);
             var file = FileQueries.Get(session.Db, relative) ?? throw new HippoException($"{relative} is not in the index");
             JsonElement? frontmatter = file.Frontmatter is null ? null : JsonDocument.Parse(file.Frontmatter).RootElement.Clone();
+            var output = new ShowOutput(file.Path, file.Kind, file.Size, Format.Modified(file.Mtime), file.Hash, frontmatter, file.ParseError);
 
-            if (result.GetValue(WorkspaceSession.JsonOption))
+            session.Emit(output, OutputJson.Default.ShowOutput, (text, o) =>
             {
-                var output = new ShowOutput(file.Path, file.Kind, file.Size, Format.Modified(file.Mtime), file.Hash, frontmatter, file.ParseError);
-                session.Output.WriteLine(JsonSerializer.Serialize(output, OutputJson.Default.ShowOutput));
-            }
-            else
-            {
-                var output = session.Output;
-                output.WriteLine($"Path:        {Format.Safe(file.Path)}");
-                output.WriteLine($"Kind:        {file.Kind}");
-                output.WriteLine($"Size:        {file.Size} bytes");
-                output.WriteLine($"Modified:    {Format.Modified(file.Mtime):O}");
-                output.WriteLine($"Hash:        {file.Hash}");
-                if (file.ParseError is not null)
+                text.WriteLine($"Path:        {Format.Safe(o.Path)}");
+                text.WriteLine($"Kind:        {o.Kind}");
+                text.WriteLine($"Size:        {o.Size} bytes");
+                text.WriteLine($"Modified:    {o.Modified:O}");
+                text.WriteLine($"Hash:        {o.Hash}");
+                if (o.ParseError is not null)
                 {
-                    output.WriteLine($"Parse error: {Format.Safe(file.ParseError)}");
+                    text.WriteLine($"Parse error: {Format.Safe(o.ParseError)}");
                 }
-                else if (frontmatter is { } json)
+                else if (o.Frontmatter is { } json)
                 {
-                    output.WriteLine("Frontmatter:");
-                    output.WriteLine(Format.Indented(json));
+                    text.WriteLine("Frontmatter:");
+                    text.WriteLine(Format.Indented(json));
                 }
-                else if (file.Kind == "markdown")
+                else if (o.Kind == "markdown")
                 {
-                    output.WriteLine("Frontmatter: none");
+                    text.WriteLine("Frontmatter: none");
                 }
-            }
-            return 0;
+            });
+            return ExitCode.Clean;
         }));
         return command;
     }

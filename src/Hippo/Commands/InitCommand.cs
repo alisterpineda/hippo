@@ -7,16 +7,16 @@ namespace Hippo.Commands;
 /// it needs no workspace, so it does not open a <see cref="WorkspaceSession"/>.</summary>
 internal static class InitCommand
 {
-    public static Command Build()
+    public static Command Build(CliEnvironment environment)
     {
         var command = new Command("init", $"Make the current folder a workspace by writing a starter {WorkspaceConfig.RelativePath}");
         command.SetAction(result =>
         {
             var output = result.InvocationConfiguration.Output;
             var error = result.InvocationConfiguration.Error;
-            try
+            return Guard.Run(error, () =>
             {
-                var directory = Path.TrimEndingDirectorySeparator(Directory.GetCurrentDirectory());
+                var directory = Path.TrimEndingDirectorySeparator(environment.WorkingDirectory);
                 var path = WorkspaceConfig.PathIn(directory);
                 // Found before the config is written, so it is the enclosing workspace, if any, and never this folder.
                 var enclosing = Workspace.FindRoot(directory);
@@ -28,18 +28,8 @@ internal static class InitCommand
                         "which may still index its files; exclude this folder there to keep them apart");
                 }
                 output.WriteLine($"Created {Format.Safe(path)}. Edit it to choose which files are indexed, then run hippo index.");
-                return 0;
-            }
-            catch (HippoException ex)
-            {
-                error.WriteLine($"hippo: {Format.Safe(ex.Message)}");
-                return 2;
-            }
-            catch (Exception ex)
-            {
-                error.WriteLine($"hippo: unexpected error: {ex}");
-                return 2;
-            }
+                return ExitCode.Clean;
+            });
         });
         return command;
     }

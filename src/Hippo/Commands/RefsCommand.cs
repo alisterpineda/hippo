@@ -1,33 +1,23 @@
 using System.CommandLine;
-using System.Text.Json;
 using Hippo.Indexing;
 
 namespace Hippo.Commands;
 
 internal static class RefsCommand
 {
-    public static Command Build()
+    public static Command Build(CliEnvironment environment)
     {
         var path = new Argument<string>("path") { Description = "A file in the workspace, relative to the working directory" };
         var command = new Command("refs", "List the links out of a file, and whether each target exists") { path, WorkspaceSession.JsonOption };
-        command.SetAction(result => WorkspaceSession.Run(result, rebuild: false, session =>
+        command.SetAction(result => WorkspaceSession.Run(result, environment, rebuild: false, session =>
         {
-            var relative = session.Workspace.KeyOf(result.GetValue(path)!);
+            var relative = session.KeyOf(result.GetValue(path)!);
             _ = FileQueries.Get(session.Db, relative) ?? throw new HippoException($"{relative} is not in the index");
-            var links = LinkQueries.Refs(session.Db, relative);
+            var output = LinkQueries.Refs(session.Db, relative).Select(l => new RefOutput(l.Line, l.Kind, l.Type, l.Raw, l.Target)).ToList();
 
-            if (result.GetValue(WorkspaceSession.JsonOption))
-            {
-                session.Output.WriteLine(JsonSerializer.Serialize(links, OutputJson.Default.ListLinkOut));
-            }
-            else
-            {
-                foreach (var link in links)
-                {
-                    session.Output.WriteLine($"{link.Line,5}  {link.Kind,-11}  {link.Type,-7}  {Format.Safe(string.IsNullOrEmpty(link.Target) ? link.Raw : link.Target)}");
-                }
-            }
-            return 0;
+            session.EmitList(output, OutputJson.Default.ListRefOutput, link =>
+                $"{link.Line,5}  {link.Kind,-11}  {link.Type,-7}  {Format.Safe(string.IsNullOrEmpty(link.Target) ? link.Raw : link.Target)}");
+            return ExitCode.Clean;
         }));
         return command;
     }

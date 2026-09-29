@@ -1,4 +1,4 @@
-namespace Hippo.Tests.Unit;
+namespace Hippo.Tests;
 
 /// <summary>A clock that reads whatever time the test sets, then moves on by <see cref="Step"/> after each read.</summary>
 internal sealed class TestClock(DateTimeOffset now) : TimeProvider

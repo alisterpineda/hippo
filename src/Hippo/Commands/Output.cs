@@ -3,7 +3,6 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Hippo.Indexing;
 
 namespace Hippo.Commands;
 
@@ -20,20 +19,30 @@ internal sealed record FileOutput(string Path, string Kind, long Size, DateTimeO
 internal sealed record ShowOutput(
     string Path, string Kind, long Size, DateTimeOffset Modified, string Hash, JsonElement? Frontmatter, string? ParseError);
 
+internal sealed record RefOutput(long Line, string Kind, string Type, string Raw, string? Target);
+
+internal sealed record BackrefOutput(string Source, long Line, string Kind, string Raw);
+
 internal sealed record TransitiveBackrefOutput(string Source);
+
+internal sealed record BrokenOutput(string Source, long Line, string Kind, string Raw, string? Target);
 
 internal sealed record OrphanOutput(string Path);
 
-/// <summary>The <c>--json</c> shapes. Generated, so serialization needs no reflection under native AOT.</summary>
+/// <summary>
+/// The <c>--json</c> shapes. They are hippo's contract with scripts, so each is a record of its own, never a row type
+/// from <c>Hippo.Indexing</c>, and <c>OutputJsonTests</c> pins every one. Generated, so serialization needs no
+/// reflection under native AOT.
+/// </summary>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]
 [JsonSerializable(typeof(IndexOutput))]
 [JsonSerializable(typeof(StatusOutput))]
 [JsonSerializable(typeof(List<FileOutput>))]
 [JsonSerializable(typeof(ShowOutput))]
-[JsonSerializable(typeof(List<LinkOut>))]
-[JsonSerializable(typeof(List<LinkIn>))]
+[JsonSerializable(typeof(List<RefOutput>))]
+[JsonSerializable(typeof(List<BackrefOutput>))]
 [JsonSerializable(typeof(List<TransitiveBackrefOutput>))]
-[JsonSerializable(typeof(List<BrokenLink>))]
+[JsonSerializable(typeof(List<BrokenOutput>))]
 [JsonSerializable(typeof(List<OrphanOutput>))]
 internal sealed partial class OutputJson : JsonSerializerContext;
 
@@ -45,8 +54,8 @@ internal static class Format
 
     public static long Milliseconds(TimeSpan elapsed) => (long)elapsed.TotalMilliseconds;
 
-    public static string Summary(SweepResult sweep) =>
-        $"{sweep.Added} added, {sweep.Updated} updated, {sweep.Removed} removed";
+    public static string Summary(int added, int updated, int removed) =>
+        $"{added} added, {updated} updated, {removed} removed";
 
     /// <summary>
     /// Replaces control characters other than tab with visible <c>\xNN</c> escapes. File names, YAML keys and the
@@ -73,6 +82,11 @@ internal static class Format
         }
         return safe.ToString();
     }
+
+    /// <summary>Escapes each line of <paramref name="text"/> as <see cref="Safe"/> does, keeping the CR and LF line
+    /// breaks. Form feed and NEL are escaped like any other control character, not taken as breaks.</summary>
+    public static string SafeLines(string text) =>
+        string.Join(Environment.NewLine, text.Split(["\r\n", "\r", "\n"], StringSplitOptions.None).Select(Safe));
 
     private static bool IsUnsafe(char c) => char.IsControl(c) && c != '\t';
 

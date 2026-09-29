@@ -1,4 +1,4 @@
-namespace Hippo.Tests.Unit;
+namespace Hippo.Tests;
 
 /// <summary>A fresh directory under the system temp folder, deleted on dispose.</summary>
 public sealed class TempDirectory : IDisposable

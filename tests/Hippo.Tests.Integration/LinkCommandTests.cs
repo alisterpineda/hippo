@@ -1,14 +1,14 @@
 using System.Text.Json;
 
-namespace Hippo.Tests.E2E;
+namespace Hippo.Tests.Integration;
 
 public sealed class LinkCommandTests : IDisposable
 {
-    private readonly TempWorkspace _workspace = new();
+    private readonly TestWorkspace _workspace = new();
 
     public void Dispose() => _workspace.Dispose();
 
-    private static JsonElement Json(HippoProcess.Result result, int exitCode = 0)
+    private static JsonElement Json(TestWorkspace.Result result, int exitCode = 0)
     {
         Assert.True(result.ExitCode == exitCode, $"exit {result.ExitCode}: {result.Stderr}");
         return JsonDocument.Parse(result.Stdout).RootElement;
@@ -47,11 +47,11 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Refs_lists_a_pages_links_with_their_class()
+    public void Refs_lists_a_pages_links_with_their_class()
     {
         WriteNotes();
 
-        var json = Json(await _workspace.RunAsync("refs", "wiki/topics/topic.md", "--json"));
+        var json = Json(_workspace.Run("refs", "wiki/topics/topic.md", "--json"));
 
         Assert.Equal(
             [
@@ -65,85 +65,86 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Refs_prints_one_link_per_line()
+    public void Refs_prints_one_link_per_line()
     {
         WriteNotes();
 
-        var result = await _workspace.RunAsync("refs", "raw/journal/2026-09-01.md");
+        var result = _workspace.Run("refs", "raw/journal/2026-09-01.md");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(["3  body         file     raw/journal/img/photo 1.png"], Lines(result.Stdout));
     }
 
     [Fact]
-    public async Task Refs_of_a_path_not_in_the_index_is_an_error()
+    public void Refs_of_a_path_not_in_the_index_is_an_error()
     {
-        var result = await _workspace.RunAsync("refs", "missing.md");
+        var result = _workspace.Run("refs", "missing.md");
 
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("missing.md is not in the index", result.Stderr);
     }
 
     [Fact]
-    public async Task Refs_of_a_path_outside_the_workspace_is_an_error()
+    public void Refs_of_a_path_outside_the_workspace_is_an_error()
     {
-        var result = await _workspace.RunAsync("refs", "../outside.md");
+        var result = _workspace.Run("refs", "../outside.md");
 
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("is not a file inside the workspace", result.Stderr);
     }
 
     [Fact]
-    public async Task Backrefs_lists_the_links_into_a_file()
+    public void Backrefs_lists_the_links_into_a_file()
     {
         WriteNotes();
 
-        var result = await _workspace.RunAsync("backrefs", "raw/journal/2026-09-01.md");
+        var result = _workspace.Run("backrefs", "raw/journal/2026-09-01.md");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(["wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md"], Lines(result.Stdout));
     }
 
     [Fact]
-    public async Task Backrefs_of_a_missing_file_shows_the_links_broken_on_it()
+    public void Backrefs_of_a_missing_file_shows_the_links_broken_on_it()
     {
         WriteNotes();
 
-        var json = Json(await _workspace.RunAsync("backrefs", "raw/journal/gone.md", "--json"));
+        var json = Json(_workspace.Run("backrefs", "raw/journal/gone.md", "--json"));
 
         var link = Assert.Single(json.EnumerateArray());
-        Assert.Equal(("wiki/topics/topic.md", 7, "frontmatter"),
-            (link.GetProperty("source").GetString(), link.GetProperty("line").GetInt32(), link.GetProperty("kind").GetString()));
+        Assert.Equal(("wiki/topics/topic.md", 7, "frontmatter", "../raw/journal/gone.md"),
+            (link.GetProperty("source").GetString(), link.GetProperty("line").GetInt32(), link.GetProperty("kind").GetString(),
+                link.GetProperty("raw").GetString()));
     }
 
     [Fact]
-    public async Task Backrefs_kind_filters_links_by_kind()
+    public void Backrefs_kind_filters_links_by_kind()
     {
         WriteNotes();
         _workspace.Write("wiki/other.md", "[day](../raw/journal/2026-09-01.md)\n");
 
-        var body = await _workspace.RunAsync("backrefs", "raw/journal/2026-09-01.md", "--kind", "body");
-        var frontmatter = await _workspace.RunAsync("backrefs", "raw/journal/2026-09-01.md", "--kind", "frontmatter");
+        var body = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--kind", "body");
+        var frontmatter = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--kind", "frontmatter");
 
         Assert.Equal(["wiki/other.md:1  body         ../raw/journal/2026-09-01.md"], Lines(body.Stdout));
         Assert.Equal(["wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md"], Lines(frontmatter.Stdout));
     }
 
     [Fact]
-    public async Task Backrefs_kind_other_than_body_or_frontmatter_is_a_usage_error()
+    public void Backrefs_kind_other_than_body_or_frontmatter_is_a_usage_error()
     {
-        var result = await _workspace.RunAsync("backrefs", "a.md", "--kind", "wikilink");
+        var result = _workspace.Run("backrefs", "a.md", "--kind", "wikilink");
 
         Assert.Equal(2, result.ExitCode);
     }
 
     [Fact]
-    public async Task Backrefs_transitive_lists_every_file_that_reaches_the_path()
+    public void Backrefs_transitive_lists_every_file_that_reaches_the_path()
     {
         WriteNotes();
 
-        var text = await _workspace.RunAsync("backrefs", "raw/journal/img/photo 1.png", "--transitive");
-        var json = Json(await _workspace.RunAsync("backrefs", "raw/journal/img/photo 1.png", "--transitive", "--json"));
+        var text = _workspace.Run("backrefs", "raw/journal/img/photo 1.png", "--transitive");
+        var json = Json(_workspace.Run("backrefs", "raw/journal/img/photo 1.png", "--transitive", "--json"));
 
         // The photo ← the day entry ← the topic (frontmatter) ← the index, which the topic also links back to.
         Assert.Equal(["raw/journal/2026-09-01.md", "wiki/index.md", "wiki/topics/topic.md"], Lines(text.Stdout));
@@ -152,23 +153,23 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Broken_lists_links_to_missing_files_and_exits_1()
+    public void Broken_lists_links_to_missing_files_and_exits_1()
     {
         WriteNotes();
 
-        var result = await _workspace.RunAsync("broken");
+        var result = _workspace.Run("broken");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Equal(["wiki/topics/topic.md:7  frontmatter  ../raw/journal/gone.md -> raw/journal/gone.md"], Lines(result.Stdout));
     }
 
     [Fact]
-    public async Task Broken_json_lists_the_same_links()
+    public void Broken_json_lists_the_same_links()
     {
         WriteNotes();
         _workspace.Write("wiki/escape.md", "[out](../../outside.md)\n");
 
-        var json = Json(await _workspace.RunAsync("broken", "--json"), exitCode: 1);
+        var json = Json(_workspace.Run("broken", "--json"), exitCode: 1);
 
         Assert.Equal(
             ["wiki/escape.md 1 body ../../outside.md null", "wiki/topics/topic.md 7 frontmatter ../raw/journal/gone.md raw/journal/gone.md"],
@@ -177,64 +178,64 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Creating_a_missing_target_fixes_its_links_on_the_next_command()
+    public void Creating_a_missing_target_fixes_its_links_on_the_next_command()
     {
         WriteNotes();
-        await _workspace.RunAsync("index");
+        _workspace.Run("index");
 
         _workspace.Write("raw/journal/gone.md", "# Back\n");
-        var result = await _workspace.RunAsync("broken");
+        var result = _workspace.Run("broken");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Stdout);
     }
 
     [Fact]
-    public async Task Deleting_a_target_breaks_its_links_on_the_next_command()
+    public void Deleting_a_target_breaks_its_links_on_the_next_command()
     {
         WriteNotes();
-        await _workspace.RunAsync("index");
+        _workspace.Run("index");
 
         File.Delete(_workspace.Combine("raw/journal/2026-09-01.md"));
-        var result = await _workspace.RunAsync("broken");
+        var result = _workspace.Run("broken");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains("wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md -> raw/journal/2026-09-01.md", Lines(result.Stdout));
     }
 
     [Fact]
-    public async Task An_edit_to_a_pages_links_shows_up_on_the_next_command()
+    public void An_edit_to_a_pages_links_shows_up_on_the_next_command()
     {
         var path = _workspace.Write("a.md", "[b](b.md)\n");
         _workspace.Write("b.md", "# B\n");
-        await _workspace.RunAsync("index");
+        _workspace.Run("index");
 
         File.WriteAllText(path, "[c](c.md) and [b](b.md)\n");
-        var result = await _workspace.RunAsync("refs", "a.md");
+        var result = _workspace.Run("refs", "a.md");
 
         Assert.Equal(["1  body         missing  c.md", "1  body         file     b.md"], Lines(result.Stdout));
     }
 
     [Fact]
-    public async Task Changing_the_link_settings_shows_up_on_the_next_command()
+    public void Changing_the_link_settings_shows_up_on_the_next_command()
     {
         _workspace.Write("wiki/a.md", "[b](/b.md)\n");
         _workspace.Write("wiki/b.md", "# B\n");
-        await _workspace.RunAsync("index");
+        _workspace.Run("index");
 
         _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["wiki"] } }""");
-        var result = await _workspace.RunAsync("refs", "wiki/a.md");
+        var result = _workspace.Run("refs", "wiki/a.md");
 
         Assert.Equal(["1  body         file     wiki/b.md"], Lines(result.Stdout));
     }
 
     [Fact]
-    public async Task Orphans_lists_pages_with_no_link_in_or_out_and_exits_1()
+    public void Orphans_lists_pages_with_no_link_in_or_out_and_exits_1()
     {
         WriteNotes();
 
-        var result = await _workspace.RunAsync("orphans");
-        var json = Json(await _workspace.RunAsync("orphans", "--json"), exitCode: 1);
+        var result = _workspace.Run("orphans");
+        var json = Json(_workspace.Run("orphans", "--json"), exitCode: 1);
 
         Assert.Equal(1, result.ExitCode);
         Assert.Equal(["raw/journal/lonely.md"], Lines(result.Stdout));
@@ -242,14 +243,14 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Clean_workspaces_exit_0_from_broken_and_orphans()
+    public void Clean_workspaces_exit_0_from_broken_and_orphans()
     {
         _workspace.Write(".hippo/config.json", "");
         _workspace.Write("index.md", "[a](a.md)\n");
         _workspace.Write("a.md", "[index](index.md)\n");
 
-        var broken = await _workspace.RunAsync("broken");
-        var orphans = await _workspace.RunAsync("orphans", "--json");
+        var broken = _workspace.Run("broken");
+        var orphans = _workspace.Run("orphans", "--json");
 
         Assert.Equal((0, ""), (broken.ExitCode, broken.Stdout));
         Assert.Equal(0, orphans.ExitCode);
@@ -257,62 +258,62 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task A_page_that_only_links_out_is_not_an_orphan_but_one_linking_only_outside_the_index_is()
+    public void A_page_that_only_links_out_is_not_an_orphan_but_one_linking_only_outside_the_index_is()
     {
         _workspace.Write(".hippo/config.json", "");
         _workspace.Write("index.md", "[a](a.md)\n");
         _workspace.Write("a.md", "# A\n");
         _workspace.Write("web.md", "[web](https://example.com) and [gone](gone.md)\n");
 
-        var orphans = await _workspace.RunAsync("orphans");
+        var orphans = _workspace.Run("orphans");
 
         Assert.Equal(["web.md"], Lines(orphans.Stdout));
     }
 
     [Fact]
-    public async Task Broken_names_a_link_to_the_workspace_root_as_such()
+    public void Broken_names_a_link_to_the_workspace_root_as_such()
     {
         _workspace.Write(".hippo/config.json", "");
         _workspace.Write("index.md", "[home](./)\n");
 
-        var result = await _workspace.RunAsync("broken");
+        var result = _workspace.Run("broken");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Equal(["index.md:1  body         ./ -> the workspace root"], Lines(result.Stdout));
     }
 
     [Fact]
-    public async Task Broken_names_a_link_that_leaves_the_workspace_as_such()
+    public void Broken_names_a_link_that_leaves_the_workspace_as_such()
     {
         _workspace.Write(".hippo/config.json", "");
         _workspace.Write("index.md", "[out](../outside.md)\n");
 
-        var result = await _workspace.RunAsync("broken");
+        var result = _workspace.Run("broken");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Equal(["index.md:1  body         ../outside.md -> outside the workspace"], Lines(result.Stdout));
     }
 
     [Fact]
-    public async Task A_malformed_link_setting_is_an_error()
+    public void A_malformed_link_setting_is_an_error()
     {
         _workspace.Write(".hippo/config.json", """{ "links": { "frontmatter": [{ "field": "a", "resolve": "folder" }] } }""");
 
-        var result = await _workspace.RunAsync("broken");
+        var result = _workspace.Run("broken");
 
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("links.frontmatter[].resolve", result.Stderr);
     }
 
     [Fact]
-    public async Task Link_commands_never_change_the_workspace()
+    public void Link_commands_never_change_the_workspace()
     {
         WriteNotes();
         var before = Snapshot();
 
         foreach (var args in new[] { ["refs", "wiki/index.md"], ["backrefs", "wiki/index.md", "--transitive"], ["broken"], new[] { "orphans" } })
         {
-            await _workspace.RunAsync(args);
+            _workspace.Run(args);
         }
 
         Assert.Equal(before, Snapshot());

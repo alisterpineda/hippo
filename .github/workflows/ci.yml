@@ -12,7 +12,8 @@ env:
 
 jobs:
   build:
-    # Builds, tests and packs the framework-dependent tool package, which runs on any OS.
+    # Builds, runs the unit and integration tests, and packs the framework-dependent tool package, which runs on any OS.
+    # The E2E tests run in the publish job, against each native binary.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -25,8 +26,11 @@ jobs:
       - name: Build
         run: dotnet build -c Release
 
-      - name: Test
-        run: dotnet test -c Release --no-build
+      - name: Unit tests
+        run: dotnet test tests/Hippo.Tests.Unit -c Release --no-build
+
+      - name: Integration tests
+        run: dotnet test tests/Hippo.Tests.Integration -c Release --no-build
 
       - name: Pack tool package
         run: dotnet pack src/Hippo -c Release -o artifacts/nupkg
@@ -70,6 +74,16 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
+
+      # Paths, file times and permissions differ by OS, so the in-process tests run on each one too; the build job has
+      # already run them on Linux.
+      - name: Unit tests
+        if: runner.os != 'Linux'
+        run: dotnet test tests/Hippo.Tests.Unit -c Release
+
+      - name: Integration tests
+        if: runner.os != 'Linux'
+        run: dotnet test tests/Hippo.Tests.Integration -c Release
 
       - name: Publish native AOT binary
         run: dotnet publish src/Hippo -c Release -r ${{ matrix.rid }} -p:PublishAot=true -o artifacts/publish/${{ matrix.rid }}

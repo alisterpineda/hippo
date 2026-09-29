@@ -63,11 +63,15 @@ The index lives in `<user cache>/hippo/<hash of workspace root>/index.db`; set `
 ## Layout
 
 ```
-src/Hippo/               the CLI (AOT-compatible; trim and AOT warnings are errors)
-src/Hippo.Migrations/    dev-time only: EF Core model for authoring migrations; never shipped
-tests/Hippo.Tests.Unit/  in-process tests of the CLI's code
-tests/Hippo.Tests.E2E/   runs hippo as a separate process, as a user would
+src/Hippo/                      the CLI (AOT-compatible; trim and AOT warnings are errors)
+src/Hippo.Migrations/           dev-time only: EF Core model for authoring migrations; never shipped
+tests/Hippo.Tests.Unit/         one piece of the CLI at a time: parsing, queries, the sweep, migrations
+tests/Hippo.Tests.Integration/  whole commands run in-process against a temp workspace
+tests/Hippo.Tests.E2E/          hippo run as a separate process, as a user would
+tests/Shared/                   helpers compiled into the unit and integration tests
 ```
+
+A test of what a command does belongs in the integration tests, which pass each command its working directory, environment variables and clock. The E2E tests are kept for what only the real process shows: a smoke test per command, so every query and JSON shape runs once as native AOT compiled it; exit codes, arguments and output as the shell sees them; the user cache folder; and git, which hippo runs with its own environment.
 
 ## Build and test
 

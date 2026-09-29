@@ -17,4 +17,12 @@ public class FormatTests
 
         Assert.Same(text, Format.Safe(text));
     }
+
+    [Fact]
+    public void Safe_lines_keeps_cr_and_lf_breaks_but_escapes_form_feed_and_nel()
+    {
+        var nl = Environment.NewLine;
+
+        Assert.Equal($"a\\x0cb{nl}c\\x85d{nl}e{nl}f\\x1b", Format.SafeLines("a\u000cb\r\nc\u0085d\re\nf\u001b"));
+    }
 }

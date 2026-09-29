@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 
-namespace Hippo.Indexing;
+namespace Hippo.Workspaces;
 
 /// <summary>
 /// The untracked files under the workspace root that git ignores, keyed like the index. git itself lists them, so every

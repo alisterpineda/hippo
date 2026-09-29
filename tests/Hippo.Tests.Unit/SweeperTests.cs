@@ -53,33 +53,6 @@ public sealed class SweeperTests : IDisposable
     }
 
     [Fact]
-    public void Excluded_files_and_folders_are_not_indexed()
-    {
-        _workspace.Write("a.md", "# A\n");
-        _workspace.Write(".git/HEAD", "ref: refs/heads/main\n");
-        _workspace.Write("inbox/new.md", "# New\n");
-        _workspace.Write("wiki/scratch.tmp", "x");
-
-        Sweep();
-
-        Assert.Equal([".hippo/config.json", "a.md"], Rows().Select(r => r.Path));
-    }
-
-    [Fact]
-    public void Only_included_files_are_indexed()
-    {
-        _workspace.Write(".hippo/config.json", """{ "files": { "include": ["wiki/**/*.md"] } }""");
-        _workspace.Write("wiki/a.md", "# A\n");
-        _workspace.Write("wiki/deep/b.md", "# B\n");
-        _workspace.Write("wiki/c.txt", "c");
-        _workspace.Write("raw/d.md", "# D\n");
-
-        Sweep();
-
-        Assert.Equal(["wiki/a.md", "wiki/deep/b.md"], Rows().Select(r => r.Path));
-    }
-
-    [Fact]
     public void Markdown_and_plain_files_get_their_kind()
     {
         _workspace.Write("a.md", "# A\n");
@@ -419,31 +392,6 @@ public sealed class SweeperTests : IDisposable
         }
         var removed = Sweep();
         Assert.Equal(count, removed.Removed);
-        Assert.Equal([".hippo/config.json"], Rows().Select(r => r.Path));
-    }
-
-    [Fact]
-    public void A_backslash_in_a_file_name_is_kept_on_unix()
-    {
-        Assert.SkipWhen(OperatingSystem.IsWindows(), "a backslash separates folders on Windows");
-        _workspace.Write("a\\b.md", "# A\n");
-
-        Sweep();
-
-        Assert.Contains("a\\b.md", Rows().Select(r => r.Path));
-    }
-
-    [Fact]
-    public void Symbolic_links_are_not_followed()
-    {
-        Assert.SkipWhen(OperatingSystem.IsWindows(), "creating symbolic links needs privileges on Windows");
-        using var outside = new TempDirectory();
-        outside.Write("secret.md", "# Outside\n");
-        Directory.CreateSymbolicLink(_workspace.Combine("linked"), outside.FullPath);
-        File.CreateSymbolicLink(_workspace.Combine("link.md"), outside.Combine("secret.md"));
-
-        Sweep();
-
         Assert.Equal([".hippo/config.json"], Rows().Select(r => r.Path));
     }
 

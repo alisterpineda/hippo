@@ -1,6 +1,10 @@
+using System.IO.Enumeration;
 using Microsoft.Extensions.FileSystemGlobbing;
 
 namespace Hippo.Workspaces;
+
+/// <summary>A file in the workspace. <see cref="Path"/> is its key.</summary>
+internal sealed record WorkspaceFile(string Path, string FullPath, long Size, DateTimeOffset Modified);
 
 /// <summary>A workspace: the folder holding <c>.hippo/config.json</c>, and the conventions that file declares.</summary>
 internal sealed record Workspace(string Root, WorkspaceConfig Config)
@@ -35,11 +39,11 @@ internal sealed record Workspace(string Root, WorkspaceConfig Config)
     public static string Key(string relativePath) =>
         Path.DirectorySeparatorChar == '\\' ? relativePath.Replace('\\', '/') : relativePath;
 
-    /// <summary>Resolves <paramref name="path"/> against the working directory and returns its key, or throws when
-    /// it is not inside the workspace.</summary>
-    public string KeyOf(string path)
+    /// <summary>Resolves <paramref name="path"/> against <paramref name="workingDirectory"/> and returns its key, or
+    /// throws when it is not inside the workspace.</summary>
+    public string KeyOf(string path, string workingDirectory)
     {
-        var relative = Path.GetRelativePath(Root, Path.GetFullPath(path));
+        var relative = Path.GetRelativePath(Root, Path.GetFullPath(path, workingDirectory));
         if (relative == "." || Path.IsPathRooted(relative) || relative == ".." || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
         {
             throw new HippoException($"{path} is not a file inside the workspace at {Root}");
@@ -54,6 +58,70 @@ internal sealed record Workspace(string Root, WorkspaceConfig Config)
     /// with its patterns taken relative to the root.</summary>
     public HashSet<string> Match(Matcher matcher, IEnumerable<string> fullPaths) =>
         matcher.Match(Root, fullPaths).Files.Select(match => Key(match.Path)).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>The keys among <paramref name="keys"/> that the glob <paramref name="pattern"/>, taken relative to the
+    /// root, matches.</summary>
+    public HashSet<string> Glob(string pattern, IEnumerable<string> keys)
+    {
+        var matcher = new Matcher(StringComparison.Ordinal);
+        matcher.AddInclude(pattern);
+        return Match(matcher, keys.Select(FullPath));
+    }
+
+    /// <summary>Lists the included files under the root, less those git ignores when the config says to; git's
+    /// complaints go to <paramref name="warnings"/>. Symbolic links are skipped, so nothing outside the root is read, and
+    /// a folder that an exclude pattern ending in <c>/**</c> covers, or whose files git all ignores, is never entered.</summary>
+    public List<WorkspaceFile> ListFiles(List<string> warnings)
+    {
+        var ignored = Config.Gitignore ? GitIgnored.Find(Root, warnings) : GitIgnored.None;
+        var pruned = Config.Exclude
+            .Where(pattern => pattern.EndsWith("/**", StringComparison.Ordinal))
+            .Select(pattern =>
+            {
+                var folder = new Matcher(StringComparison.Ordinal);
+                folder.AddInclude(pattern[..^3]);
+                return folder;
+            })
+            .ToList();
+
+        var options = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            AttributesToSkip = 0,
+            IgnoreInaccessible = true,
+        };
+        var files = new FileSystemEnumerable<WorkspaceFile>(
+            Root,
+            (ref entry) => new WorkspaceFile(RelativeKey(ref entry), entry.ToFullPath(), entry.Length, entry.LastWriteTimeUtc),
+            options)
+        {
+            ShouldIncludePredicate = (ref entry) => !entry.IsDirectory && !IsLink(ref entry),
+            ShouldRecursePredicate = (ref entry) =>
+            {
+                if (IsLink(ref entry))
+                {
+                    return false;
+                }
+                var path = RelativeKey(ref entry);
+                return !ignored.Folders.Contains(path) && !pruned.Exists(folder => folder.Match(Root, path).HasMatches);
+            },
+        }.ToList();
+
+        var matcher = new Matcher(StringComparison.Ordinal);
+        matcher.AddIncludePatterns(Config.Include);
+        matcher.AddExcludePatterns(Config.Exclude);
+        var included = Match(matcher, files.Select(f => f.FullPath));
+        return files.Where(f => included.Contains(f.Path) && !ignored.Files.Contains(f.Path)).ToList();
+    }
+
+    private static bool IsLink(ref FileSystemEntry entry) => (entry.Attributes & FileAttributes.ReparsePoint) != 0;
+
+    private static string RelativeKey(ref FileSystemEntry entry)
+    {
+        var directory = entry.Directory[entry.RootDirectory.Length..].TrimStart(['/', '\\']);
+        var path = directory.IsEmpty ? entry.FileName.ToString() : $"{directory}/{entry.FileName}";
+        return Key(path);
+    }
 
     /// <summary>The nearest folder at or above <paramref name="workingDirectory"/> that has a <c>.hippo/config.json</c>,
     /// or null when none does.</summary>

@@ -1,10 +1,8 @@
 using System.Diagnostics;
-using System.IO.Enumeration;
 using System.Security.Cryptography;
 using Dapper;
 using Hippo.Workspaces;
 using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.FileSystemGlobbing;
 
 namespace Hippo.Indexing;
 
@@ -28,6 +26,7 @@ internal static class Sweeper
     /// granularity, the coarsest hippo allows for.</summary>
     private static readonly TimeSpan RacyMargin = TimeSpan.FromSeconds(2);
 
+    /// <summary>A listed file, its mtime in the unit the index stores.</summary>
     private sealed record DiskFile(string Path, string FullPath, long Size, long Mtime);
 
     // Internal, not private: the code Dapper.AOT generates must reach these types.
@@ -72,7 +71,7 @@ internal static class Sweeper
         var rows = new List<ParsedFile>();
         var stats = new List<StatRow>();
         int added = 0, updated = 0, hashed = 0;
-        foreach (var file in Enumerate(workspace, warnings))
+        foreach (var file in workspace.ListFiles(warnings).Select(f => new DiskFile(f.Path, f.FullPath, f.Size, Ticks(f.Modified))))
         {
             known.TryGetValue(file.Path, out var previous);
             var reparse = rebuild || relink && Workspace.IsMarkdown(file.Path);
@@ -245,65 +244,5 @@ internal static class Sweeper
         return new ParsedFile(
             new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "markdown", page.Frontmatter.Json, page.Frontmatter.Error),
             page.Links.Select(l => new LinkRow(file.Path, hash, l.Line, l.Kind, l.Type, l.Raw, l.Target)).ToList());
-    }
-
-    /// <summary>Lists the included files under the root, less those git ignores when the config says to. Symbolic links
-    /// are skipped, so nothing outside the root is read, and a folder that an exclude pattern ending in <c>/**</c>
-    /// covers, or whose files git all ignores, is never entered.</summary>
-    private static List<DiskFile> Enumerate(Workspace workspace, List<string> warnings)
-    {
-        var root = workspace.Root;
-        var ignored = workspace.Config.Gitignore ? GitIgnored.Find(root, warnings) : GitIgnored.None;
-        var pruned = workspace.Config.Exclude
-            .Where(pattern => pattern.EndsWith("/**", StringComparison.Ordinal))
-            .Select(pattern =>
-            {
-                var folder = new Matcher(StringComparison.Ordinal);
-                folder.AddInclude(pattern[..^3]);
-                return folder;
-            })
-            .ToList();
-
-        var options = new EnumerationOptions
-        {
-            RecurseSubdirectories = true,
-            AttributesToSkip = 0,
-            IgnoreInaccessible = true,
-        };
-        var files = new FileSystemEnumerable<DiskFile>(
-            root,
-            (ref entry) => new DiskFile(
-                RelativePath(ref entry),
-                entry.ToFullPath(),
-                entry.Length,
-                Ticks(entry.LastWriteTimeUtc)),
-            options)
-        {
-            ShouldIncludePredicate = (ref entry) => !entry.IsDirectory && !IsLink(ref entry),
-            ShouldRecursePredicate = (ref entry) =>
-            {
-                if (IsLink(ref entry))
-                {
-                    return false;
-                }
-                var path = RelativePath(ref entry);
-                return !ignored.Folders.Contains(path) && !pruned.Exists(folder => folder.Match(root, path).HasMatches);
-            },
-        }.ToList();
-
-        var matcher = new Matcher(StringComparison.Ordinal);
-        matcher.AddIncludePatterns(workspace.Config.Include);
-        matcher.AddExcludePatterns(workspace.Config.Exclude);
-        var included = workspace.Match(matcher, files.Select(f => f.FullPath));
-        return files.Where(f => included.Contains(f.Path) && !ignored.Files.Contains(f.Path)).ToList();
-    }
-
-    private static bool IsLink(ref FileSystemEntry entry) => (entry.Attributes & FileAttributes.ReparsePoint) != 0;
-
-    private static string RelativePath(ref FileSystemEntry entry)
-    {
-        var directory = entry.Directory[entry.RootDirectory.Length..].TrimStart(['/', '\\']);
-        var path = directory.IsEmpty ? entry.FileName.ToString() : $"{directory}/{entry.FileName}";
-        return Workspace.Key(path);
     }
 }

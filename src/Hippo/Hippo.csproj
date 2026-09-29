@@ -44,6 +44,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Hippo.Tests.Unit" />
+    <InternalsVisibleTo Include="Hippo.Tests.Integration" />
   </ItemGroup>
 
   <!-- Links SQLite into the native AOT binary. -->
