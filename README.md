@@ -6,9 +6,10 @@ Status: phase 2 (link graph). hippo indexes every file in the notebook, the fron
 
 ## Commands
 
-Run from anywhere inside a notebook: hippo walks up to the first folder with a `.hippo.yaml`. Every command brings the index up to date first, prints text by default and JSON with `--json`, and exits 0 when clean, 1 when it reports findings (`broken`, `orphans`), and 2 on error.
+`hippo init` makes the current folder a notebook by writing a starter `.hippo.yaml`; it will not overwrite one, and warns when the folder is already inside another notebook. Every other command runs from anywhere inside a notebook: hippo walks up to the first folder with a `.hippo.yaml`. Each brings the index up to date first, prints text by default and JSON with `--json`, and exits 0 when clean, 1 when it reports findings (`broken`, `orphans`), and 2 on error.
 
 ```
+hippo init                   write a starter .hippo.yaml in the current folder
 hippo index [--rebuild]      bring the index up to date; --rebuild re-reads every file
 hippo status                 notebook root, database path, file counts, last sweep
 hippo files [--glob <pattern>] [--where <field>=<value>]

@@ -39,6 +39,41 @@ public class NotebookTests
     }
 
     [Fact]
+    public void Find_root_is_null_when_no_folder_up_the_tree_has_a_config()
+    {
+        using var dir = new TempDirectory();
+
+        Assert.Null(Notebook.FindRoot(dir.FullPath));
+    }
+
+    [Fact]
+    public void The_starter_config_parses_without_warnings()
+    {
+        var warnings = new List<string>();
+
+        var config = NotebookConfig.Parse(NotebookConfig.Starter, warnings);
+
+        Assert.Empty(warnings);
+        Assert.Equal(["**/*"], config.Include);
+        Assert.Equal([".git/**", ".obsidian/**", ".trash/**"], config.Exclude);
+        Assert.Equal(NotebookConfig.Default.LinkSettings.Fingerprint, config.LinkSettings.Fingerprint);
+    }
+
+    [Fact]
+    public void The_starter_configs_commented_examples_parse_without_warnings()
+    {
+        var uncommented = System.Text.RegularExpressions.Regex.Replace(NotebookConfig.Starter, "^# ", "",
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+        var warnings = new List<string>();
+
+        var config = NotebookConfig.Parse(uncommented, warnings);
+
+        Assert.Empty(warnings);
+        Assert.Equal(["wiki"], config.Bundles);
+        Assert.NotEqual(NotebookConfig.Default.LinkSettings.Fingerprint, config.LinkSettings.Fingerprint);
+    }
+
+    [Fact]
     public void Files_section_sets_include_and_exclude()
     {
         var config = NotebookConfig.Parse("""

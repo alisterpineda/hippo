@@ -9,7 +9,8 @@ internal sealed record Notebook(string Root, NotebookConfig Config, IReadOnlyLis
     /// a <c>.hippo.yaml</c>, and loads that config.</summary>
     public static Notebook Open(string workingDirectory)
     {
-        var root = FindRoot(workingDirectory);
+        var root = FindRoot(workingDirectory)
+            ?? throw new HippoException($"no {NotebookConfig.FileName} in {Start(workingDirectory)} or any folder above it; run hippo init at the notebook root");
         string yaml;
         try
         {
@@ -55,16 +56,19 @@ internal sealed record Notebook(string Root, NotebookConfig Config, IReadOnlyLis
     public HashSet<string> Match(Matcher matcher, IEnumerable<string> fullPaths) =>
         matcher.Match(Root, fullPaths).Files.Select(match => Key(match.Path)).ToHashSet(StringComparer.Ordinal);
 
-    private static string FindRoot(string workingDirectory)
+    /// <summary>The nearest folder at or above <paramref name="workingDirectory"/> that has a <c>.hippo.yaml</c>, or
+    /// null when none does.</summary>
+    public static string? FindRoot(string workingDirectory)
     {
-        var start = Path.TrimEndingDirectorySeparator(Path.GetFullPath(workingDirectory));
-        for (var dir = new DirectoryInfo(start); dir is not null; dir = dir.Parent)
+        for (var dir = new DirectoryInfo(Start(workingDirectory)); dir is not null; dir = dir.Parent)
         {
             if (File.Exists(Path.Combine(dir.FullName, NotebookConfig.FileName)))
             {
                 return Path.TrimEndingDirectorySeparator(dir.FullName);
             }
         }
-        throw new HippoException($"no {NotebookConfig.FileName} in {start} or any folder above it; create one at the notebook root");
+        return null;
     }
+
+    private static string Start(string workingDirectory) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(workingDirectory));
 }

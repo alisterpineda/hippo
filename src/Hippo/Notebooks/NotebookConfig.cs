@@ -82,6 +82,25 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
 {
     public const string FileName = ".hippo.yaml";
 
+    /// <summary>What <c>hippo init</c> writes: every file but the usual tool folders, with the other sections shown
+    /// commented out. It mirrors the annotated example in README.md (less the default <c>wikilinks: text</c>), so change
+    /// both together; a unit test parses the commented sections to catch stale syntax.</summary>
+    public const string Starter = """
+        version: 1
+        files:
+          include: ["**/*"]
+          exclude: [".git/**", ".obsidian/**", ".trash/**"]
+        # bundles:
+        #   - root: wiki                   # a leading "/" in a link resolves against this folder
+        # links:
+        #   body: { resolve: page }        # page (the page's own folder) or bundle (its bundle root)
+        #   frontmatter:
+        #     - field: sources[].resource  # dotted for nested mappings; [] for each element of a list
+        #       resolve: bundle
+        #   roots: ["wiki/index.md"]       # pages that are not orphans without inbound links
+
+        """;
+
     private const int MaxDepth = 64;
 
     public static NotebookConfig Default { get; } = new(["**/*"], []);
