@@ -11,10 +11,15 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
-  build:
-    # Builds, runs the unit and integration tests, and packs the framework-dependent tool package, which runs on any OS.
-    # The E2E tests run in the publish job, against each native binary.
-    runs-on: ubuntu-latest
+  test:
+    # Paths, file times and permissions differ by OS, so the in-process tests run on each one. The E2E tests run in the
+    # native job, against each native binary.
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -32,6 +37,19 @@ jobs:
       - name: Integration tests
         run: dotnet test tests/Hippo.Tests.Integration -c Release --no-build
 
+  tool-package:
+    # Packs the framework-dependent tool package, which runs on any OS.
+    name: Tool package
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
       - name: Pack tool package
         run: dotnet pack src/Hippo -c Release -o artifacts/nupkg
 
@@ -48,8 +66,10 @@ jobs:
           name: tool-package
           path: artifacts/nupkg/
 
-  publish:
+  native:
     # Native AOT cannot cross-compile between operating systems, so each binary is built and tested on its own OS.
+    name: Native (${{ matrix.rid }})
+    needs: test
     strategy:
       fail-fast: false
       matrix:
@@ -74,16 +94,6 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
-
-      # Paths, file times and permissions differ by OS, so the in-process tests run on each one too; the build job has
-      # already run them on Linux.
-      - name: Unit tests
-        if: runner.os != 'Linux'
-        run: dotnet test tests/Hippo.Tests.Unit -c Release
-
-      - name: Integration tests
-        if: runner.os != 'Linux'
-        run: dotnet test tests/Hippo.Tests.Integration -c Release
 
       - name: Publish native AOT binary
         run: dotnet publish src/Hippo -c Release -r ${{ matrix.rid }} -p:PublishAot=true -o artifacts/publish/${{ matrix.rid }}
