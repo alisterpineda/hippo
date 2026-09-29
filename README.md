@@ -25,7 +25,6 @@ hippo orphans                pages no other file links to, except the declared r
 `.hippo.yaml` chooses which files are indexed and how links resolve:
 
 ```yaml
-version: 1
 files:
   include: ["**/*"]
   exclude: [".git/**", ".obsidian/**", ".trash/**"]

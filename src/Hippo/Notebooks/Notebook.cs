@@ -3,7 +3,7 @@ using Microsoft.Extensions.FileSystemGlobbing;
 namespace Hippo.Notebooks;
 
 /// <summary>A notebook: the folder holding <c>.hippo.yaml</c>, and the conventions that file declares.</summary>
-internal sealed record Notebook(string Root, NotebookConfig Config, IReadOnlyList<string> Warnings)
+internal sealed record Notebook(string Root, NotebookConfig Config)
 {
     /// <summary>Finds the notebook by walking up from <paramref name="workingDirectory"/> to the first folder that has
     /// a <c>.hippo.yaml</c>, and loads that config.</summary>
@@ -21,9 +21,7 @@ internal sealed record Notebook(string Root, NotebookConfig Config, IReadOnlyLis
             throw new HippoException($"cannot read {Path.Combine(root, NotebookConfig.FileName)}: {ex.Message}");
         }
 
-        var warnings = new List<string>();
-        var config = NotebookConfig.Parse(yaml, warnings);
-        return new Notebook(root, config, warnings);
+        return new Notebook(root, NotebookConfig.Parse(yaml));
     }
 
     /// <summary>A file whose name ends in <c>.md</c> is markdown; every other file is plain.</summary>

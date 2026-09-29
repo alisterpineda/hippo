@@ -18,7 +18,7 @@ public sealed class SweeperTests : IDisposable
 
     public SweeperTests()
     {
-        _notebook.Write(".hippo.yaml", "version: 1\nfiles:\n  include: [\"**/*\"]\n  exclude: [\".git/**\", \"inbox/**\", \"**/*.tmp\"]\n");
+        _notebook.Write(".hippo.yaml", "files:\n  include: [\"**/*\"]\n  exclude: [\".git/**\", \"inbox/**\", \"**/*.tmp\"]\n");
         _db = _database.Open();
     }
 

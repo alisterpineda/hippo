@@ -8,7 +8,7 @@ public class NotebookTests
     public void The_root_is_the_nearest_folder_with_a_config()
     {
         using var dir = new TempDirectory();
-        dir.Write("notes/.hippo.yaml", "version: 1\n");
+        dir.Write("notes/.hippo.yaml", "");
         Directory.CreateDirectory(dir.Combine("notes/wiki/topics"));
 
         var notebook = Notebook.Open(dir.Combine("notes/wiki/topics"));
@@ -20,7 +20,7 @@ public class NotebookTests
     public void The_working_directory_itself_can_be_the_root()
     {
         using var dir = new TempDirectory();
-        dir.Write(".hippo.yaml", "version: 1\n");
+        dir.Write(".hippo.yaml", "");
 
         var notebook = Notebook.Open(dir.FullPath);
 
@@ -47,41 +47,40 @@ public class NotebookTests
     }
 
     [Fact]
-    public void The_starter_config_parses_without_warnings()
+    public void The_starter_config_parses()
     {
-        var warnings = new List<string>();
+        var config = NotebookConfig.Parse(NotebookConfig.Starter);
 
-        var config = NotebookConfig.Parse(NotebookConfig.Starter, warnings);
-
-        Assert.Empty(warnings);
         Assert.Equal(["**/*"], config.Include);
         Assert.Equal([".git/**", ".obsidian/**", ".trash/**"], config.Exclude);
         Assert.Equal(NotebookConfig.Default.LinkSettings.Fingerprint, config.LinkSettings.Fingerprint);
     }
 
     [Fact]
-    public void The_starter_configs_commented_examples_parse_without_warnings()
+    public void The_starter_configs_commented_examples_parse()
     {
         var uncommented = System.Text.RegularExpressions.Regex.Replace(NotebookConfig.Starter, "^# ", "",
-            System.Text.RegularExpressions.RegexOptions.Multiline);
-        var warnings = new List<string>();
+            System.Text.RegularExpressions.RegexOptions.Multiline)
+            // The example's page is the default, so it is swapped for bundle to show the line was actually read.
+            .Replace("body: { resolve: page }", "body: { resolve: bundle }");
 
-        var config = NotebookConfig.Parse(uncommented, warnings);
+        var config = NotebookConfig.Parse(uncommented);
 
-        Assert.Empty(warnings);
+        // Every commented key is checked, since a misspelt one would be ignored rather than rejected.
         Assert.Equal(["wiki"], config.Bundles);
-        Assert.NotEqual(NotebookConfig.Default.LinkSettings.Fingerprint, config.LinkSettings.Fingerprint);
+        Assert.Equal(LinkBase.Bundle, config.Links.Body);
+        Assert.Equal([("sources[].resource", LinkBase.Bundle)], config.Links.Frontmatter.Select(f => (f.Field, f.Resolve)));
+        Assert.Equal(["wiki/index.md"], config.Links.Roots);
     }
 
     [Fact]
     public void Files_section_sets_include_and_exclude()
     {
         var config = NotebookConfig.Parse("""
-            version: 1
             files:
               include: ["**/*.md", "raw/**"]
               exclude: [".git/**", "inbox/**"]
-            """, []);
+            """);
 
         Assert.Equal(["**/*.md", "raw/**"], config.Include);
         Assert.Equal([".git/**", "inbox/**"], config.Exclude);
@@ -90,7 +89,7 @@ public class NotebookTests
     [Fact]
     public void Without_a_files_section_everything_is_included()
     {
-        var config = NotebookConfig.Parse("version: 1\n", []);
+        var config = NotebookConfig.Parse("links: { roots: [\"index.md\"] }\n");
 
         Assert.Equal(["**/*"], config.Include);
         Assert.Empty(config.Exclude);
@@ -99,41 +98,33 @@ public class NotebookTests
     [Fact]
     public void An_empty_config_is_valid()
     {
-        var config = NotebookConfig.Parse("", []);
+        var config = NotebookConfig.Parse("");
 
         Assert.Equal(["**/*"], config.Include);
     }
 
     [Fact]
-    public void Keys_from_later_phases_are_ignored_with_a_warning()
+    public void Unknown_keys_are_ignored()
     {
-        var warnings = new List<string>();
-
         var config = NotebookConfig.Parse("""
-            version: 1
             files:
-              include: ["**/*"]
+              include: ["**/*.md"]
               typo: true
             ids:
               field: sources[].id
-            lint:
-              rules: [placement]
-            """, warnings);
+            links:
+              typo: 1
+              body: { resolve: bundle, typo: 2 }
+            """);
 
-        Assert.Equal(["**/*"], config.Include);
-        Assert.Equal(3, warnings.Count);
-        Assert.Contains(warnings, w => w.Contains("'ids'"));
-        Assert.Contains(warnings, w => w.Contains("'lint'"));
-        Assert.Contains(warnings, w => w.Contains("'files.typo'"));
+        Assert.Equal(["**/*.md"], config.Include);
+        Assert.Equal(LinkBase.Bundle, config.Links.Body);
     }
 
     [Fact]
-    public void Bundles_and_links_are_read_without_warnings()
+    public void Bundles_and_links_are_read()
     {
-        var warnings = new List<string>();
-
         var config = NotebookConfig.Parse("""
-            version: 1
             bundles:
               - root: wiki
               - root: /docs/
@@ -145,9 +136,8 @@ public class NotebookTests
                   resolve: bundle
                 - field: related[]
               roots: ["wiki/index.md"]
-            """, warnings);
+            """);
 
-        Assert.Empty(warnings);
         Assert.Equal(["wiki", "docs"], config.Bundles);
         Assert.Equal(LinkBase.Bundle, config.Links.Body);
         Assert.Equal(
@@ -159,7 +149,7 @@ public class NotebookTests
     [Fact]
     public void Without_a_links_section_body_links_resolve_from_the_page()
     {
-        var config = NotebookConfig.Parse("version: 1\n", []);
+        var config = NotebookConfig.Parse("files: { include: [\"**/*\"] }\n");
 
         Assert.Empty(config.Bundles);
         Assert.Equal(LinkBase.Page, config.Links.Body);
@@ -179,27 +169,15 @@ public class NotebookTests
     [InlineData("links:\n  roots: wiki/index.md\n", "links.roots")]
     public void Malformed_link_settings_are_errors(string yaml, string key)
     {
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(yaml, []));
+        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(yaml));
 
         Assert.Contains(key, ex.Message);
     }
 
     [Fact]
-    public void Unknown_keys_inside_links_warn()
-    {
-        var warnings = new List<string>();
-
-        NotebookConfig.Parse("links:\n  typo: 1\n  body: { typo: 2 }\n", warnings);
-
-        Assert.Equal(2, warnings.Count);
-        Assert.Contains(warnings, w => w.Contains("'links.typo'"));
-        Assert.Contains(warnings, w => w.Contains("'links.body.typo'"));
-    }
-
-    [Fact]
     public void The_link_fingerprint_changes_with_the_settings_that_shape_links_only()
     {
-        string Fingerprint(string yaml) => NotebookConfig.Parse(yaml, []).LinkSettings.Fingerprint;
+        string Fingerprint(string yaml) => NotebookConfig.Parse(yaml).LinkSettings.Fingerprint;
         var baseline = Fingerprint("bundles: [{root: wiki}]\nlinks:\n  frontmatter: [{field: a}]\n");
 
         Assert.Equal(baseline, Fingerprint("bundles: [{root: wiki}]\nlinks:\n  frontmatter: [{field: a}]\n  roots: [x.md]\nfiles:\n  exclude: [y/**]\n"));
@@ -212,7 +190,7 @@ public class NotebookTests
     [Fact]
     public void Invalid_yaml_is_an_error()
     {
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("files: [unclosed\n", []));
+        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("files: [unclosed\n"));
 
         Assert.Contains(".hippo.yaml", ex.Message);
     }
@@ -222,23 +200,15 @@ public class NotebookTests
     {
         var yaml = $"a: {new string('[', 100_000)}{new string(']', 100_000)}\n";
 
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(yaml, []));
+        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse(yaml));
 
         Assert.Contains(".hippo.yaml", ex.Message);
     }
 
     [Fact]
-    public void A_version_other_than_1_is_an_error()
-    {
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("version: 2\n", []));
-
-        Assert.Contains("version", ex.Message);
-    }
-
-    [Fact]
     public void An_include_that_is_not_a_list_is_an_error()
     {
-        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("files:\n  include: \"**/*\"\n", []));
+        var ex = Assert.Throws<HippoException>(() => NotebookConfig.Parse("files:\n  include: \"**/*\"\n"));
 
         Assert.Contains("files.include", ex.Message);
     }
@@ -246,7 +216,7 @@ public class NotebookTests
     [Fact]
     public void A_config_that_is_not_a_mapping_is_an_error()
     {
-        Assert.Throws<HippoException>(() => NotebookConfig.Parse("- a\n- b\n", []));
+        Assert.Throws<HippoException>(() => NotebookConfig.Parse("- a\n- b\n"));
     }
 
     [Theory]

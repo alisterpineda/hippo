@@ -20,7 +20,6 @@ public sealed class LinkCommandTests : IDisposable
     private void WriteNotes()
     {
         _notebook.Write(".hippo.yaml", """
-            version: 1
             bundles:
               - root: wiki
             links:
@@ -226,7 +225,7 @@ public sealed class LinkCommandTests : IDisposable
         _notebook.Write("wiki/b.md", "# B\n");
         await _notebook.RunAsync("index");
 
-        _notebook.Write(".hippo.yaml", "version: 1\nbundles:\n  - root: wiki\n");
+        _notebook.Write(".hippo.yaml", "bundles:\n  - root: wiki\n");
         var result = await _notebook.RunAsync("refs", "wiki/a.md");
 
         Assert.Equal(["1  body         file     wiki/b.md"], Lines(result.Stdout));
@@ -248,7 +247,7 @@ public sealed class LinkCommandTests : IDisposable
     [Fact]
     public async Task Clean_notebooks_exit_0_from_broken_and_orphans()
     {
-        _notebook.Write(".hippo.yaml", "version: 1\nlinks:\n  roots: [\"index.md\"]\n");
+        _notebook.Write(".hippo.yaml", "links:\n  roots: [\"index.md\"]\n");
         _notebook.Write("index.md", "[a](a.md)\n");
         _notebook.Write("a.md", "[index](index.md)\n");
 
@@ -263,7 +262,7 @@ public sealed class LinkCommandTests : IDisposable
     [Fact]
     public async Task Roots_need_no_inbound_link_and_may_be_globs()
     {
-        _notebook.Write(".hippo.yaml", "version: 1\nlinks:\n  roots: [\"index.md\", \"**/hub.md\"]\n");
+        _notebook.Write(".hippo.yaml", "links:\n  roots: [\"index.md\", \"**/hub.md\"]\n");
         _notebook.Write("index.md", "# Index\n");
         _notebook.Write("wiki/topics/hub.md", "# Hub\n");
 
@@ -275,7 +274,7 @@ public sealed class LinkCommandTests : IDisposable
     [Fact]
     public async Task Broken_names_a_link_to_the_notebook_root_as_such()
     {
-        _notebook.Write(".hippo.yaml", "version: 1\n");
+        _notebook.Write(".hippo.yaml", "");
         _notebook.Write("index.md", "[home](./)\n");
 
         var result = await _notebook.RunAsync("broken");
@@ -287,7 +286,7 @@ public sealed class LinkCommandTests : IDisposable
     [Fact]
     public async Task A_malformed_link_setting_is_an_error()
     {
-        _notebook.Write(".hippo.yaml", "version: 1\nlinks:\n  body: { resolve: folder }\n");
+        _notebook.Write(".hippo.yaml", "links:\n  body: { resolve: folder }\n");
 
         var result = await _notebook.RunAsync("broken");
 

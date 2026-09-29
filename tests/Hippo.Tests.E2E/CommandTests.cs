@@ -395,7 +395,7 @@ public sealed class CommandTests : IDisposable
     [Fact]
     public async Task Excluded_files_are_not_listed()
     {
-        _notebook.Write(".hippo.yaml", "version: 1\nfiles:\n  include: [\"**/*\"]\n  exclude: [\".hippo.yaml\", \"inbox/**\"]\n");
+        _notebook.Write(".hippo.yaml", "files:\n  include: [\"**/*\"]\n  exclude: [\".hippo.yaml\", \"inbox/**\"]\n");
         _notebook.Write("a.md", "# A\n");
         _notebook.Write("inbox/b.md", "# B\n");
 
@@ -405,21 +405,20 @@ public sealed class CommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Keys_from_later_phases_warn_but_the_command_succeeds()
+    public async Task Unknown_keys_are_ignored_silently()
     {
-        _notebook.Write(".hippo.yaml", "version: 1\nids:\n  field: sources[].id\n");
+        _notebook.Write(".hippo.yaml", "ids:\n  field: sources[].id\n");
 
         var result = await _notebook.RunAsync("status");
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("warning", result.Stderr);
-        Assert.Contains("'ids'", result.Stderr);
+        Assert.Equal("", result.Stderr);
     }
 
     [Fact]
     public async Task A_malformed_config_is_an_error()
     {
-        _notebook.Write(".hippo.yaml", "version: 7\n");
+        _notebook.Write(".hippo.yaml", "files: [\"**/*\"]\n");
 
         var result = await _notebook.RunAsync("status");
 

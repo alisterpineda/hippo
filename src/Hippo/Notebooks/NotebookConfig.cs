@@ -76,7 +76,7 @@ internal sealed record LinkSettings(IReadOnlyList<string> Bundles, LinkBase Body
 
 /// <summary>
 /// The parts of <c>.hippo.yaml</c> this hippo understands. Keys it does not know, such as those a later phase adds,
-/// are ignored with a warning so an older hippo still runs against a newer notebook.
+/// are ignored so an older hippo still runs against a newer notebook.
 /// </summary>
 internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyList<string> Exclude)
 {
@@ -86,7 +86,6 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
     /// commented out. It mirrors the annotated example in README.md (less the default <c>wikilinks: text</c>), so change
     /// both together; a unit test parses the commented sections to catch stale syntax.</summary>
     public const string Starter = """
-        version: 1
         files:
           include: ["**/*"]
           exclude: [".git/**", ".obsidian/**", ".trash/**"]
@@ -113,7 +112,7 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
     /// <summary>The settings that shape the links stored for a page.</summary>
     public LinkSettings LinkSettings => new(Bundles, Links.Body, Links.Frontmatter);
 
-    public static NotebookConfig Parse(string yaml, ICollection<string> warnings)
+    public static NotebookConfig Parse(string yaml)
     {
         var stream = new YamlStream();
         try
@@ -139,30 +138,21 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
         {
             switch (Key(keyNode))
             {
-                case "version":
-                    if (value is not YamlScalarNode { Value: "1" })
-                    {
-                        throw Error("version must be 1");
-                    }
-                    break;
                 case "files":
-                    config = ParseFiles(config, value, warnings);
+                    config = ParseFiles(config, value);
                     break;
                 case "bundles":
-                    config = config with { Bundles = ParseBundles(value, warnings) };
+                    config = config with { Bundles = ParseBundles(value) };
                     break;
                 case "links":
-                    config = config with { Links = ParseLinks(value, warnings) };
-                    break;
-                case var key:
-                    warnings.Add(UnknownKey(key));
+                    config = config with { Links = ParseLinks(value) };
                     break;
             }
         }
         return config;
     }
 
-    private static NotebookConfig ParseFiles(NotebookConfig config, YamlNode node, ICollection<string> warnings)
+    private static NotebookConfig ParseFiles(NotebookConfig config, YamlNode node)
     {
         foreach (var (key, value) in Mapping("files", node))
         {
@@ -174,15 +164,12 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
                 case "exclude":
                     config = config with { Exclude = Patterns("files.exclude", value) };
                     break;
-                default:
-                    warnings.Add(UnknownKey($"files.{key}"));
-                    break;
             }
         }
         return config;
     }
 
-    private static List<string> ParseBundles(YamlNode node, ICollection<string> warnings)
+    private static List<string> ParseBundles(YamlNode node)
     {
         const string usage = "bundles must be a list of mappings, each with a root folder inside the notebook";
         if (node is not YamlSequenceNode sequence)
@@ -200,10 +187,6 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
                 {
                     root = value is YamlScalarNode { Value: { } text } ? text.Trim('/') : throw Error(usage);
                 }
-                else
-                {
-                    warnings.Add(UnknownKey($"bundles[].{key}"));
-                }
             }
             if (root is null || root.Length == 0 || root.Split('/').Any(part => part is "" or "." or ".."))
             {
@@ -214,7 +197,7 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
         return roots;
     }
 
-    private static LinkConfig ParseLinks(YamlNode node, ICollection<string> warnings)
+    private static LinkConfig ParseLinks(YamlNode node)
     {
         var links = LinkConfig.Default;
         foreach (var (key, value) in Mapping("links", node))
@@ -228,10 +211,6 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
                         {
                             links = links with { Body = Resolve("links.body.resolve", bodyValue) };
                         }
-                        else
-                        {
-                            warnings.Add(UnknownKey($"links.body.{bodyKey}"));
-                        }
                     }
                     break;
                 case "wikilinks":
@@ -243,20 +222,17 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
                     }
                     break;
                 case "frontmatter":
-                    links = links with { Frontmatter = ParseFrontmatterLinks(value, warnings) };
+                    links = links with { Frontmatter = ParseFrontmatterLinks(value) };
                     break;
                 case "roots":
                     links = links with { Roots = Patterns("links.roots", value) };
-                    break;
-                default:
-                    warnings.Add(UnknownKey($"links.{key}"));
                     break;
             }
         }
         return links;
     }
 
-    private static List<FrontmatterLinkField> ParseFrontmatterLinks(YamlNode node, ICollection<string> warnings)
+    private static List<FrontmatterLinkField> ParseFrontmatterLinks(YamlNode node)
     {
         const string usage = "links.frontmatter must be a list of mappings, each with a field such as sources[].resource";
         if (node is not YamlSequenceNode sequence)
@@ -278,9 +254,6 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
                         break;
                     case "resolve":
                         resolve = Resolve("links.frontmatter[].resolve", value);
-                        break;
-                    default:
-                        warnings.Add(UnknownKey($"links.frontmatter[].{key}"));
                         break;
                 }
             }
@@ -325,9 +298,6 @@ internal sealed record NotebookConfig(IReadOnlyList<string> Include, IReadOnlyLi
 
     private static string Key(YamlNode node) =>
         node is YamlScalarNode { Value: { } key } ? key : throw Error($"line {node.Start.Line}: keys must be plain values");
-
-    private static string UnknownKey(string key) =>
-        $"{FileName}: '{key}' is not understood by this version of hippo and was ignored";
 
     private static HippoException Error(string message) => new($"{FileName}: {message}");
 }
