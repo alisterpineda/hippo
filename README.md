@@ -83,7 +83,7 @@ dotnet test -c Release
 The E2E tests run the build output under the dotnet host. To run them against a published binary instead, set `HIPPO_EXE` to its absolute path:
 
 ```sh
-dotnet publish src/Hippo -c Release -r osx-arm64 -p:PublishAot=true -o artifacts/publish/osx-arm64
+dotnet publish src/Hippo -c Release -r osx-arm64 -o artifacts/publish/osx-arm64
 HIPPO_EXE="$PWD/artifacts/publish/osx-arm64/hippo" dotnet test tests/Hippo.Tests.E2E -c Release
 ```
 
@@ -106,15 +106,26 @@ A migration keeps the data in the index:
 
 ## Distribution
 
-Native AOT binaries are built per platform (`osx-arm64`, `osx-x64`, `linux-x64`, `win-x64`) with the publish command above. Native AOT cannot cross-compile between operating systems, so a Mac builds only the two macOS binaries; CI builds each binary on its own OS.
+Native AOT binaries are built per platform (`osx-arm64`, `osx-x64`, `linux-x64`, `linux-musl-x64`, `win-x64`) with the publish command above. Native AOT cannot cross-compile between operating systems, so a Mac builds only the two macOS binaries; CI builds each binary on its own OS, the musl one in an Alpine container. The `linux-x64` binary links against the glibc of the Ubuntu CI builds on and needs glibc 2.38 or later (Ubuntu 23.10, Debian 13, RHEL 10); CI fails if that rises. On an older glibc it does not start, and `dotnet tool install` picks it there all the same; building it against an older glibc would widen that.
 
-Each binary is a single file with SQLite linked in. The publish downloads the SQLite amalgamation pinned in `src/Hippo/Sqlite.targets` from sqlite.org, checks its SHA-256, compiles it with the C compiler the native AOT link uses (clang or gcc, or Visual Studio's C++ tools on Windows), and leaves out the `e_sqlite3` library the SQLitePCLRaw package ships. Every other build, the tests and the `dotnet tool` package included, still loads that package library, so the two must be the same SQLite version; a unit test fails when they differ. The package decides the version: SQLitePCLRaw.bundle_e_sqlite3, which Microsoft.Data.Sqlite brings in. To move to a new SQLite, move that package, then update the version, URL and SHA-256 in `Sqlite.targets` to match; the version's [release log](https://sqlite.org/changes.html) gives the SHA3-256 of its `sqlite3.c` to check the download against.
+Each binary is a single file with SQLite linked in. The publish downloads the SQLite amalgamation pinned in `src/Hippo/Sqlite.targets` from sqlite.org, checks its SHA-256, compiles it with the C compiler the native AOT link uses (clang or gcc, or Visual Studio's C++ tools on Windows), and leaves out the `e_sqlite3` library the SQLitePCLRaw package ships. Every other build, the tests and the framework-dependent tool package included, still loads that package library, so the two must be the same SQLite version; a unit test fails when they differ. The package decides the version: SQLitePCLRaw.bundle_e_sqlite3, which Microsoft.Data.Sqlite brings in. To move to a new SQLite, move that package, then update the version, URL and SHA-256 in `Sqlite.targets` to match; the version's [release log](https://sqlite.org/changes.html) gives the SHA3-256 of its `sqlite3.c` to check the download against.
 
-The `dotnet tool` package installs from a local feed. `local-feed.nuget.config` limits the install to that feed, since the `hippo` ID is not reserved on nuget.org:
+hippo also ships as a `dotnet tool`, in one package per native binary plus a framework-dependent package for every other platform, which loads SQLite from the SQLitePCLRaw package. Users install the `hippo` package, which lists the others; the .NET CLI (SDK 10 or later) picks the native one for their platform and falls back to the framework-dependent one only where there is none. Each native package is packed on its own OS, like the binary:
 
 ```sh
-dotnet pack src/Hippo -c Release -o artifacts/nupkg
+dotnet pack src/Hippo -c Release -r osx-arm64 -o artifacts/nupkg               # a native package
+dotnet pack src/Hippo -c Release -r any -p:PublishAot=false -o artifacts/nupkg  # the framework-dependent package
+dotnet pack src/Hippo -c Release -o artifacts/nupkg                             # the package users install
+```
+
+Every package carries the same version. When publishing to a feed, push the package users install last, since installing it fails until the one it picks is there. CI uploads them all as the `tool-package` artifact.
+
+To install from the local feed, use `local-feed.nuget.config`. The `hippo` IDs are not reserved on nuget.org, so it maps them to the local feed alone:
+
+```sh
 dotnet tool install hippo --tool-path artifacts/tool --configfile local-feed.nuget.config \
   --version "$(dotnet msbuild src/Hippo -getProperty:Version)"
 artifacts/tool/hippo
 ```
+
+The feed needs the package users install and the one for this platform. A leftover `bin/Release/net10.0/<rid>/publish/` folder is packed as it is, stale files included, so delete it before packing on a machine that published before.

@@ -37,42 +37,16 @@ jobs:
       - name: Integration tests
         run: dotnet test tests/Hippo.Tests.Integration -c Release --no-build
 
-  tool-package:
-    # Packs the framework-dependent tool package, which runs on any OS.
-    name: Tool package
-    needs: test
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-dotnet@v5
-        with:
-          global-json-file: global.json
-
-      - name: Pack tool package
-        run: dotnet pack src/Hippo -c Release -o artifacts/nupkg
-
-      - name: Install tool package from local feed
-        run: |
-          version=$(dotnet msbuild src/Hippo -getProperty:Version)
-          dotnet tool install hippo --tool-path artifacts/tool --add-source artifacts/nupkg --version "$version"
-          output=$(artifacts/tool/hippo --version)
-          echo "$output"
-          test "$output" = "$version"
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: tool-package
-          path: artifacts/nupkg/
-
   native:
-    # Native AOT cannot cross-compile between operating systems, so each binary is built and tested on its own OS.
+    # Native AOT cannot cross-compile between operating systems, so each native tool package is packed and tested on
+    # its own OS. The musl package is built in an Alpine container: the CLI picks linux-x64 on a musl system that has no
+    # package of its own, and that binary, linked against glibc, does not run there.
     name: Native (${{ matrix.rid }})
     needs: test
     strategy:
       fail-fast: false
       matrix:
+        # One entry per native RID in ToolPackageRuntimeIdentifiers in src/Hippo/Hippo.csproj.
         include:
           - os: macos-latest
             rid: osx-arm64
@@ -83,11 +57,91 @@ jobs:
           - os: ubuntu-latest
             rid: linux-x64
             exe: hippo
+          - os: ubuntu-latest
+            container: mcr.microsoft.com/dotnet/sdk:10.0-alpine
+            rid: linux-musl-x64
+            exe: hippo
           - os: windows-latest
             rid: win-x64
             exe: hippo.exe
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
     timeout-minutes: 30
+    steps:
+      # The native AOT prerequisites, bash for the steps below, and git, which checkout and the E2E tests use.
+      - name: Install Alpine packages
+        if: matrix.container != ''
+        run: apk add --no-cache bash clang build-base zlib-dev git
+
+      - uses: actions/checkout@v5
+
+      # The SDK image carries the SDK.
+      - uses: actions/setup-dotnet@v5
+        if: matrix.container == ''
+        with:
+          global-json-file: global.json
+
+      # PublishDir puts the published binary where the hippo-<rid> upload below reads it. In a container job,
+      # github.workspace is the runner's path, not the container's, so these steps read GITHUB_WORKSPACE instead.
+      - name: Pack native tool package
+        shell: bash
+        run: dotnet pack src/Hippo -c Release -r ${{ matrix.rid }} -o artifacts/nupkg -p:PublishDir="$GITHUB_WORKSPACE/artifacts/publish/${{ matrix.rid }}/"
+
+      # The README gives 2.38 as the oldest glibc the linux-x64 binary runs on, set by the runner image it links against.
+      - name: Check the glibc the binary needs
+        if: matrix.rid == 'linux-x64'
+        run: |
+          needed=$(objdump -T artifacts/publish/linux-x64/hippo | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
+          echo "$needed"
+          if [ "$(printf '%s\n' "$needed" GLIBC_2.38 | sort -V | tail -1)" != GLIBC_2.38 ]; then
+            echo "::error::The binary needs $needed, newer than the 2.38 the README gives."
+            exit 1
+          fi
+
+      # The package users install names the native package for each RID; the install below picks this OS's.
+      - name: Pack the package users install
+        run: dotnet pack src/Hippo -c Release -o artifacts/nupkg
+
+      - name: Install tool from local feed
+        shell: bash
+        run: |
+          version=$(dotnet msbuild src/Hippo -getProperty:Version | tr -d '\r')
+          dotnet tool install hippo --tool-path artifacts/tool --configfile local-feed.nuget.config --version "$version"
+          output=$(artifacts/tool/hippo --version | tr -d '\r')
+          echo "$output"
+          test "$output" = "$version"
+
+      # SQLite is linked into the binary, so the tests below pass only if that link works.
+      - name: Check no SQLite library ships beside the binary
+        shell: bash
+        run: |
+          if find artifacts/tool -iname '*sqlite*' | grep .; then
+            echo "::error::A SQLite library was packed beside the binary."
+            exit 1
+          fi
+
+      - name: Test the installed binary
+        shell: bash
+        run: HIPPO_EXE="$GITHUB_WORKSPACE/artifacts/tool/${{ matrix.exe }}" dotnet test tests/Hippo.Tests.E2E -c Release
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hippo-${{ matrix.rid }}
+          path: artifacts/publish/${{ matrix.rid }}/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tool-package-${{ matrix.rid }}
+          path: artifacts/nupkg/hippo.${{ matrix.rid }}.*.nupkg
+
+  tool-package:
+    # Packs the package users install and the framework-dependent package for platforms without a native one, and
+    # uploads them with the native packages as one feed.
+    name: Tool package
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
@@ -95,24 +149,39 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Publish native AOT binary
-        run: dotnet publish src/Hippo -c Release -r ${{ matrix.rid }} -p:PublishAot=true -o artifacts/publish/${{ matrix.rid }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: tool-package-*
+          path: artifacts/nupkg
+          merge-multiple: true
 
-      # SQLite is linked into the binary, so the tests below pass only if that link works.
-      - name: Check no SQLite library ships beside the binary
-        shell: bash
+      - name: Pack the package users install
+        run: dotnet pack src/Hippo -c Release -o artifacts/nupkg
+
+      - name: Pack framework-dependent tool package
+        run: dotnet pack src/Hippo -c Release -r any -p:PublishAot=false -o artifacts/nupkg
+
+      # The CLI picks the framework-dependent package only on a platform without a native one, so this install goes
+      # through a copy of the package users install that names no native packages. The copied config resolves its
+      # `artifacts/nupkg` feed relative to itself, hence the nested artifacts/any/artifacts/nupkg.
+      - name: Install framework-dependent tool from local feed
         run: |
-          if ls artifacts/publish/${{ matrix.rid }} | grep -i sqlite; then
-            echo "::error::A SQLite library was published beside the binary."
-            exit 1
-          fi
+          version=$(dotnet msbuild src/Hippo -getProperty:Version)
+          mkdir -p artifacts/any/artifacts/nupkg
+          cp local-feed.nuget.config artifacts/any/
+          cp artifacts/nupkg/hippo.any.$version.nupkg artifacts/any/artifacts/nupkg/
+          dotnet pack src/Hippo -c Release -p:ToolPackageRuntimeIdentifiers=any -o artifacts/any/artifacts/nupkg
+          dotnet tool install hippo --tool-path artifacts/any/tool --configfile artifacts/any/local-feed.nuget.config --version "$version"
+          output=$(artifacts/any/tool/hippo --version)
+          echo "$output"
+          test "$output" = "$version"
 
-      - name: Test the published binary
+      - name: Test the framework-dependent tool
         run: dotnet test tests/Hippo.Tests.E2E -c Release
         env:
-          HIPPO_EXE: ${{ github.workspace }}/artifacts/publish/${{ matrix.rid }}/${{ matrix.exe }}
+          HIPPO_EXE: ${{ github.workspace }}/artifacts/any/tool/hippo
 
       - uses: actions/upload-artifact@v7
         with:
-          name: hippo-${{ matrix.rid }}
-          path: artifacts/publish/${{ matrix.rid }}/
+          name: tool-package
+          path: artifacts/nupkg/
