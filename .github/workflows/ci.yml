@@ -46,24 +46,31 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # One entry per native RID in ToolPackageRuntimeIdentifiers in src/Hippo/Hippo.csproj.
+        # One entry per native RID in ToolPackageRuntimeIdentifiers in src/Hippo/Hippo.csproj. `exe` is the binary in the
+        # package; `command` is what the install puts on the tool path, a symlink to it or, on Windows, a .cmd file that
+        # calls it.
         include:
           - os: macos-latest
             rid: osx-arm64
             exe: hippo
+            command: hippo
           - os: macos-15-intel
             rid: osx-x64
             exe: hippo
+            command: hippo
           - os: ubuntu-latest
             rid: linux-x64
             exe: hippo
+            command: hippo
           - os: ubuntu-latest
             container: mcr.microsoft.com/dotnet/sdk:10.0-alpine
             rid: linux-musl-x64
             exe: hippo
+            command: hippo
           - os: windows-latest
             rid: win-x64
             exe: hippo.exe
+            command: hippo.cmd
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
     timeout-minutes: 30
@@ -107,9 +114,10 @@ jobs:
         run: |
           version=$(dotnet msbuild src/Hippo -getProperty:Version | tr -d '\r')
           dotnet tool install hippo --tool-path artifacts/tool --configfile local-feed.nuget.config --version "$version"
-          output=$(artifacts/tool/hippo --version | tr -d '\r')
+          output=$(artifacts/tool/${{ matrix.command }} --version | tr -d '\r')
           echo "$output"
           test "$output" = "$version"
+          echo "HIPPO_VERSION=$version" >> "$GITHUB_ENV"
 
       # SQLite is linked into the binary, so the tests below pass only if that link works.
       - name: Check no SQLite library ships beside the binary
@@ -120,9 +128,14 @@ jobs:
             exit 1
           fi
 
+      # The tests run the binary in the tool store rather than the command: a .cmd file would put cmd.exe's argument
+      # parsing between them and hippo.
       - name: Test the installed binary
         shell: bash
-        run: HIPPO_EXE="$GITHUB_WORKSPACE/artifacts/tool/${{ matrix.exe }}" dotnet test tests/Hippo.Tests.E2E -c Release
+        run: |
+          export HIPPO_EXE="$GITHUB_WORKSPACE/artifacts/tool/.store/hippo/$HIPPO_VERSION/hippo.${{ matrix.rid }}/$HIPPO_VERSION/tools/any/${{ matrix.rid }}/${{ matrix.exe }}"
+          test -f "$HIPPO_EXE"
+          dotnet test tests/Hippo.Tests.E2E -c Release
 
       - uses: actions/upload-artifact@v7
         with:
