@@ -39,7 +39,7 @@ jobs:
           echo "$output"
           test "$output" = "$version"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tool-package
           path: artifacts/nupkg/
@@ -88,7 +88,7 @@ jobs:
         env:
           HIPPO_EXE: ${{ github.workspace }}/artifacts/publish/${{ matrix.rid }}/${{ matrix.exe }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: hippo-${{ matrix.rid }}
           path: artifacts/publish/${{ matrix.rid }}/
