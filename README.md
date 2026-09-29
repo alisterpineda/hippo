@@ -28,7 +28,8 @@ hippo orphans                pages with no link to or from another file
 {
   "files": {
     "include": ["**/*"],
-    "exclude": [".git/**", ".obsidian/**", ".trash/**"]
+    "exclude": [".git/**", ".obsidian/**", ".trash/**"],
+    "gitignore": true                   // leave out the files git ignores, whatever include says
   },
   "links": {
     "bundles": ["wiki"],                // a leading "/" in a link on a page in wiki resolves against wiki
@@ -41,6 +42,8 @@ hippo orphans                pages with no link to or from another file
   }
 }
 ```
+
+`gitignore`, on unless set to `false`, leaves out every untracked file git ignores, as `git ls-files --others --ignored --exclude-standard` lists them from the workspace root: each `.gitignore`, `.git/info/exclude` and your global excludes file count, including rules in a repository that holds the workspace in a subfolder; when that repository ignores the workspace folder itself, nothing is left out. A tracked file is indexed even when a rule matches it, as git itself does. hippo runs git only when the workspace root or a folder above it holds a `.git`; if git is not on `PATH` or fails, hippo warns and indexes the ignored files.
 
 A bundle is a folder whose pages treat it as their root: a leading `/` in a link resolves against the deepest bundle holding the page, or against the workspace root for a page in none. Other body links resolve from the page's folder; `[[x]]` is plain text, not a link. An orphan is a page with no link to or from another indexed file; links to itself, URLs, anchors and missing targets do not count.
 
@@ -55,6 +58,7 @@ The index lives in `<user cache>/hippo/<hash of workspace root>/index.db`; set `
 - **An unreadable page after a link-settings change slows every command.** Changing `links` makes hippo re-read every page to redo its links. If a page cannot be read then, hippo keeps its old links and does not record the new settings as applied, so each later command re-reads every page again, with a warning naming the file, until that page can be read. The answers stay correct; fixing the file's permissions ends it.
 - **A same-size edit can hide on a skewed clock.** hippo re-reads a file whose mtime is within 2 s of when it was last read, which catches an edit made in the same mtime tick. On a filesystem whose clock is more than 2 s off this machine's, such as some network shares, such an edit can still be missed; `hippo index --rebuild` re-reads everything.
 - **A file dated in the future is re-read on every command** until the clock passes its mtime, though its row is not rewritten.
+- **On macOS, a gitignored name with accented letters can still be indexed.** git reports names in composed Unicode form, but a name can be stored decomposed on disk, and hippo compares the two exactly. A file or folder whose name is stored that way is indexed even though git ignores it. An exclude pattern that matches it with `*` in place of the accented letters, such as `**/*.log`, leaves it out.
 
 ## Layout
 

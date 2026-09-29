@@ -72,7 +72,7 @@ internal static class Sweeper
         var rows = new List<ParsedFile>();
         var stats = new List<StatRow>();
         int added = 0, updated = 0, hashed = 0;
-        foreach (var file in Enumerate(workspace))
+        foreach (var file in Enumerate(workspace, warnings))
         {
             known.TryGetValue(file.Path, out var previous);
             var reparse = rebuild || relink && Workspace.IsMarkdown(file.Path);
@@ -247,11 +247,13 @@ internal static class Sweeper
             page.Links.Select(l => new LinkRow(file.Path, hash, l.Line, l.Kind, l.Type, l.Raw, l.Target)).ToList());
     }
 
-    /// <summary>Lists the included files under the root. Symbolic links are skipped, so nothing outside the root is
-    /// read, and a folder that an exclude pattern ending in <c>/**</c> covers is never entered.</summary>
-    private static List<DiskFile> Enumerate(Workspace workspace)
+    /// <summary>Lists the included files under the root, less those git ignores when the config says to. Symbolic links
+    /// are skipped, so nothing outside the root is read, and a folder that an exclude pattern ending in <c>/**</c>
+    /// covers, or whose files git all ignores, is never entered.</summary>
+    private static List<DiskFile> Enumerate(Workspace workspace, List<string> warnings)
     {
         var root = workspace.Root;
+        var ignored = workspace.Config.Gitignore ? GitIgnored.Find(root, warnings) : GitIgnored.None;
         var pruned = workspace.Config.Exclude
             .Where(pattern => pattern.EndsWith("/**", StringComparison.Ordinal))
             .Select(pattern =>
@@ -285,7 +287,7 @@ internal static class Sweeper
                     return false;
                 }
                 var path = RelativePath(ref entry);
-                return !pruned.Exists(folder => folder.Match(root, path).HasMatches);
+                return !ignored.Folders.Contains(path) && !pruned.Exists(folder => folder.Match(root, path).HasMatches);
             },
         }.ToList();
 
@@ -293,7 +295,7 @@ internal static class Sweeper
         matcher.AddIncludePatterns(workspace.Config.Include);
         matcher.AddExcludePatterns(workspace.Config.Exclude);
         var included = workspace.Match(matcher, files.Select(f => f.FullPath));
-        return files.Where(f => included.Contains(f.Path)).ToList();
+        return files.Where(f => included.Contains(f.Path) && !ignored.Files.Contains(f.Path)).ToList();
     }
 
     private static bool IsLink(ref FileSystemEntry entry) => (entry.Attributes & FileAttributes.ReparsePoint) != 0;

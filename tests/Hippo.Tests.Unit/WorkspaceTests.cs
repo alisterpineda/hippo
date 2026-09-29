@@ -62,6 +62,7 @@ public class WorkspaceTests
 
         Assert.Equal(["**/*"], config.Include);
         Assert.Equal([".git/**", ".obsidian/**", ".trash/**"], config.Exclude);
+        Assert.True(config.Gitignore);
         Assert.Equal(WorkspaceConfig.Default.Links.Fingerprint, config.Links.Fingerprint);
     }
 
@@ -95,6 +96,27 @@ public class WorkspaceTests
 
         Assert.Equal(["**/*"], config.Include);
         Assert.Empty(config.Exclude);
+        Assert.True(config.Gitignore);
+    }
+
+    [Fact]
+    public void Gitignore_can_be_turned_off()
+    {
+        var config = WorkspaceConfig.Parse("""{ "files": { "gitignore": false } }""");
+
+        Assert.False(config.Gitignore);
+        Assert.Equal(["**/*"], config.Include);
+    }
+
+    [Theory]
+    [InlineData("""{ "files": { "gitignore": "false" } }""")]
+    [InlineData("""{ "files": { "gitignore": 0 } }""")]
+    [InlineData("""{ "files": { "gitignore": null } }""")]
+    public void Gitignore_must_be_a_boolean(string json)
+    {
+        var ex = Assert.Throws<HippoException>(() => WorkspaceConfig.Parse(json));
+
+        Assert.Equal(".hippo/config.json: files.gitignore must be true or false", ex.Message);
     }
 
     [Theory]
@@ -126,7 +148,7 @@ public class WorkspaceTests
 
     [Theory]
     [InlineData("""{ "fils": {} }""", "unknown key fils; expected files or links")]
-    [InlineData("""{ "files": { "exlcude": [] } }""", "unknown key files.exlcude; expected include or exclude")]
+    [InlineData("""{ "files": { "exlcude": [] } }""", "unknown key files.exlcude; expected include or exclude or gitignore")]
     [InlineData("""{ "links": { "roots": [] } }""", "unknown key links.roots; expected bundles or frontmatter")]
     [InlineData("""{ "links": { "frontmatter": [{ "field": "a", "reslove": "page" }] } }""", "unknown key links.frontmatter[].reslove")]
     public void Unknown_keys_are_errors_that_name_the_key(string json, string message)

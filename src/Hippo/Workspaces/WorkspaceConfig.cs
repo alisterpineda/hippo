@@ -72,7 +72,8 @@ internal sealed record LinkSettings(IReadOnlyList<string> Bundles, IReadOnlyList
 
 /// <summary>
 /// <c>.hippo/config.json</c>. A key it does not know is an error, so a misspelt one is caught rather than silently
-/// left at its default. Comments and trailing commas are allowed.
+/// left at its default. Comments and trailing commas are allowed. <see cref="Gitignore"/> leaves out the files git
+/// ignores, whatever <see cref="Include"/> says.
 /// </summary>
 internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyList<string> Exclude)
 {
@@ -84,14 +85,15 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
     /// <summary>The config's path relative to the workspace root, as messages show it.</summary>
     public const string RelativePath = Folder + "/" + FileName;
 
-    /// <summary>What <c>hippo init</c> writes: every file but the usual tool folders, with the <c>links</c> section
-    /// shown commented out. It mirrors the annotated example in README.md, so change both together; a unit test parses
+    /// <summary>What <c>hippo init</c> writes: every file but the ones git ignores and the usual tool folders, with the
+    /// <c>links</c> section shown commented out. It mirrors the annotated example in README.md, so change both together; a unit test parses
     /// the commented section to catch stale syntax.</summary>
     public const string Starter = """
         {
           "files": {
             "include": ["**/*"],
-            "exclude": [".git/**", ".obsidian/**", ".trash/**"]
+            "exclude": [".git/**", ".obsidian/**", ".trash/**"],
+            "gitignore": true                      // leave out the files git ignores, whatever include says
           },
           // "links": {
           //   "bundles": ["wiki"],                // a leading "/" in a link on a page in wiki resolves against wiki
@@ -117,6 +119,8 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
     };
 
     public static WorkspaceConfig Default { get; } = new(["**/*"], []);
+
+    public bool Gitignore { get; init; } = true;
 
     public LinkSettings Links { get; init; } = LinkSettings.Default;
 
@@ -169,12 +173,13 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
 
     private static WorkspaceConfig ParseFiles(WorkspaceConfig config, JsonElement element)
     {
-        foreach (var (key, value) in Object("files", element, "include", "exclude"))
+        foreach (var (key, value) in Object("files", element, "include", "exclude", "gitignore"))
         {
             config = key switch
             {
                 "include" => config with { Include = Patterns("files.include", value) },
                 "exclude" => config with { Exclude = Patterns("files.exclude", value) },
+                "gitignore" => config with { Gitignore = Boolean("files.gitignore", value) },
                 _ => throw new UnreachableException(key),
             };
         }
@@ -298,6 +303,13 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
                 : throw Error($"{key} must be an array of glob patterns"))
             .ToList();
     }
+
+    private static bool Boolean(string key, JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        _ => throw Error($"{key} must be true or false"),
+    };
 
     /// <summary>The element's text when it is a JSON string, else null.</summary>
     private static string? String(JsonElement element)

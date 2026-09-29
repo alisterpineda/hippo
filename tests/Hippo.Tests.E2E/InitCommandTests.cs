@@ -16,7 +16,7 @@ public sealed class InitCommandTests : IDisposable
     {
         Directory.Delete(_workspace.Combine(".hippo"), recursive: true);
         _workspace.Write("a.md", "# A\n");
-        _workspace.Write(".git/HEAD", "ref: refs/heads/main\n");
+        _workspace.Git("init");
 
         var init = await _workspace.RunAsync("init");
         var files = await _workspace.RunAsync("files", "--json");
