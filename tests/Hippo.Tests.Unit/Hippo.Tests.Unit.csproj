@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Hippo\Hippo.csproj" />
+    <ProjectReference Include="..\..\src\Hippo.Migrations\Hippo.Migrations.csproj" />
   </ItemGroup>
 
 </Project>

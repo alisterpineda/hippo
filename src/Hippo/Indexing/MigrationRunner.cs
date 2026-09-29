@@ -5,14 +5,15 @@ namespace Hippo.Indexing;
 
 /// <summary>
 /// Brings a database up to the binary's schema by running the embedded <c>Migrations/NNNN_&lt;name&gt;.sql</c> scripts
-/// whose number is above its schema version. Safe for several processes at once: the version is read under the write
+/// whose number is above its schema version. Each is exported from an EF migration in Hippo.Migrations, and
+/// <c>&lt;name&gt;</c> is the migration's id. Safe for several processes at once: the version is read under the write
 /// lock, so a second process waits and then finds nothing to do.
 /// </summary>
 internal static class MigrationRunner
 {
     private const string ResourcePrefix = "Hippo.Migrations.";
 
-    internal sealed record Script(int Version, string Sql);
+    internal sealed record Script(int Version, string Name, string Sql);
 
     public static IReadOnlyList<Script> Scripts { get; } = LoadScripts();
 
@@ -91,7 +92,7 @@ internal static class MigrationRunner
                     $"embedded migration script {resource} is not named NNNN_<name>.sql");
             }
             using var reader = new StreamReader(assembly.GetManifestResourceStream(resource)!);
-            scripts.Add(new Script(version, reader.ReadToEnd()));
+            scripts.Add(new Script(version, stem[(separator + 1)..], reader.ReadToEnd()));
         }
         scripts.Sort((a, b) => a.Version.CompareTo(b.Version));
         return scripts;

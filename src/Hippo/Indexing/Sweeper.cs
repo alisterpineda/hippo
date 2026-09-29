@@ -145,10 +145,12 @@ internal static class Sweeper
         if (rebuild || relink)
         {
             // One transaction, so a reader never sees a half-built index.
-            // Rows of files that could not be read are kept, as an ordinary sweep keeps them.
+            // Rows of files that could not be read are kept, as an ordinary sweep keeps them. Each re-read row (every
+            // file on a rebuild, the pages and changed files on a relink) is rewritten in place, so it keeps its id and
+            // whatever references it.
             using var transaction = db.BeginTransaction(deferred: false);
-            db.Execute("DELETE FROM files WHERE path = @Path", rows.Select(r => new PathRow(r.Row.Path)).Concat(removed).ToList(), transaction);
-            Write(db, rows, transaction);
+            db.Execute("DELETE FROM files WHERE path = @Path", removed, transaction);
+            Write(db, rows, overwrite: true, transaction);
             db.Execute("UPDATE files SET mtime = @Mtime, size = @Size, hashed_at = @HashedAt WHERE path = @Path AND hash = @Hash", stats, transaction);
             if (!unreadPage)
             {
@@ -162,7 +164,7 @@ internal static class Sweeper
         else
         {
             // Each call names its row type, which Dapper.AOT needs to generate the binding.
-            InBatches(db, rows, (batch, transaction) => Write(db, batch, transaction));
+            InBatches(db, rows, (batch, transaction) => Write(db, batch, overwrite: false, transaction));
             InBatches(db, stats, (batch, transaction) =>
                 db.Execute("UPDATE files SET mtime = @Mtime, size = @Size, hashed_at = @HashedAt WHERE path = @Path AND hash = @Hash", batch, transaction));
             InBatches(db, removed, (batch, transaction) => db.Execute("DELETE FROM files WHERE path = @Path", batch, transaction));
@@ -171,21 +173,35 @@ internal static class Sweeper
         return new SweepResult(seen.Count, added, updated, removed.Count, hashed, rebuild || relink, clock.GetUtcNow(), stopwatch.Elapsed, warnings);
     }
 
-    /// <summary>A row changes only when its content does, so a second process writing the same file is a no-op.</summary>
-    private const string UpsertSql = """
+    /// <summary>Writes each row whatever it held, keeping the id of a row that was there: a rebuild rewrites what a new
+    /// hippo may derive differently from unchanged content, and a relink records the stats of a page it re-read.</summary>
+    private const string OverwriteSql = """
         INSERT INTO files (path, mtime, size, hash, hashed_at, kind, frontmatter, parse_error)
         VALUES (@Path, @Mtime, @Size, @Hash, @HashedAt, @Kind, @Frontmatter, @ParseError)
         ON CONFLICT (path) DO UPDATE SET
             mtime = excluded.mtime, size = excluded.size, hash = excluded.hash, hashed_at = excluded.hashed_at,
             kind = excluded.kind, frontmatter = excluded.frontmatter, parse_error = excluded.parse_error
+        """;
+
+    /// <summary>A row changes only when its content does, so a second process writing the same file is a no-op.</summary>
+    private const string UpsertSql = OverwriteSql + """
+
         WHERE excluded.hash != files.hash
         """;
 
     /// <summary>Writes parsed files and replaces each page's links, in the caller's transaction so a reader never sees a
-    /// page without its links.</summary>
-    private static void Write(SqliteConnection db, List<ParsedFile> files, SqliteTransaction transaction)
+    /// page without its links. <paramref name="overwrite"/> rewrites rows whose content is unchanged.</summary>
+    private static void Write(SqliteConnection db, List<ParsedFile> files, bool overwrite, SqliteTransaction transaction)
     {
-        db.Execute(UpsertSql, files.Select(f => f.Row).ToList(), transaction);
+        var rows = files.Select(f => f.Row).ToList();
+        if (overwrite)
+        {
+            db.Execute(OverwriteSql, rows, transaction);
+        }
+        else
+        {
+            db.Execute(UpsertSql, rows, transaction);
+        }
         db.Execute(
             "DELETE FROM links WHERE source_id = (SELECT id FROM files WHERE path = @Path AND hash = @Hash)",
             files.Where(f => f.Row.Kind == "markdown").Select(f => new SourceRow(f.Row.Path, f.Row.Hash)).ToList(), transaction);

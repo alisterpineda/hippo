@@ -38,7 +38,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Hand-written schema scripts; the migration runner applies them in order. -->
+    <!-- Exported from Hippo.Migrations by scripts/add-migration.sh; the migration runner applies them in order. -->
     <EmbeddedResource Include="Migrations/*.sql" LogicalName="Hippo.Migrations.%(Filename)%(Extension)" />
   </ItemGroup>
 

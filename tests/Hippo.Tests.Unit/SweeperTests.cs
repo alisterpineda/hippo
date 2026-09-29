@@ -329,6 +329,20 @@ public sealed class SweeperTests : IDisposable
         Assert.Equal("""{"title":"A"}""", Row("a.md").Frontmatter);
     }
 
+    [Fact]
+    public void A_rebuild_rewrites_each_row_in_place()
+    {
+        _workspace.Write("a.md", "[b](b.txt)\n");
+        _workspace.Write("b.txt", "b");
+        Sweep();
+        var before = _db.Query<string>("SELECT path || '=' || id FROM files ORDER BY path").AsList();
+
+        Sweep(rebuild: true);
+
+        Assert.Equal(before, _db.Query<string>("SELECT path || '=' || id FROM files ORDER BY path"));
+        Assert.Equal(1, _db.ExecuteScalar<long>("SELECT count(*) FROM links"));
+    }
+
     /// <summary>Makes <paramref name="path"/> unreadable, or skips the test where permissions cannot do that
     /// (Windows, or running as root).</summary>
     [UnsupportedOSPlatform("windows")]
@@ -556,6 +570,23 @@ public sealed class SweeperTests : IDisposable
         Assert.Equal(2, changed.Hashed);
         Assert.True(changed.Rebuilt);
         Assert.Equal(["b.md"], Links().Select(l => l.Target));
+    }
+
+    [Fact]
+    public void A_relink_records_a_touched_pages_stats_and_keeps_its_id()
+    {
+        var path = _workspace.Write("a.md", "[b](b.md)\n");
+        Sweep();
+        var before = _db.Query<string>("SELECT path || '=' || id FROM files ORDER BY path").AsList();
+        File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddMinutes(1));
+
+        _workspace.Write(".hippo/config.json", """{ "bundles": [{ "root": "raw" }] }""");
+        var changed = Sweep();
+        var after = Sweep();
+
+        Assert.True(changed.Rebuilt);
+        Assert.Equal(0, after.Hashed);
+        Assert.Equal(before, _db.Query<string>("SELECT path || '=' || id FROM files ORDER BY path"));
     }
 
     [Fact]

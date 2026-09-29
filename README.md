@@ -63,6 +63,7 @@ The index lives in `<user cache>/hippo/<hash of workspace root>/index.db`; set `
 
 ```
 src/Hippo/               the CLI (AOT-compatible; trim and AOT warnings are errors)
+src/Hippo.Migrations/    dev-time only: EF Core model for authoring migrations; never shipped
 tests/Hippo.Tests.Unit/  in-process tests of the CLI's code
 tests/Hippo.Tests.E2E/   runs hippo as a separate process, as a user would
 ```
@@ -83,11 +84,20 @@ HIPPO_EXE="$PWD/artifacts/publish/osx-arm64/hippo" dotnet test tests/Hippo.Tests
 
 ## Migrations
 
-The schema is a series of hand-written SQL scripts in `src/Hippo/Migrations`, named `NNNN_<name>.sql`, which hippo embeds and applies on start. The number is the schema version. To change the schema, add the next script:
+The schema is authored as EF Core entities in `src/Hippo.Migrations`; hippo itself reads and writes with Dapper and never loads EF. After changing the entities, run:
 
-- A change to a derived table (one the workspace can rebuild, such as `files`) drops and recreates the table in full. hippo reindexes after any script runs, so its rows need not survive.
-- A new column is `NOT NULL` with no default unless it is genuinely optional.
-- A shipped script is never edited; fixes go forward in a new one.
+```sh
+scripts/add-migration.sh <Name>
+```
+
+It adds the EF migration and exports it alone to `src/Hippo/Migrations/NNNN_<migration id>.sql`, which hippo embeds and applies on start, all pending scripts in one transaction. The number is the schema version, kept in SQLite's `user_version`.
+
+A migration keeps the data in the index:
+
+- EF alters a table in place where SQLite can, and otherwise rebuilds it by copying every row into a new table. Review the SQL. When EF says a change may lose data, the script repeats the warning last; read every `DROP` it wrote.
+- A new `NOT NULL` column needs a value for the rows already there. Choose it on purpose and declare it in the model with `HasDefaultValue`; `SchemaTests` fails until the model and the scripts build the same schema. hippo re-reads every file after a migration and rewrites each row in place, keeping its id, so a column derived from the file is filled then.
+- `MigrationRunnerTests` migrates a populated index from the first schema through every script and fails when a row, or a value in a column the first schema had, is gone. It does not seed or check columns a later migration adds. A migration meant to discard data changes that test in the same commit.
+- A shipped script is never edited; fixes go forward in a new migration.
 
 ## Distribution
 

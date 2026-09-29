@@ -1,5 +1,7 @@
+using System.Globalization;
 using Dapper;
 using Hippo.Indexing;
+using Microsoft.Data.Sqlite;
 
 namespace Hippo.Tests.Unit;
 
@@ -44,26 +46,64 @@ public class MigrationRunnerTests
         Assert.Equal(0, MigrationRunner.Migrate(connection));
     }
 
+    /// <summary>
+    /// A migration keeps what the index holds: every script after the first must leave each row it finds, with the same
+    /// id and the same values in the first schema's columns. Columns a later script adds are not seeded or compared. A
+    /// migration meant to discard rows changes this test in the same commit.
+    /// </summary>
     [Fact]
-    public void A_version_1_database_gets_an_empty_files_table_of_the_latest_shape()
+    public void Migrating_a_populated_index_keeps_every_row()
     {
         using var db = new TestDatabase();
-        using (var v1 = db.Connect())
+        using (var first = db.Connect())
         {
-            v1.Execute(MigrationRunner.Scripts[0].Sql);
-            v1.Execute("PRAGMA user_version = 1");
-            v1.Execute("INSERT INTO files (path, mtime, size, hash, kind) VALUES ('a.md', 0, 0, 'h', 'markdown')");
-            // Indexes built before 0001 lost EF's bookkeeping have this table too.
-            v1.Execute("CREATE TABLE \"__EFMigrationsHistory\" (\"MigrationId\" TEXT NOT NULL PRIMARY KEY, \"ProductVersion\" TEXT NOT NULL)");
+            first.Execute(MigrationRunner.Scripts[0].Sql);
+            first.Execute("PRAGMA user_version = 1");
+            first.Execute("""
+                INSERT INTO files (id, path, mtime, size, hash, hashed_at, kind, frontmatter, parse_error) VALUES
+                    (7, 'a.md', 1, 2, 'ha', 3, 'markdown', '{"title":"A"}', NULL),
+                    (9, 'b.txt', 4, 5, 'hb', 6, 'plain', NULL, NULL),
+                    (12, 'c.md', 7, 8, 'hc', 9, 'markdown', NULL, 'bad yaml');
+                INSERT INTO links (id, source_id, line, kind, type, raw, target) VALUES
+                    (21, 7, 1, 'body', 'path', 'b.txt', 'b.txt'),
+                    (22, 7, 2, 'body', 'url', 'https://example.com', NULL),
+                    (25, 12, 1, 'frontmatter', 'path', '../out.md', NULL);
+                INSERT INTO meta (key, value) VALUES ('links', 'fingerprint');
+                """);
+        }
+        List<string> before;
+        using (var first = db.Connect())
+        {
+            before = FirstSchemaRows(first);
         }
         using var connection = db.Connect();
 
-        var applied = MigrationRunner.Migrate(connection);
+        MigrationRunner.Migrate(connection);
 
-        Assert.Equal(MigrationRunner.LatestVersion - 1, applied);
-        Assert.Equal(0, connection.ExecuteScalar<long>("SELECT count(*) FROM files"));
-        Assert.Equal(1, connection.ExecuteScalar<long>("SELECT count(*) FROM pragma_table_info('files') WHERE name = 'hashed_at'"));
-        Assert.Equal(0, connection.ExecuteScalar<long>("SELECT count(*) FROM sqlite_master WHERE name = '__EFMigrationsHistory'"));
+        Assert.Equal(before, FirstSchemaRows(connection));
+    }
+
+    /// <summary>Every row of every table, reading only the columns the first schema had, so a later added column does
+    /// not count as a change.</summary>
+    private static List<string> FirstSchemaRows(SqliteConnection connection)
+    {
+        string[] queries =
+        [
+            "SELECT 'files', id, path, mtime, size, hash, hashed_at, kind, frontmatter, parse_error FROM files ORDER BY id",
+            "SELECT 'links', id, source_id, line, kind, type, raw, target FROM links ORDER BY id",
+            "SELECT 'meta', key, value FROM meta ORDER BY key",
+        ];
+        var rows = new List<string>();
+        foreach (var query in queries)
+        {
+            using var reader = connection.ExecuteReader(query);
+            while (reader.Read())
+            {
+                rows.Add(string.Join('|', Enumerable.Range(0, reader.FieldCount)
+                    .Select(i => reader.IsDBNull(i) ? "null" : Convert.ToString(reader.GetValue(i), CultureInfo.InvariantCulture))));
+            }
+        }
+        return rows;
     }
 
     [Fact]

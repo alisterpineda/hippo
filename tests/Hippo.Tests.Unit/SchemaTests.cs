@@ -1,65 +1,51 @@
 using Dapper;
 using Hippo.Indexing;
+using Hippo.Migrations;
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 
 namespace Hippo.Tests.Unit;
 
-/// <summary>Guards the embedded SQL scripts: their numbering, the schema they build and the constraints they declare.</summary>
+/// <summary>Guards the embedded SQL scripts: their numbering, their pairing with the EF migrations they were exported
+/// from, the schema they build and the constraints they declare.</summary>
 public class SchemaTests
 {
+    private static HippoDbContext CreateContext() => new HippoDbContextFactory().CreateDbContext([]);
+
     [Fact]
     public void Scripts_are_numbered_from_1_without_gaps()
     {
         Assert.Equal(Enumerable.Range(1, MigrationRunner.Scripts.Count), MigrationRunner.Scripts.Select(s => s.Version));
     }
 
+    [Fact]
+    public void Every_migration_has_a_script_and_every_script_a_migration()
+    {
+        using var context = CreateContext();
+        Assert.Equal(context.Database.GetMigrations(), MigrationRunner.Scripts.Select(s => s.Name));
+    }
+
     /// <summary>
-    /// Pins the schema the scripts build, so a hand-written script that loosens a column, drops an index or leaves a stray
-    /// table fails here. A deliberate schema change updates the expected text.
+    /// The scripts and the EF model must describe one schema, or the next exported migration is diffed against a
+    /// schema no index has. A new NOT NULL column fails here until its model declares the default EF wrote to fill the
+    /// existing rows.
     /// </summary>
     [Fact]
-    public void The_scripts_build_the_expected_schema()
+    public void The_scripts_build_the_schema_the_model_describes()
     {
-        using var database = new TestDatabase();
-        using var connection = database.Open();
+        using var context = CreateContext();
+        using var fromScripts = new TestDatabase();
+        using var fromModel = new TestDatabase();
+        using var scripts = fromScripts.Open();
+        using var model = fromModel.Connect();
+        model.Execute(context.Database.GenerateCreateScript());
 
-        var tables = connection.Query<string>(
-            "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
-        Assert.Equal(["files", "links", "meta"], tables);
-        Assert.Equal(
-            """
-            column id INTEGER notnull=1 default= pk=1 hidden=0
-            column source_id INTEGER notnull=1 default= pk=0 hidden=0
-            column line INTEGER notnull=1 default= pk=0 hidden=0
-            column kind TEXT notnull=1 default= pk=0 hidden=0
-            column type TEXT notnull=1 default= pk=0 hidden=0
-            column raw TEXT notnull=1 default= pk=0 hidden=0
-            column target TEXT notnull=0 default= pk=0 hidden=0
-            index ix_links_source_id unique=0 partial=0 (source_id)
-            index ix_links_target unique=0 partial=0 (target)
-            fk source_id -> files.id update=NO ACTION delete=CASCADE
-            """.ReplaceLineEndings("\n"),
-            Describe(connection, "links"));
-        Assert.Equal(
-            """
-            column key TEXT notnull=1 default= pk=1 hidden=0
-            column value TEXT notnull=1 default= pk=0 hidden=0
-            """.ReplaceLineEndings("\n"),
-            Describe(connection, "meta"));
-        Assert.Equal(
-            """
-            column id INTEGER notnull=1 default= pk=1 hidden=0
-            column path TEXT notnull=1 default= pk=0 hidden=0
-            column mtime INTEGER notnull=1 default= pk=0 hidden=0
-            column size INTEGER notnull=1 default= pk=0 hidden=0
-            column hash TEXT notnull=1 default= pk=0 hidden=0
-            column hashed_at INTEGER notnull=1 default= pk=0 hidden=0
-            column kind TEXT notnull=1 default= pk=0 hidden=0
-            column frontmatter TEXT notnull=0 default= pk=0 hidden=0
-            column parse_error TEXT notnull=0 default= pk=0 hidden=0
-            index ix_files_path unique=1 partial=0 (path)
-            """.ReplaceLineEndings("\n"),
-            Describe(connection, "files"));
+        var tables = Tables(model);
+        Assert.Equal(tables, Tables(scripts));
+        foreach (var table in tables)
+        {
+            Assert.Equal(Describe(model, table), Describe(scripts, table));
+        }
     }
 
     [Fact]
@@ -103,11 +89,19 @@ public class SchemaTests
         Assert.Equal(0, connection.ExecuteScalar<long>("SELECT count(*) FROM links"));
     }
 
-    /// <summary>Columns, indexes and foreign keys, as SQLite reports them, in a form that compares as text.</summary>
+    private static List<string> Tables(SqliteConnection connection) => connection.Query<string>(
+        "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").AsList();
+
+    /// <summary>Columns, indexes and foreign keys, as SQLite reports them, in a form that compares as text. Columns
+    /// are listed by name: <c>ALTER TABLE ADD COLUMN</c> appends and EF's table rebuilds sort, and nothing in hippo
+    /// reads a column by position.</summary>
     private static string Describe(SqliteConnection connection, string table)
     {
-        var lines = new List<string>();
-        using (var reader = connection.ExecuteReader($"SELECT name, type, \"notnull\", dflt_value, pk, hidden FROM pragma_table_xinfo('{table}') ORDER BY cid"))
+        var lines = new List<string>
+        {
+            $"autoincrement={connection.ExecuteScalar<long>("SELECT sql LIKE '%AUTOINCREMENT%' FROM sqlite_schema WHERE type = 'table' AND name = @table", new { table })}",
+        };
+        using (var reader = connection.ExecuteReader($"SELECT name, type, \"notnull\", dflt_value, pk, hidden FROM pragma_table_xinfo('{table}') ORDER BY name"))
         {
             while (reader.Read())
             {
@@ -132,6 +126,6 @@ public class SchemaTests
                 lines.Add($"fk {reader[1]} -> {reader[0]}.{reader[2]} update={reader[3]} delete={reader[4]}");
             }
         }
-        return lines.Count == 0 ? $"table {table} missing" : string.Join('\n', lines);
+        return string.Join('\n', lines);
     }
 }
