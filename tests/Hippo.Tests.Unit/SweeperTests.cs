@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Runtime.Versioning;
+using System.Text.Json;
 using Dapper;
 using Hippo.Indexing;
 using Hippo.Workspaces;
@@ -88,6 +90,36 @@ public sealed class SweeperTests : IDisposable
 
         Assert.Equal("""{"title":"A","type":"Topic"}""", Row("a.md").Frontmatter);
         Assert.Null(Row("a.md").ParseError);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Frontmatter_longer_than_4000_characters_is_stored_whole(bool rebuild)
+    {
+        // A batch reuses one command, so a short row written first could limit the rows after it. A folder's files are
+        // listed before its subfolders', so the short page is written before the long one.
+        _workspace.Write("a.md", "---\ntitle: A\n---\n");
+        var sources = Enumerable.Range(0, 200).Select(i => $"raw/sources/source-{i:d3}.md").ToList();
+        _workspace.Write("wiki/topics/long.md", "---\nsources:\n" + string.Concat(sources.Select(s => $"  - {s}\n")) + "---\n");
+
+        Sweep(rebuild);
+
+        var json = JsonDocument.Parse(Row("wiki/topics/long.md").Frontmatter!);
+        Assert.Equal(sources, json.RootElement.GetProperty("sources").EnumerateArray().Select(s => s.GetString()));
+    }
+
+    [Theory]
+    [InlineData(typeof(Sweeper.FileRow))]
+    [InlineData(typeof(Sweeper.StatRow))]
+    [InlineData(typeof(Sweeper.PathRow))]
+    [InlineData(typeof(Sweeper.SourceRow))]
+    [InlineData(typeof(Sweeper.LinkRow))]
+    public void Every_string_of_a_row_written_in_batches_is_unsized(Type row)
+    {
+        var strings = row.GetProperties().Where(p => p.PropertyType == typeof(string));
+
+        Assert.All(strings, p => Assert.Equal(Sweeper.Unsized, p.GetCustomAttribute<DbValueAttribute>()?.Size));
     }
 
     [Fact]
@@ -436,6 +468,18 @@ public sealed class SweeperTests : IDisposable
                 new StoredLink("wiki/b.md", 1, "body", "anchor", "#top", null),
             ],
             Links());
+    }
+
+    [Fact]
+    public void A_link_longer_than_4000_characters_is_stored_whole()
+    {
+        // After a short link on the same page, so both are written in one batch, the short one first.
+        var target = "wiki/" + new string('x', 5000) + ".md";
+        _workspace.Write("a.md", $"[b](b.md)\n[long]({target})\n");
+
+        Sweep();
+
+        Assert.Equal([("b.md", "b.md"), (target, target)], Links().Select(l => (l.Raw, l.Target)));
     }
 
     [Fact]

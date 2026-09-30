@@ -32,17 +32,44 @@ internal static class Sweeper
     // Internal, not private: the code Dapper.AOT generates must reach these types.
     internal sealed record KnownFile(string Path, long Mtime, long Size, string Hash, long HashedAt);
 
-    internal sealed record FileRow(string Path, long Mtime, long Size, string Hash, long HashedAt, string Kind, string? Frontmatter, string? ParseError);
+    /// <summary>The size every string of a row written in batches carries. Dapper.AOT sizes a string parameter from the
+    /// first row of a batch, to 4,000 unless that value is longer, and keeps the size for the rows after it, which
+    /// Microsoft.Data.Sqlite then truncates to.</summary>
+    internal const int Unsized = -1;
 
-    internal sealed record StatRow(string Path, long Mtime, long Size, string Hash, long HashedAt);
+    internal sealed record FileRow(
+        [property: DbValue(Size = Unsized)] string Path,
+        long Mtime,
+        long Size,
+        [property: DbValue(Size = Unsized)] string Hash,
+        long HashedAt,
+        [property: DbValue(Size = Unsized)] string Kind,
+        [property: DbValue(Size = Unsized)] string? Frontmatter,
+        [property: DbValue(Size = Unsized)] string? ParseError);
 
-    internal sealed record PathRow(string Path);
+    internal sealed record StatRow(
+        [property: DbValue(Size = Unsized)] string Path,
+        long Mtime,
+        long Size,
+        [property: DbValue(Size = Unsized)] string Hash,
+        long HashedAt);
+
+    internal sealed record PathRow([property: DbValue(Size = Unsized)] string Path);
 
     /// <summary>A page's links are written only beside the file row they were parsed with, matched by hash, so a page's
     /// links always belong to the content its row describes.</summary>
-    internal sealed record SourceRow(string Path, string Hash);
+    internal sealed record SourceRow(
+        [property: DbValue(Size = Unsized)] string Path,
+        [property: DbValue(Size = Unsized)] string Hash);
 
-    internal sealed record LinkRow(string Path, string Hash, int Line, string Kind, string Type, string Raw, string? Target);
+    internal sealed record LinkRow(
+        [property: DbValue(Size = Unsized)] string Path,
+        [property: DbValue(Size = Unsized)] string Hash,
+        int Line,
+        [property: DbValue(Size = Unsized)] string Kind,
+        [property: DbValue(Size = Unsized)] string Type,
+        [property: DbValue(Size = Unsized)] string Raw,
+        [property: DbValue(Size = Unsized)] string? Target);
 
     private sealed record ParsedFile(FileRow Row, List<LinkRow> Links);
 
