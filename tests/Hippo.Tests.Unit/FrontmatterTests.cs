@@ -157,6 +157,16 @@ public class FrontmatterTests
     }
 
     [Fact]
+    public void Nesting_is_kept_to_62_levels_below_the_root()
+    {
+        var kept = Frontmatter.Parse($"---\na: {new string('[', 62)}{new string(']', 62)}\n---\n");
+        var cut = Frontmatter.Parse($"---\na: {new string('[', 63)}{new string(']', 63)}\n---\n");
+
+        Assert.Null(kept.Error);
+        Assert.Contains("nested too deeply", cut.Error);
+    }
+
+    [Fact]
     public void Self_referencing_aliases_are_an_error_not_a_crash()
     {
         var result = Frontmatter.Parse("---\na: &x [*x]\n---\n");

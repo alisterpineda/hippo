@@ -24,7 +24,9 @@ internal sealed record FrontmatterBlock(FrontmatterResult Result, YamlMappingNod
 /// </summary>
 internal static partial class Frontmatter
 {
-    private const int MaxDepth = 64;
+    // Levels below the root mapping. show reads the stored JSON back and nests it one level into its own output, and
+    // System.Text.Json allows 64 levels by default: the root, 62 below it, and show's wrapper.
+    private const int MaxDepth = 62;
     private const int MaxNodes = 100_000;
 
     public static FrontmatterResult Parse(ReadOnlySpan<byte> utf8) => Parse(Encoding.UTF8.GetString(utf8));

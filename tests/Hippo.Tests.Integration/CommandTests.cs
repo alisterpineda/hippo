@@ -278,6 +278,19 @@ public sealed class CommandTests : IDisposable
     }
 
     [Fact]
+    public void Show_emits_frontmatter_nested_as_deeply_as_the_index_keeps()
+    {
+        _workspace.Write("deep.md", $"---\na: {new string('[', 62)}{new string(']', 62)}\n---\n");
+
+        var result = _workspace.Run("show", "deep.md", "--json");
+        var json = Json(result);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(JsonValueKind.Null, json.GetProperty("parseError").ValueKind);
+        Assert.Equal(JsonValueKind.Array, json.GetProperty("frontmatter").GetProperty("a").ValueKind);
+    }
+
+    [Fact]
     public void Show_prints_a_parse_error_as_text()
     {
         _workspace.Write("bad.md", "---\ntitle: [unclosed\n---\n");
