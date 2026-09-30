@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -93,13 +92,91 @@ internal static class Format
 
     private static bool IsUnsafe(char c) => char.IsControl(c) && c != '\t';
 
+    /// <summary>
+    /// Lays out <paramref name="json"/> as <c>--json</c> does, but with strings as written: only the quote, the
+    /// backslash and control characters are escaped, the last for the reason <see cref="Safe"/> gives. The serializer
+    /// would also escape apostrophes, <c>&lt;</c>, <c>&amp;</c> and all non-ASCII, which no encoder it offers stops
+    /// for emoji.
+    /// </summary>
     public static string Indented(JsonElement json)
     {
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
+        var text = new StringBuilder();
+        WriteIndented(text, json, 0);
+        return text.ToString();
+    }
+
+    private static void WriteIndented(StringBuilder text, JsonElement json, int depth)
+    {
+        switch (json.ValueKind)
         {
-            json.WriteTo(writer);
+            case JsonValueKind.Object:
+                WriteItems(text, '{', '}', json.EnumerateObject().Select(p => ((string?)p.Name, p.Value)), depth);
+                break;
+            case JsonValueKind.Array:
+                WriteItems(text, '[', ']', json.EnumerateArray().Select(v => ((string?)null, v)), depth);
+                break;
+            case JsonValueKind.String:
+                WriteString(text, json.GetString()!);
+                break;
+            default:
+                text.Append(json.GetRawText());
+                break;
         }
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    private static void WriteItems(
+        StringBuilder text, char open, char close, IEnumerable<(string? Name, JsonElement Value)> items, int depth)
+    {
+        text.Append(open);
+        var any = false;
+        foreach (var (name, value) in items)
+        {
+            text.Append(any ? "," : "").Append(Environment.NewLine).Append(' ', 2 * (depth + 1));
+            if (name is not null)
+            {
+                WriteString(text, name);
+                text.Append(": ");
+            }
+            WriteIndented(text, value, depth + 1);
+            any = true;
+        }
+        if (any)
+        {
+            text.Append(Environment.NewLine).Append(' ', 2 * depth);
+        }
+        text.Append(close);
+    }
+
+    private static void WriteString(StringBuilder text, string value)
+    {
+        text.Append('"');
+        foreach (var c in value)
+        {
+            switch (c)
+            {
+                case '"':
+                    text.Append("\\\"");
+                    break;
+                case '\\':
+                    text.Append("\\\\");
+                    break;
+                case '\n':
+                    text.Append("\\n");
+                    break;
+                case '\r':
+                    text.Append("\\r");
+                    break;
+                case '\t':
+                    text.Append("\\t");
+                    break;
+                case var _ when IsUnsafe(c):
+                    text.Append(CultureInfo.InvariantCulture, $"\\u{(int)c:X4}");
+                    break;
+                default:
+                    text.Append(c);
+                    break;
+            }
+        }
+        text.Append('"');
     }
 }

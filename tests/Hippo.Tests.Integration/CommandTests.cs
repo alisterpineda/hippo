@@ -272,6 +272,17 @@ public sealed class CommandTests : IDisposable
     }
 
     [Fact]
+    public void Show_prints_frontmatter_text_as_written_but_escapes_control_characters()
+    {
+        _workspace.Write("a.md", "---\ntitle: The human's café 🏠\nnote: \"\\e]0;T\\a\"\n---\n");
+
+        var lines = Lines(_workspace.Run("show", "a.md").Stdout);
+
+        Assert.Contains("\"title\": \"The human's café 🏠\",", lines);
+        Assert.Contains("\"note\": \"\\u001B]0;T\\u0007\"", lines);
+    }
+
+    [Fact]
     public void Show_json_includes_frontmatter_as_an_object()
     {
         _workspace.Write("a.md", "---\ntitle: A\ntags: [x]\n---\n");
