@@ -16,7 +16,7 @@ internal static class RefsCommand
             var output = LinkQueries.Refs(session.Db, relative).Select(l => new RefOutput(l.Line, l.Kind, l.Type, l.Raw, l.Target)).ToList();
 
             session.EmitList(output, OutputJson.Default.ListRefOutput, link =>
-                $"{link.Line,5}  {link.Kind,-11}  {link.Type,-7}  {Format.Safe(string.IsNullOrEmpty(link.Target) ? link.Raw : link.Target)}");
+                $"{link.Line,5}  {link.Kind,-11}  {link.Type,-9}  {Format.Safe(string.IsNullOrEmpty(link.Target) ? link.Raw : link.Target)}");
             return ExitCode.Clean;
         }));
         return command;

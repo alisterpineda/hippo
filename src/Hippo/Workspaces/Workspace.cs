@@ -40,10 +40,15 @@ internal sealed record Workspace(string Root, WorkspaceConfig Config)
         Path.DirectorySeparatorChar == '\\' ? relativePath.Replace('\\', '/') : relativePath;
 
     /// <summary>Resolves <paramref name="path"/> against <paramref name="workingDirectory"/> and returns its key, or
-    /// throws when it is not inside the workspace.</summary>
-    public string KeyOf(string path, string workingDirectory)
+    /// throws when it is not inside the workspace. The root itself is <c>""</c> when <paramref name="allowRoot"/> is set,
+    /// and otherwise an error, since it is not a file.</summary>
+    public string KeyOf(string path, string workingDirectory, bool allowRoot = false)
     {
-        var relative = Path.GetRelativePath(Root, Path.GetFullPath(path, workingDirectory));
+        var relative = Path.GetRelativePath(Root, Path.TrimEndingDirectorySeparator(Path.GetFullPath(path, workingDirectory)));
+        if (relative == "." && allowRoot)
+        {
+            return "";
+        }
         if (relative == "." || Path.IsPathRooted(relative) || relative == ".." || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
         {
             throw new HippoException($"{path} is not a file inside the workspace at {Root}");

@@ -102,7 +102,7 @@ public sealed class LinkQueriesTests : IDisposable
     }
 
     [Fact]
-    public void Broken_lists_every_path_link_whose_target_is_not_an_indexed_file()
+    public void Broken_lists_every_path_link_whose_target_is_not_an_indexed_file_or_folder()
     {
         Assert.Equal(
             [new BrokenLink("wiki/a.md", 4, "body", "../raw/gone.md", "raw/gone.md"), new BrokenLink("wiki/a.md", 7, "body", "../../x.md", null)],
@@ -116,6 +116,23 @@ public sealed class LinkQueriesTests : IDisposable
 
         Assert.DoesNotContain(LinkQueries.Broken(_db), link => link.Target == "raw/gone.md");
         Assert.Equal("file", LinkQueries.Refs(_db, "wiki/a.md").Single(link => link.Line == 4).Type);
+    }
+
+    [Fact]
+    public void A_path_link_to_a_folder_holding_an_indexed_file_is_a_directory()
+    {
+        AddFile("wiki/folders.md", "markdown");
+        Link("wiki/folders.md", 1, "body", "path", "../", "");
+        Link("wiki/folders.md", 2, "body", "path", "../raw/", "raw");
+        Link("wiki/folders.md", 3, "body", "path", "a", "wiki/a");
+        Link("wiki/folders.md", 4, "body", "path", "../ra", "ra");
+        Link("wiki/folders.md", 5, "frontmatter", "path", "../wik", "wik");
+
+        // wiki/a.md does not make wiki/a a folder, nor raw/x.md make ra or wik one: only a path under target/ counts.
+        Assert.Equal(["directory", "directory", "missing", "missing", "missing"], LinkQueries.Refs(_db, "wiki/folders.md").Select(l => l.Type));
+        Assert.Equal(["wiki/a", "ra", "wik"], LinkQueries.Broken(_db).Where(l => l.Source == "wiki/folders.md").Select(l => l.Target));
+        Assert.Equal([new LinkIn("wiki/folders.md", 2, "body", "../raw/")], LinkQueries.Backrefs(_db, "raw", null));
+        Assert.Contains("wiki/folders.md", LinkQueries.Orphans(_db));
     }
 
     [Fact]

@@ -39,7 +39,7 @@ internal sealed record WorkspaceSession(
     }
 
     /// <summary>The key of <paramref name="path"/>, a path the user gave relative to the working directory.</summary>
-    public string KeyOf(string path) => Workspace.KeyOf(path, WorkingDirectory);
+    public string KeyOf(string path, bool allowRoot = false) => Workspace.KeyOf(path, WorkingDirectory, allowRoot);
 
     /// <summary>Prints <paramref name="value"/> as JSON under <c>--json</c>, and otherwise as <paramref name="text"/>
     /// writes it. Both print the one value, so the two forms say the same.</summary>

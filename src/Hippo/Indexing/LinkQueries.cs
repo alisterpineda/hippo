@@ -3,30 +3,45 @@ using Microsoft.Data.Sqlite;
 
 namespace Hippo.Indexing;
 
-/// <summary>A link out of a file. <see cref="Type"/> is <c>file</c>, <c>missing</c>, <c>url</c> or <c>anchor</c>.</summary>
+/// <summary>A link out of a file. <see cref="Type"/> is <c>file</c>, <c>directory</c>, <c>missing</c>, <c>url</c> or
+/// <c>anchor</c>.</summary>
 internal sealed record LinkOut(long Line, string Kind, string Type, string Raw, string? Target);
 
 /// <summary>A link into a path, from <see cref="Source"/>.</summary>
 internal sealed record LinkIn(string Source, long Line, string Kind, string Raw);
 
-/// <summary>A path link whose <see cref="Target"/> is not an indexed file; null when it leaves the workspace, and
-/// <c>""</c> when it is the workspace root.</summary>
+/// <summary>A path link whose <see cref="Target"/> is neither an indexed file nor a folder holding one; null when it
+/// leaves the workspace.</summary>
 internal sealed record BrokenLink(string Source, long Line, string Kind, string Raw, string? Target);
 
 /// <summary>
 /// Questions about the link graph. Whether a path link reaches a file is decided here, against the files indexed now, so
-/// a target that comes or goes changes the answer without its linking pages being parsed again.
+/// a target that comes or goes changes the answer without its linking pages being parsed again. A path link reaches a
+/// folder when an indexed file lies under it: its path sorts after <c>target/</c> and before <c>target0</c>, <c>0</c> being
+/// the character after <c>/</c>, which the index on <c>files.path</c> answers. The workspace root, <c>""</c>, holds every
+/// file, the linking page among them.
 /// </summary>
 internal static class LinkQueries
 {
+    /// <summary>The type of link <c>l</c>: its stored type, or for a path link <c>file</c>, <c>directory</c> or
+    /// <c>missing</c>. <see cref="Refs"/> reports it and <see cref="Broken"/> filters on it, so the two agree.</summary>
+    private const string TypeSql = """
+        CASE
+            WHEN l.type != 'path' THEN l.type
+            WHEN EXISTS (SELECT 1 FROM files t WHERE t.path = l.target) THEN 'file'
+            WHEN l.target = '' OR EXISTS (SELECT 1 FROM files t WHERE t.path > l.target || '/' AND t.path < l.target || '0')
+                THEN 'directory'
+            ELSE 'missing'
+        END
+        """;
+
     public static List<LinkOut> Refs(SqliteConnection db, string path) =>
         db.Query<LinkOut>("""
-            SELECT l.line, l.kind,
-                   CASE WHEN l.type != 'path' THEN l.type WHEN target.id IS NULL THEN 'missing' ELSE 'file' END AS Type,
-                   l.raw, l.target
+            SELECT l.line, l.kind, (
+            """ + TypeSql + """
+            ) AS Type, l.raw, l.target
             FROM links l
             JOIN files source ON source.id = l.source_id
-            LEFT JOIN files target ON target.path = l.target
             WHERE source.path = @path
             ORDER BY l.line, l.id
             """, new { path }).ToList();
@@ -61,12 +76,14 @@ internal static class LinkQueries
             SELECT source.path AS Source, l.line, l.kind, l.raw, l.target
             FROM links l
             JOIN files source ON source.id = l.source_id
-            WHERE l.type = 'path' AND NOT EXISTS (SELECT 1 FROM files target WHERE target.path = l.target)
+            WHERE l.type = 'path' AND (
+            """ + TypeSql + """
+            ) = 'missing'
             ORDER BY source.path, l.line, l.id
             """).ToList();
 
     /// <summary>Markdown files with no link to or from another indexed file. A page's links to itself, and its links
-    /// that are URLs, anchors or missing, do not count.</summary>
+    /// that are folders, URLs, anchors or missing, do not count.</summary>
     public static List<string> Orphans(SqliteConnection db) =>
         db.Query<string>("""
             SELECT f.path

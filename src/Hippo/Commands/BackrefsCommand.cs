@@ -9,7 +9,7 @@ internal static class BackrefsCommand
     {
         var path = new Argument<string>("path")
         {
-            Description = "A path in the workspace, relative to the working directory; it need not exist, so links broken on it show",
+            Description = "A path in the workspace, relative to the working directory: a file, a folder, or the workspace root; it need not exist, so links broken on it show",
         };
         var kind = new Option<string>("--kind") { Description = "Only links of this kind", HelpName = "body|frontmatter" };
         kind.AcceptOnlyFromAmong("body", "frontmatter");
@@ -17,7 +17,7 @@ internal static class BackrefsCommand
         var command = new Command("backrefs", "List the links into a path") { path, kind, transitive, WorkspaceSession.JsonOption };
         command.SetAction(result => WorkspaceSession.Run(result, environment, rebuild: false, session =>
         {
-            var relative = session.KeyOf(result.GetValue(path)!);
+            var relative = session.KeyOf(result.GetValue(path)!, allowRoot: true);
 
             if (result.GetValue(transitive))
             {

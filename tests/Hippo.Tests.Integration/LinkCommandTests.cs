@@ -72,7 +72,7 @@ public sealed class LinkCommandTests : IDisposable
         var result = _workspace.Run("refs", "raw/journal/2026-09-01.md");
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Equal(["3  body         file     raw/journal/img/photo 1.png"], Lines(result.Stdout));
+        Assert.Equal(["3  body         file       raw/journal/img/photo 1.png"], Lines(result.Stdout));
     }
 
     [Fact]
@@ -88,6 +88,18 @@ public sealed class LinkCommandTests : IDisposable
     public void Refs_of_a_path_outside_the_workspace_is_an_error()
     {
         var result = _workspace.Run("refs", "../outside.md");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("is not a file inside the workspace", result.Stderr);
+    }
+
+    [Theory]
+    [InlineData("..")]
+    [InlineData("../")]
+    [InlineData("../outside.md")]
+    public void Backrefs_of_a_path_outside_the_workspace_is_an_error(string path)
+    {
+        var result = _workspace.Run("backrefs", path);
 
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("is not a file inside the workspace", result.Stderr);
@@ -213,7 +225,7 @@ public sealed class LinkCommandTests : IDisposable
         File.WriteAllText(path, "[c](c.md) and [b](b.md)\n");
         var result = _workspace.Run("refs", "a.md");
 
-        Assert.Equal(["1  body         missing  c.md", "1  body         file     b.md"], Lines(result.Stdout));
+        Assert.Equal(["1  body         missing    c.md", "1  body         file       b.md"], Lines(result.Stdout));
     }
 
     [Fact]
@@ -226,7 +238,7 @@ public sealed class LinkCommandTests : IDisposable
         _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["wiki"] } }""");
         var result = _workspace.Run("refs", "wiki/a.md");
 
-        Assert.Equal(["1  body         file     wiki/b.md"], Lines(result.Stdout));
+        Assert.Equal(["1  body         file       wiki/b.md"], Lines(result.Stdout));
     }
 
     [Fact]
@@ -271,15 +283,87 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
-    public void Broken_names_a_link_to_the_workspace_root_as_such()
+    public void A_link_to_a_folder_holding_an_indexed_file_is_a_directory_and_not_broken()
     {
         _workspace.Write(".hippo/config.json", "");
-        _workspace.Write("index.md", "[home](./)\n");
+        _workspace.Write("wiki/index.md", "[home](../) [2021](../raw/2021/) [2021](../raw/2021) [empty](../raw/empty/)\n");
+        _workspace.Write("raw/2021/day.md", "# Day\n");
+        Directory.CreateDirectory(_workspace.Combine("raw/empty"));
 
+        var refs = _workspace.Run("refs", "wiki/index.md");
+        var broken = _workspace.Run("broken");
+
+        Assert.Equal(
+            ["1  body         directory  ../", "1  body         directory  raw/2021", "1  body         directory  raw/2021", "1  body         missing    raw/empty"],
+            Lines(refs.Stdout));
+        Assert.Equal(1, broken.ExitCode);
+        Assert.Equal(["wiki/index.md:1  body         ../raw/empty/ -> raw/empty"], Lines(broken.Stdout));
+    }
+
+    [Fact]
+    public void A_folder_link_breaks_once_the_last_indexed_file_under_it_is_gone()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("index.md", "[2021](raw/2021/)\n");
+        _workspace.Write("raw/2021/01/day.md", "# Day\n");
+        _workspace.Run("index");
+
+        File.Delete(_workspace.Combine("raw/2021/01/day.md"));
         var result = _workspace.Run("broken");
 
         Assert.Equal(1, result.ExitCode);
-        Assert.Equal(["index.md:1  body         ./ -> the workspace root"], Lines(result.Stdout));
+        Assert.Equal(["index.md:1  body         raw/2021/ -> raw/2021"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void Backrefs_of_a_folder_lists_the_links_to_it_with_or_without_a_trailing_slash()
+    {
+        WriteNotes();
+        _workspace.Write("wiki/journal.md", "[journal](../raw/journal/) and [a day](../raw/journal/2026-09-01.md)\n");
+
+        var bare = _workspace.Run("backrefs", "raw/journal");
+        var slashed = _workspace.Run("backrefs", "raw/journal/");
+
+        Assert.Equal(["wiki/journal.md:1  body         ../raw/journal/"], Lines(bare.Stdout));
+        Assert.Equal(bare.Stdout, slashed.Stdout);
+    }
+
+    [Fact]
+    public void Backrefs_of_the_workspace_root_lists_the_links_to_it()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("index.md", "[home](./) and [a](wiki/a.md)\n");
+        _workspace.Write("wiki/a.md", "[home](../)\n");
+
+        var fromRoot = _workspace.Run("backrefs", ".");
+        var fromFolder = _workspace.RunIn(_workspace.Combine("wiki"), "backrefs", "..");
+        var transitive = _workspace.Run("backrefs", ".", "--transitive");
+
+        Assert.Equal(["index.md:1  body         ./", "wiki/a.md:1  body         ../"], Lines(fromRoot.Stdout));
+        Assert.Equal(fromRoot.Stdout, fromFolder.Stdout);
+        Assert.Equal(["index.md", "wiki/a.md"], Lines(transitive.Stdout));
+    }
+
+    [Fact]
+    public void Refs_of_the_workspace_root_is_an_error()
+    {
+        var result = _workspace.Run("refs", ".");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("is not a file inside the workspace", result.Stderr);
+    }
+
+    [Fact]
+    public void A_page_linking_only_to_a_folder_is_an_orphan()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("index.md", "[a](a.md)\n");
+        _workspace.Write("a.md", "[index](index.md)\n");
+        _workspace.Write("folders.md", "[here](./)\n");
+
+        var orphans = _workspace.Run("orphans");
+
+        Assert.Equal(["folders.md"], Lines(orphans.Stdout));
     }
 
     [Fact]
