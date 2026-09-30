@@ -12,8 +12,9 @@ Status: phase 2 (link graph). hippo indexes every file in the workspace, the fro
 hippo init                   write a starter .hippo/config.json in the current folder
 hippo index [--rebuild]      bring the index up to date; --rebuild re-reads every file
 hippo status                 workspace root, database path, file counts, last sweep
-hippo files [--glob <pattern>] [--where <field>=<value>]
-                             list indexed files, filtered by path or frontmatter value
+hippo files [--glob <pattern>] [--where <field>=<value>] [--errors]
+                             list indexed files, filtered by path or frontmatter value;
+                             --errors lists only files whose frontmatter failed to parse, with the error
 hippo show <path>            what the index holds for one file
 hippo refs <path>            the links out of a file: line, kind, and file, directory, missing, url or anchor
 hippo backrefs <path> [--kind body|frontmatter] [--transitive]

@@ -22,7 +22,7 @@ internal sealed record FrontmatterFilter(string Field, string Value)
     public string JsonPath => "$" + string.Concat(Field.Split('.').Select(part => $".\"{part}\""));
 }
 
-internal sealed record FileListing(string Path, string Kind, long Size, long Mtime);
+internal sealed record FileListing(string Path, string Kind, long Size, long Mtime, string? ParseError);
 
 internal sealed record FileDetail(string Path, string Kind, long Size, long Mtime, string Hash, string? Frontmatter, string? ParseError);
 
@@ -32,9 +32,9 @@ internal static class FileQueries
 {
     public static List<FileListing> List(SqliteConnection db, FrontmatterFilter? where) =>
         where is null
-            ? db.Query<FileListing>("SELECT path, kind, size, mtime FROM files ORDER BY path").ToList()
+            ? db.Query<FileListing>("SELECT path, kind, size, mtime, parse_error AS ParseError FROM files ORDER BY path").ToList()
             : db.Query<FileListing>("""
-                SELECT path, kind, size, mtime
+                SELECT path, kind, size, mtime, parse_error AS ParseError
                 FROM files
                 -- json_each walks a mapping's members too; a mapping itself never equals a value.
                 WHERE json_type(files.frontmatter, @JsonPath) != 'object'

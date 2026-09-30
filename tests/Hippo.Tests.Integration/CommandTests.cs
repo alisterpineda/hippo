@@ -128,8 +128,18 @@ public sealed class CommandTests : IDisposable
         Assert.Contains($"Workspace:   {_workspace.Root}", lines);
         Assert.Contains(lines, l => l.StartsWith($"Database:    {_workspace.CacheDir}", StringComparison.Ordinal));
         Assert.Contains("Files:       3 (2 markdown, 1 other)", lines);
-        Assert.Contains("Frontmatter: 1 with errors", lines);
+        Assert.Contains("Frontmatter: 1 with errors (hippo files --errors)", lines);
         Assert.Contains(lines, l => l.StartsWith("Last sweep:  ", StringComparison.Ordinal) && l.Contains("3 added"));
+    }
+
+    [Fact]
+    public void Status_points_to_nothing_when_no_frontmatter_has_errors()
+    {
+        _workspace.Write("a.md", "---\ntitle: A\n---\n");
+
+        var result = _workspace.Run("status");
+
+        Assert.Contains("Frontmatter: 0 with errors", Lines(result.Stdout));
     }
 
     [Fact]
@@ -196,7 +206,21 @@ public sealed class CommandTests : IDisposable
     }
 
     [Fact]
-    public void Files_json_lists_path_kind_size_and_modified()
+    public void Files_errors_lists_only_files_whose_frontmatter_failed_to_parse_with_the_error()
+    {
+        _workspace.Write("good.md", "---\ntitle: A\n---\n");
+        _workspace.Write("bad.md", "---\ntitle: [unclosed\n---\n");
+        _workspace.Write("c.txt", "c");
+
+        var result = _workspace.Run("files", "--errors");
+
+        Assert.Equal(0, result.ExitCode);
+        var line = Assert.Single(Lines(result.Stdout));
+        Assert.StartsWith("bad.md: line ", line);
+    }
+
+    [Fact]
+    public void Files_json_lists_path_kind_size_modified_and_parse_error()
     {
         _workspace.Write("a.md", "# A\n");
 
@@ -207,6 +231,18 @@ public sealed class CommandTests : IDisposable
         Assert.Equal("markdown", file.GetProperty("kind").GetString());
         Assert.Equal(4, file.GetProperty("size").GetInt64());
         Assert.Equal(File.GetLastWriteTimeUtc(_workspace.Combine("a.md")), file.GetProperty("modified").GetDateTimeOffset().UtcDateTime);
+        Assert.Equal(JsonValueKind.Null, file.GetProperty("parseError").ValueKind);
+    }
+
+    [Fact]
+    public void Files_json_rows_carry_the_parse_error()
+    {
+        _workspace.Write("bad.md", "---\ntitle: [unclosed\n---\n");
+
+        var json = Json(_workspace.Run("files", "--json"));
+
+        var file = Assert.Single(json.EnumerateArray());
+        Assert.StartsWith("line ", file.GetProperty("parseError").GetString());
     }
 
     [Fact]
@@ -275,6 +311,21 @@ public sealed class CommandTests : IDisposable
         Assert.Equal(0, index.ExitCode);
         Assert.Equal(JsonValueKind.Null, json.GetProperty("frontmatter").ValueKind);
         Assert.StartsWith("line ", json.GetProperty("parseError").GetString());
+    }
+
+    [Fact]
+    public void Malformed_frontmatter_warns_when_the_page_is_read_and_not_again_while_unchanged()
+    {
+        _workspace.Write("good.md", "---\ntitle: A\n---\n");
+        _workspace.Write("bad.md", "---\ntitle: [unclosed\n---\n");
+
+        var first = _workspace.Run("files");
+        var second = _workspace.Run("files");
+
+        Assert.Equal(0, first.ExitCode);
+        var warning = Assert.Single(Lines(first.Stderr));
+        Assert.StartsWith("hippo: warning: cannot read the frontmatter in bad.md: line ", warning);
+        Assert.Equal("", second.Stderr);
     }
 
     [Fact]

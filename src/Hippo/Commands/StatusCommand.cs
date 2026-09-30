@@ -23,7 +23,8 @@ internal static class StatusCommand
                 text.WriteLine($"Workspace:   {Format.Safe(o.Root)}");
                 text.WriteLine($"Database:    {Format.Safe(o.Database)}");
                 text.WriteLine($"Files:       {o.Files.Total} ({o.Files.Markdown} markdown, {o.Files.Other} other)");
-                text.WriteLine($"Frontmatter: {o.Files.ParseErrors} with errors");
+                var hint = o.Files.ParseErrors > 0 ? " (hippo files --errors)" : "";
+                text.WriteLine($"Frontmatter: {o.Files.ParseErrors} with errors{hint}");
                 text.WriteLine($"Last sweep:  {last.FinishedAt:O}, {last.ElapsedMs} ms: {Format.Summary(last.Added, last.Updated, last.Removed)}");
             });
             return ExitCode.Clean;

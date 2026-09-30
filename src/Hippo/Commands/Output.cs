@@ -14,7 +14,7 @@ internal sealed record CountsOutput(long Total, long Markdown, long Other, long 
 
 internal sealed record SweepOutput(DateTimeOffset FinishedAt, long ElapsedMs, int Added, int Updated, int Removed);
 
-internal sealed record FileOutput(string Path, string Kind, long Size, DateTimeOffset Modified);
+internal sealed record FileOutput(string Path, string Kind, long Size, DateTimeOffset Modified, string? ParseError);
 
 internal sealed record ShowOutput(
     string Path, string Kind, long Size, DateTimeOffset Modified, string Hash, JsonElement? Frontmatter, string? ParseError);

@@ -58,10 +58,11 @@ public class OutputJsonTests
             "path": "a.md",
             "kind": "markdown",
             "size": 4,
-            "modified": "2026-09-01T12:30:00+00:00"
+            "modified": "2026-09-01T12:30:00+00:00",
+            "parseError": null
           }
         ]
-        """, [new FileOutput("a.md", "markdown", 4, Time)], OutputJson.Default.ListFileOutput);
+        """, [new FileOutput("a.md", "markdown", 4, Time, null)], OutputJson.Default.ListFileOutput);
 
     [Fact]
     public void Show() => AssertJson("""

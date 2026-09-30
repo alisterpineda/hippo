@@ -156,6 +156,10 @@ internal static class Sweeper
                 updated++;
             }
             var parsed = Parse(settings, file, hash, hashedAt, content, out var bodyError);
+            if (parsed.Row.ParseError is not null)
+            {
+                warnings.Add($"cannot read the frontmatter in {file.Path}: {parsed.Row.ParseError}");
+            }
             if (bodyError is not null)
             {
                 warnings.Add($"cannot read the links in {file.Path}: {bodyError}");
