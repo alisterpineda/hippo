@@ -19,7 +19,8 @@ hippo refs <path>            the links out of a file: line, kind, and file, dire
 hippo backrefs <path> [--kind body|frontmatter] [--transitive]
                              the links into a path; --transitive lists every file that reaches it
 hippo broken                 links whose target is not an indexed file or folder
-hippo orphans                pages with no link to or from another file
+hippo orphans [--exclude <pattern>…]
+                             files with no link to or from another file
 hippo cache list             every index in the cache: its state, size and workspace root
 hippo cache prune [--dry-run] [--include-unreachable]
                              remove the indexes of workspaces that were deleted, moved or renamed
@@ -48,7 +49,9 @@ hippo cache prune [--dry-run] [--include-unreachable]
 
 `gitignore`, on unless set to `false`, leaves out every untracked file git ignores, as `git ls-files --others --ignored --exclude-standard` lists them from the workspace root: each `.gitignore`, `.git/info/exclude` and your global excludes file count, including rules in a repository that holds the workspace in a subfolder; when that repository ignores the workspace folder itself, nothing is left out. A tracked file is indexed even when a rule matches it, as git itself does. hippo runs git only when the workspace root or a folder above it holds a `.git`; if git is not on `PATH` or fails, hippo warns and indexes the ignored files.
 
-A bundle is a folder whose pages treat it as their root: a leading `/` in a link resolves against the deepest bundle holding the page, or against the workspace root for a page in none. Other body links resolve from the page's folder; `[[x]]` is plain text, not a link. An orphan is a page with no link to or from another indexed file; links to itself, to folders, URLs, anchors and missing targets do not count.
+The workspace root's `.hippo` folder is never indexed, whatever `include` says: it is hippo's, not the workspace's, so a link into it is broken. A nested workspace's `.hippo` folder is indexed like any other.
+
+A bundle is a folder whose pages treat it as their root: a leading `/` in a link resolves against the deepest bundle holding the page, or against the workspace root for a page in none. Other body links resolve from the page's folder; `[[x]]` is plain text, not a link. An orphan is a file, markdown or not, with no link to or from another indexed file; links to itself, to folders, URLs, anchors and missing targets do not count. `--exclude`, which can be given more than once, only hides the orphans matching a glob: an excluded file's links still count, and the exit code follows what is left.
 
 Body links are CommonMark links, images, reference links and autolinks; their destinations are URLs, so percent-encoding is decoded and a query or fragment dropped. Frontmatter values are literal paths: nothing is decoded and a `?` is part of the path, but a `#` still starts a fragment that is dropped, so a frontmatter value cannot name a file with `#` in its name. A link with a scheme is a URL, one starting with `#` is anchor-only, and any other is a file when it resolves to an indexed file, a directory when it resolves to a folder holding an indexed file, and missing otherwise. A trailing `/` makes no difference, and the workspace root is a directory. A folder holding no indexed file, because it is empty or everything in it is excluded, is missing. `backrefs` of a folder lists the links to the folder itself, and `backrefs .` from the root lists those to the root.
 

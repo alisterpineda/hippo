@@ -242,7 +242,7 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
-    public void Orphans_lists_pages_with_no_link_in_or_out_and_exits_1()
+    public void Orphans_lists_files_with_no_link_in_or_out_and_exits_1()
     {
         WriteNotes();
 
@@ -280,6 +280,72 @@ public sealed class LinkCommandTests : IDisposable
         var orphans = _workspace.Run("orphans");
 
         Assert.Equal(["web.md"], Lines(orphans.Stdout));
+    }
+
+    [Fact]
+    public void A_file_that_is_not_a_page_is_an_orphan_when_nothing_links_to_it()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("index.md", "![used](used.png)\n");
+        _workspace.Write("used.png", "png");
+        _workspace.Write("unused.png", "png");
+
+        var orphans = _workspace.Run("orphans");
+
+        Assert.Equal(["unused.png"], Lines(orphans.Stdout));
+    }
+
+    [Fact]
+    public void Orphans_exclude_hides_each_pattern_given_and_exits_0_when_none_are_left()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("README.md", "# Readme\n");
+        _workspace.Write("archive/2020/old.md", "# Old\n");
+        _workspace.Write("loose.md", "# Loose\n");
+
+        var one = _workspace.Run("orphans", "--exclude", "archive/**");
+        var both = Json(_workspace.Run("orphans", "--exclude", "archive/**", "--exclude", "*.md", "--json"));
+
+        Assert.Equal(1, one.ExitCode);
+        Assert.Equal(["README.md", "loose.md"], Lines(one.Stdout));
+        Assert.Equal(0, both.GetArrayLength());
+    }
+
+    [Fact]
+    public void Orphans_exclude_patterns_are_workspace_relative_from_a_subfolder()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("archive/old.md", "# Old\n");
+        _workspace.Write("notes/loose.md", "# Loose\n");
+
+        var result = _workspace.RunIn(_workspace.Combine("notes"), "orphans", "--exclude", "archive/**");
+
+        Assert.Equal(["notes/loose.md"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void An_excluded_files_links_still_keep_what_they_link_to_from_being_orphans()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("archive/old.md", "[note](../note.md)\n");
+        _workspace.Write("note.md", "# Note\n");
+
+        var result = _workspace.Run("orphans", "--exclude", "archive/**");
+
+        Assert.Equal((0, ""), (result.ExitCode, result.Stdout));
+    }
+
+    [Fact]
+    public void A_link_into_the_roots_hippo_folder_is_broken()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("index.md", "[config](.hippo/config.json)\n");
+
+        var broken = _workspace.Run("broken");
+        var orphans = _workspace.Run("orphans");
+
+        Assert.Equal(["index.md:1  body         .hippo/config.json -> .hippo/config.json"], Lines(broken.Stdout));
+        Assert.Equal(["index.md"], Lines(orphans.Stdout));
     }
 
     [Fact]

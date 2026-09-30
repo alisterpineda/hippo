@@ -26,6 +26,6 @@ public sealed class InitCommandTests : IDisposable
         Assert.True(files.ExitCode == 0, $"exit {files.ExitCode}: {files.Stderr}");
         Assert.Equal("", files.Stderr);
         var paths = JsonDocument.Parse(files.Stdout).RootElement.EnumerateArray().Select(file => file.GetProperty("path").GetString());
-        Assert.Equal([".hippo/config.json", "a.md"], paths.Order(StringComparer.Ordinal));
+        Assert.Equal(["a.md"], paths.Order(StringComparer.Ordinal));
     }
 }

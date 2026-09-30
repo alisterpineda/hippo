@@ -24,7 +24,27 @@ public sealed class WorkspaceFilesTests : IDisposable
         _workspace.Write("inbox/new.md", "# New\n");
         _workspace.Write("wiki/scratch.tmp", "x");
 
-        Assert.Equal([".hippo/config.json", "a.md"], Paths());
+        Assert.Equal(["a.md"], Paths());
+    }
+
+    [Fact]
+    public void The_roots_hippo_folder_is_left_out_whatever_include_says_but_a_nested_workspaces_is_not()
+    {
+        _workspace.Write(".hippo/config.json", """{ "files": { "include": ["**/*", ".hippo/**"] } }""");
+        _workspace.Write(".hippo/other.json", "{}");
+        _workspace.Write("vault/.hippo/config.json", "");
+
+        Assert.Equal(["vault/.hippo/config.json"], Paths());
+    }
+
+    [Fact]
+    public void The_roots_hippo_folder_is_left_out_under_another_casing_where_the_filesystem_ignores_case()
+    {
+        Directory.Move(_workspace.Combine(".hippo"), _workspace.Combine(".Hippo"));
+        Assert.SkipUnless(Directory.Exists(_workspace.Combine(".hippo")), "the filesystem tells case apart");
+        _workspace.Write("a.md", "# A\n");
+
+        Assert.Equal(["a.md"], Paths());
     }
 
     [Fact]
@@ -69,13 +89,13 @@ public sealed class WorkspaceFilesTests : IDisposable
         Directory.CreateSymbolicLink(_workspace.Combine("linked"), outside.FullPath);
         File.CreateSymbolicLink(_workspace.Combine("link.md"), outside.Combine("secret.md"));
 
-        Assert.Equal([".hippo/config.json"], Paths());
+        Assert.Empty(Paths());
     }
 
     [Fact]
     public void A_glob_matches_keys_relative_to_the_root()
     {
-        var matched = Open().Glob("wiki/**/*.md", ["a.md", "wiki/b.md", "wiki/deep/c.md", "wiki/d.txt"]);
+        var matched = Open().Glob(["wiki/**/*.md"], ["a.md", "wiki/b.md", "wiki/deep/c.md", "wiki/d.txt"]);
 
         Assert.Equal(["wiki/b.md", "wiki/deep/c.md"], matched.Order(StringComparer.Ordinal));
     }

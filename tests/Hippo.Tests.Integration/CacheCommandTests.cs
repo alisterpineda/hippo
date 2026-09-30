@@ -88,8 +88,8 @@ public sealed class CacheCommandTests : IDisposable
         var original = Json(_workspace.Run("files", "--json")).EnumerateArray().Select(f => f.GetProperty("path").GetString());
         var copied = Json(_workspace.RunIn(copy, "files", "--json")).EnumerateArray().Select(f => f.GetProperty("path").GetString());
 
-        Assert.Equal([".hippo/config.json", "a.md"], original);
-        Assert.Equal([".hippo/config.json", "a.md", "b.md"], copied);
+        Assert.Equal(["a.md"], original);
+        Assert.Equal(["a.md", "b.md"], copied);
         Assert.NotEqual(DatabaseOf(_workspace.Root), DatabaseOf(copy));
         Assert.Equal(2, List().Count(i => i.State == "live"));
     }

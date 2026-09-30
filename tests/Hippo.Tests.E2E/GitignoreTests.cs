@@ -32,7 +32,7 @@ public sealed class GitignoreTests : IDisposable
 
         Assert.True(files.ExitCode == 0, $"exit {files.ExitCode}: {files.Stderr}");
         Assert.Equal("", files.Stderr);
-        Assert.Equal([".gitignore", ".hippo/config.json", "a.md", "notes/b.md"], Lines(files.Stdout).Order(StringComparer.Ordinal));
+        Assert.Equal([".gitignore", "a.md", "notes/b.md"], Lines(files.Stdout).Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public sealed class GitignoreTests : IDisposable
         var files = await _workspace.RunAsync("files");
 
         Assert.Equal(
-            [".gitignore", ".hippo/config.json", "a.md", "build/deep/more.md", "build/out.md", "notes/b.md", "notes/debug.log", "only-logs/x.log"],
+            [".gitignore", "a.md", "build/deep/more.md", "build/out.md", "notes/b.md", "notes/debug.log", "only-logs/x.log"],
             Lines(files.Stdout).Order(StringComparer.Ordinal));
     }
 
@@ -88,7 +88,7 @@ public sealed class GitignoreTests : IDisposable
         var files = await _workspace.RunInAsync(_workspace.Combine("vault"), "files");
 
         Assert.Equal("", files.Stderr);
-        Assert.Equal([".hippo/config.json", "a.md"], Lines(files.Stdout).Order(StringComparer.Ordinal));
+        Assert.Equal(["a.md"], Lines(files.Stdout).Order(StringComparer.Ordinal));
     }
 
     [Theory]
@@ -106,7 +106,7 @@ public sealed class GitignoreTests : IDisposable
         var files = await _workspace.RunInAsync(_workspace.Combine("vault"), "files");
 
         Assert.Equal("", files.Stderr);
-        Assert.Equal([".hippo/config.json", "a.md", "s/b.md"], Lines(files.Stdout).Order(StringComparer.Ordinal));
+        Assert.Equal(["a.md", "s/b.md"], Lines(files.Stdout).Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -118,7 +118,7 @@ public sealed class GitignoreTests : IDisposable
         var files = await _workspace.RunAsync("files");
 
         Assert.Equal("", files.Stderr);
-        Assert.Equal([".gitignore", ".hippo/config.json", "debug.log"], Lines(files.Stdout).Order(StringComparer.Ordinal));
+        Assert.Equal([".gitignore", "debug.log"], Lines(files.Stdout).Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -133,7 +133,7 @@ public sealed class GitignoreTests : IDisposable
 
         Assert.True(File.Exists(_workspace.Combine(".git")));
         Assert.Equal("", files.Stderr);
-        Assert.Equal([".gitignore", ".hippo/config.json"], Lines(files.Stdout).Order(StringComparer.Ordinal));
+        Assert.Equal([".gitignore"], Lines(files.Stdout).Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -187,7 +187,7 @@ public sealed class GitignoreTests : IDisposable
         var files = await _workspace.RunAsync("files");
 
         Assert.Equal("", files.Stderr);
-        Assert.Equal([".gitignore", ".hippo/config.json"], Lines(files.Stdout).Order(StringComparer.Ordinal));
+        Assert.Equal([".gitignore"], Lines(files.Stdout).Order(StringComparer.Ordinal));
     }
 
     [Fact]

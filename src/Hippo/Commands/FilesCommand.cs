@@ -16,7 +16,7 @@ internal static class FilesCommand
             var files = FileQueries.List(session.Db, filter);
             if (result.GetValue(glob) is { } pattern)
             {
-                var matched = session.Workspace.Glob(pattern, files.Select(f => f.Path));
+                var matched = session.Workspace.Glob([pattern], files.Select(f => f.Path));
                 files = files.Where(f => matched.Contains(f.Path)).ToList();
             }
 

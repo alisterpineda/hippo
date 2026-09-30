@@ -54,7 +54,7 @@ public sealed class SmokeTests : IDisposable
     {
         var json = await Json(0, "index");
 
-        Assert.Equal(5, json.GetProperty("files").GetInt32());
+        Assert.Equal(4, json.GetProperty("files").GetInt32());
         Assert.True(json.GetProperty("rebuilt").GetBoolean());
     }
 
@@ -63,14 +63,14 @@ public sealed class SmokeTests : IDisposable
     {
         var json = await Json(0, "status");
 
-        Assert.Equal((5, 4), (json.GetProperty("files").GetProperty("total").GetInt32(), json.GetProperty("files").GetProperty("markdown").GetInt32()));
+        Assert.Equal((4, 4), (json.GetProperty("files").GetProperty("total").GetInt32(), json.GetProperty("files").GetProperty("markdown").GetInt32()));
     }
 
     [Fact]
     public async Task Files()
     {
         Assert.Equal(
-            [".hippo/config.json", "raw/day.md", "raw/lonely.md", "wiki/index.md", "wiki/topics/topic.md"],
+            ["raw/day.md", "raw/lonely.md", "wiki/index.md", "wiki/topics/topic.md"],
             Strings(await Json(0, "files"), "path"));
         Assert.Equal(["wiki/topics/topic.md"], Strings(await Json(0, "files", "--where", "type=Topic"), "path"));
     }

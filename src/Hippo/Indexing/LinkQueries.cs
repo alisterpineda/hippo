@@ -82,14 +82,13 @@ internal static class LinkQueries
             ORDER BY source.path, l.line, l.id
             """).ToList();
 
-    /// <summary>Markdown files with no link to or from another indexed file. A page's links to itself, and its links
+    /// <summary>Indexed files with no link to or from another indexed file. A page's links to itself, and its links
     /// that are folders, URLs, anchors or missing, do not count.</summary>
     public static List<string> Orphans(SqliteConnection db) =>
         db.Query<string>("""
             SELECT f.path
             FROM files f
-            WHERE f.kind = 'markdown'
-              AND NOT EXISTS (SELECT 1 FROM links l WHERE l.target = f.path AND l.source_id != f.id)
+            WHERE NOT EXISTS (SELECT 1 FROM links l WHERE l.target = f.path AND l.source_id != f.id)
               AND NOT EXISTS (SELECT 1 FROM links l JOIN files t ON t.path = l.target WHERE l.source_id = f.id AND t.id != f.id)
             ORDER BY f.path
             """).ToList();

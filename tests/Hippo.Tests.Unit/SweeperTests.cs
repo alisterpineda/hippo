@@ -49,9 +49,9 @@ public sealed class SweeperTests : IDisposable
 
         var result = Sweep();
 
-        Assert.Equal([".hippo/config.json", "a.md", "raw/image.png", "wiki/b.md"], Rows().Select(r => r.Path));
-        Assert.Equal(4, result.Added);
-        Assert.Equal(4, result.Files);
+        Assert.Equal(["a.md", "raw/image.png", "wiki/b.md"], Rows().Select(r => r.Path));
+        Assert.Equal(3, result.Added);
+        Assert.Equal(3, result.Files);
     }
 
     [Fact]
@@ -143,7 +143,7 @@ public sealed class SweeperTests : IDisposable
         Assert.Null(Row("bad.md").Frontmatter);
         Assert.NotNull(Row("bad.md").ParseError);
         Assert.Equal("""{"title":"Good"}""", Row("good.md").Frontmatter);
-        Assert.Equal(3, result.Added);
+        Assert.Equal(2, result.Added);
     }
 
     [Fact]
@@ -329,7 +329,7 @@ public sealed class SweeperTests : IDisposable
 
         var result = Sweep(rebuild: true);
 
-        Assert.Equal(3, result.Hashed);
+        Assert.Equal(2, result.Hashed);
         Assert.True(result.Rebuilt);
         Assert.Equal("""{"title":"A"}""", Row("a.md").Frontmatter);
     }
@@ -399,7 +399,7 @@ public sealed class SweeperTests : IDisposable
         var paths = Enumerable.Range(0, count).Select(i => _workspace.Write($"n/{i:d3}.md", $"---\nn: {i}\n---\n")).ToList();
 
         var added = Sweep();
-        Assert.Equal((count + 1, count + 1), (added.Added, Rows().Count));
+        Assert.Equal((count, count), (added.Added, Rows().Count));
 
         foreach (var path in paths)
         {
@@ -424,7 +424,7 @@ public sealed class SweeperTests : IDisposable
         }
         var removed = Sweep();
         Assert.Equal(count, removed.Removed);
-        Assert.Equal([".hippo/config.json"], Rows().Select(r => r.Path));
+        Assert.Empty(Rows());
     }
 
     [Fact]
@@ -558,8 +558,7 @@ public sealed class SweeperTests : IDisposable
         _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["raw"] } }""");
         var changed = Sweep();
 
-        // The page, and the settings file that changed.
-        Assert.Equal(2, changed.Hashed);
+        Assert.Equal(1, changed.Hashed);
         Assert.True(changed.Rebuilt);
         Assert.Equal(["b.md"], Links().Select(l => l.Target));
     }
@@ -615,7 +614,7 @@ public sealed class SweeperTests : IDisposable
         var result = Sweep();
 
         Assert.Contains(result.Warnings, w => w.Contains("deep.md"));
-        Assert.Equal([".hippo/config.json", "a.md", "deep.md"], Rows().Select(r => r.Path));
+        Assert.Equal(["a.md", "deep.md"], Rows().Select(r => r.Path));
         Assert.Equal(["b.md"], Links().Select(l => l.Target));
     }
 

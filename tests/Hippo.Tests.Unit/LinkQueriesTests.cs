@@ -136,7 +136,7 @@ public sealed class LinkQueriesTests : IDisposable
     }
 
     [Fact]
-    public void Orphans_are_pages_with_no_link_to_or_from_another_file()
+    public void Orphans_are_files_with_no_link_to_or_from_another_file()
     {
         AddFile("wiki/loose.md", "markdown");
         Link("wiki/loose.md", 1, "body", "url", "https://example.com", null);
@@ -145,7 +145,14 @@ public sealed class LinkQueriesTests : IDisposable
         AddFile("wiki/gallery.md", "markdown");
         Link("wiki/gallery.md", 1, "body", "path", "../img.png", "img.png");
 
-        // wiki/index.md is linked to by nothing, but links out; wiki/gallery.md links only to a file that is not a page.
+        // wiki/index.md is linked to by nothing, but links out; wiki/gallery.md links only to img.png, a file that is not
+        // a page, and that one link keeps both from being orphans.
         Assert.Equal(["raw/x.md", "wiki/loose.md", "wiki/self.md"], LinkQueries.Orphans(_db));
+    }
+
+    [Fact]
+    public void A_file_that_is_not_a_page_is_an_orphan_when_nothing_links_to_it()
+    {
+        Assert.Contains("img.png", LinkQueries.Orphans(_db));
     }
 }

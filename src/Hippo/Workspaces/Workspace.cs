@@ -64,18 +64,20 @@ internal sealed record Workspace(string Root, WorkspaceConfig Config)
     public HashSet<string> Match(Matcher matcher, IEnumerable<string> fullPaths) =>
         matcher.Match(Root, fullPaths).Files.Select(match => Key(match.Path)).ToHashSet(StringComparer.Ordinal);
 
-    /// <summary>The keys among <paramref name="keys"/> that the glob <paramref name="pattern"/>, taken relative to the
-    /// root, matches.</summary>
-    public HashSet<string> Glob(string pattern, IEnumerable<string> keys)
+    /// <summary>The keys among <paramref name="keys"/> that any of the globs <paramref name="patterns"/>, taken relative
+    /// to the root, matches.</summary>
+    public HashSet<string> Glob(IEnumerable<string> patterns, IEnumerable<string> keys)
     {
         var matcher = new Matcher(StringComparison.Ordinal);
-        matcher.AddInclude(pattern);
+        matcher.AddIncludePatterns(patterns);
         return Match(matcher, keys.Select(FullPath));
     }
 
     /// <summary>Lists the included files under the root, less those git ignores when the config says to; git's
     /// complaints go to <paramref name="warnings"/>. Symbolic links are skipped, so nothing outside the root is read, and
-    /// a folder that an exclude pattern ending in <c>/**</c> covers, or whose files git all ignores, is never entered.</summary>
+    /// a folder that an exclude pattern ending in <c>/**</c> covers, or whose files git all ignores, is never entered.
+    /// Nor is the root's own <see cref="WorkspaceConfig.Folder"/>, whatever the config includes: it is hippo's, not the
+    /// workspace's. A nested workspace's is an ordinary folder.</summary>
     public List<WorkspaceFile> ListFiles(List<string> warnings)
     {
         var ignored = Config.Gitignore ? GitIgnored.Find(Root, warnings) : GitIgnored.None;
@@ -108,7 +110,9 @@ internal sealed record Workspace(string Root, WorkspaceConfig Config)
                     return false;
                 }
                 var path = RelativeKey(ref entry);
-                return !ignored.Folders.Contains(path) && !pruned.Exists(folder => folder.Match(Root, path).HasMatches);
+                // Case is ignored because a filesystem that ignores it finds the root through a .Hippo too.
+                return !string.Equals(path, WorkspaceConfig.Folder, StringComparison.OrdinalIgnoreCase)
+                    && !ignored.Folders.Contains(path) && !pruned.Exists(folder => folder.Match(Root, path).HasMatches);
             },
         }.ToList();
 

@@ -25,7 +25,7 @@ public sealed class CommandTests : IDisposable
         var result = _workspace.Run("index");
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Matches(@"^Indexed 3 files in \d+ ms: 3 added, 0 updated, 0 removed\.$", result.Stdout.TrimEnd());
+        Assert.Matches(@"^Indexed 2 files in \d+ ms: 2 added, 0 updated, 0 removed\.$", result.Stdout.TrimEnd());
     }
 
     [Fact]
@@ -35,8 +35,8 @@ public sealed class CommandTests : IDisposable
 
         var json = Json(_workspace.Run("index", "--json"));
 
-        Assert.Equal(2, json.GetProperty("files").GetInt32());
-        Assert.Equal(2, json.GetProperty("added").GetInt32());
+        Assert.Equal(1, json.GetProperty("files").GetInt32());
+        Assert.Equal(1, json.GetProperty("added").GetInt32());
     }
 
     [Fact]
@@ -62,7 +62,7 @@ public sealed class CommandTests : IDisposable
         var json = Json(_workspace.Run("index", "--rebuild", "--json"));
 
         Assert.True(json.GetProperty("rebuilt").GetBoolean());
-        Assert.Equal(2, json.GetProperty("hashed").GetInt32());
+        Assert.Equal(1, json.GetProperty("hashed").GetInt32());
         Assert.Equal(0, json.GetProperty("added").GetInt32());
     }
 
@@ -127,9 +127,9 @@ public sealed class CommandTests : IDisposable
         var lines = Lines(result.Stdout);
         Assert.Contains($"Workspace:   {_workspace.Root}", lines);
         Assert.Contains(lines, l => l.StartsWith($"Database:    {_workspace.CacheDir}", StringComparison.Ordinal));
-        Assert.Contains("Files:       4 (2 markdown, 2 other)", lines);
+        Assert.Contains("Files:       3 (2 markdown, 1 other)", lines);
         Assert.Contains("Frontmatter: 1 with errors", lines);
-        Assert.Contains(lines, l => l.StartsWith("Last sweep:  ", StringComparison.Ordinal) && l.Contains("4 added"));
+        Assert.Contains(lines, l => l.StartsWith("Last sweep:  ", StringComparison.Ordinal) && l.Contains("3 added"));
     }
 
     [Fact]
@@ -141,10 +141,10 @@ public sealed class CommandTests : IDisposable
 
         Assert.Equal(_workspace.Root, json.GetProperty("root").GetString());
         var files = json.GetProperty("files");
-        Assert.Equal((2, 1, 1, 0), (files.GetProperty("total").GetInt32(), files.GetProperty("markdown").GetInt32(),
+        Assert.Equal((1, 1, 0, 0), (files.GetProperty("total").GetInt32(), files.GetProperty("markdown").GetInt32(),
             files.GetProperty("other").GetInt32(), files.GetProperty("parseErrors").GetInt32()));
         var sweep = json.GetProperty("lastSweep");
-        Assert.Equal(2, sweep.GetProperty("added").GetInt32());
+        Assert.Equal(1, sweep.GetProperty("added").GetInt32());
         Assert.True(sweep.GetProperty("finishedAt").GetDateTimeOffset() > DateTimeOffset.UtcNow.AddMinutes(-5));
     }
 
@@ -157,7 +157,7 @@ public sealed class CommandTests : IDisposable
         var result = _workspace.Run("files");
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Equal([".hippo/config.json", "raw/b.txt", "wiki/a.md"], Lines(result.Stdout));
+        Assert.Equal(["raw/b.txt", "wiki/a.md"], Lines(result.Stdout));
     }
 
     [Fact]
@@ -375,7 +375,7 @@ public sealed class CommandTests : IDisposable
     [Fact]
     public void Excluded_files_are_not_listed()
     {
-        _workspace.Write(".hippo/config.json", """{ "files": { "include": ["**/*"], "exclude": [".hippo/**", "inbox/**"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "files": { "include": ["**/*"], "exclude": ["inbox/**"] } }""");
         _workspace.Write("a.md", "# A\n");
         _workspace.Write("inbox/b.md", "# B\n");
 
