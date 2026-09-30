@@ -62,7 +62,7 @@ public class MigrationRunnerTests
             first.Execute("""
                 INSERT INTO files (id, path, mtime, size, hash, hashed_at, kind, frontmatter, parse_error) VALUES
                     (7, 'a.md', 1, 2, 'ha', 3, 'markdown', '{"title":"A"}', NULL),
-                    (9, 'b.txt', 4, 5, 'hb', 6, 'plain', NULL, NULL),
+                    (9, 'b.txt', 4, 5, 'hb', 6, 'other', NULL, NULL),
                     (12, 'c.md', 7, 8, 'hc', 9, 'markdown', NULL, 'bad yaml');
                 INSERT INTO links (id, source_id, line, kind, type, raw, target) VALUES
                     (21, 7, 1, 'body', 'path', 'b.txt', 'b.txt'),

@@ -69,7 +69,7 @@ namespace Hippo.Migrations.Migrations
 
                     b.ToTable("files", null, t =>
                         {
-                            t.HasCheckConstraint("ck_files_kind", "kind IN ('markdown', 'plain')");
+                            t.HasCheckConstraint("ck_files_kind", "kind IN ('markdown', 'other')");
                         });
                 });
 

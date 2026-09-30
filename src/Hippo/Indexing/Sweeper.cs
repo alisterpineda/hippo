@@ -230,7 +230,7 @@ internal static class Sweeper
         bodyError = null;
         if (!Workspace.IsMarkdown(file.Path))
         {
-            return new ParsedFile(new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "plain", null, null), []);
+            return new ParsedFile(new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "other", null, null), []);
         }
         var page = Page.Parse(file.Path, content!, settings);
         bodyError = page.BodyError;

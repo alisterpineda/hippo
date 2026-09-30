@@ -28,7 +28,7 @@ namespace Hippo.Migrations.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_files", x => x.id);
-                    table.CheckConstraint("ck_files_kind", "kind IN ('markdown', 'plain')");
+                    table.CheckConstraint("ck_files_kind", "kind IN ('markdown', 'other')");
                 });
 
             migrationBuilder.CreateTable(

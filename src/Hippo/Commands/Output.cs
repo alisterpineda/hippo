@@ -10,7 +10,7 @@ internal sealed record IndexOutput(int Files, int Added, int Updated, int Remove
 
 internal sealed record StatusOutput(string Root, string Database, CountsOutput Files, SweepOutput LastSweep);
 
-internal sealed record CountsOutput(long Total, long Markdown, long Plain, long ParseErrors);
+internal sealed record CountsOutput(long Total, long Markdown, long Other, long ParseErrors);
 
 internal sealed record SweepOutput(DateTimeOffset FinishedAt, long ElapsedMs, int Added, int Updated, int Removed);
 

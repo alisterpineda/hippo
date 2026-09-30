@@ -53,7 +53,7 @@ public sealed class SweeperTests : IDisposable
     }
 
     [Fact]
-    public void Markdown_and_plain_files_get_their_kind()
+    public void Markdown_and_other_files_get_their_kind()
     {
         _workspace.Write("a.md", "# A\n");
         _workspace.Write("b.txt", "b");
@@ -61,7 +61,7 @@ public sealed class SweeperTests : IDisposable
         Sweep();
 
         Assert.Equal("markdown", Row("a.md").Kind);
-        Assert.Equal("plain", Row("b.txt").Kind);
+        Assert.Equal("other", Row("b.txt").Kind);
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public sealed class SweeperTests : IDisposable
     }
 
     [Fact]
-    public void Plain_files_are_not_parsed_for_frontmatter()
+    public void Other_files_are_not_parsed_for_frontmatter()
     {
         _workspace.Write("a.txt", "---\ntitle: A\n---\n");
 

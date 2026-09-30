@@ -127,7 +127,7 @@ public sealed class CommandTests : IDisposable
         var lines = Lines(result.Stdout);
         Assert.Contains($"Workspace:   {_workspace.Root}", lines);
         Assert.Contains(lines, l => l.StartsWith($"Database:    {_workspace.CacheDir}", StringComparison.Ordinal));
-        Assert.Contains("Files:       4 (2 markdown, 2 plain)", lines);
+        Assert.Contains("Files:       4 (2 markdown, 2 other)", lines);
         Assert.Contains("Frontmatter: 1 with errors", lines);
         Assert.Contains(lines, l => l.StartsWith("Last sweep:  ", StringComparison.Ordinal) && l.Contains("4 added"));
     }
@@ -142,7 +142,7 @@ public sealed class CommandTests : IDisposable
         Assert.Equal(_workspace.Root, json.GetProperty("root").GetString());
         var files = json.GetProperty("files");
         Assert.Equal((2, 1, 1, 0), (files.GetProperty("total").GetInt32(), files.GetProperty("markdown").GetInt32(),
-            files.GetProperty("plain").GetInt32(), files.GetProperty("parseErrors").GetInt32()));
+            files.GetProperty("other").GetInt32(), files.GetProperty("parseErrors").GetInt32()));
         var sweep = json.GetProperty("lastSweep");
         Assert.Equal(2, sweep.GetProperty("added").GetInt32());
         Assert.True(sweep.GetProperty("finishedAt").GetDateTimeOffset() > DateTimeOffset.UtcNow.AddMinutes(-5));

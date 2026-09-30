@@ -36,7 +36,7 @@ public class OutputJsonTests
           "files": {
             "total": 3,
             "markdown": 2,
-            "plain": 1,
+            "other": 1,
             "parseErrors": 0
           },
           "lastSweep": {

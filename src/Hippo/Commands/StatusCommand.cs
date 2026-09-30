@@ -15,14 +15,14 @@ internal static class StatusCommand
             var output = new StatusOutput(
                 session.Workspace.Root,
                 session.DatabasePath,
-                new CountsOutput(counts.Total, counts.Markdown, counts.Plain, counts.ParseErrors),
+                new CountsOutput(counts.Total, counts.Markdown, counts.Other, counts.ParseErrors),
                 new SweepOutput(sweep.FinishedAt, Format.Milliseconds(sweep.Elapsed), sweep.Added, sweep.Updated, sweep.Removed));
             session.Emit(output, OutputJson.Default.StatusOutput, (text, o) =>
             {
                 var last = o.LastSweep;
                 text.WriteLine($"Workspace:   {Format.Safe(o.Root)}");
                 text.WriteLine($"Database:    {Format.Safe(o.Database)}");
-                text.WriteLine($"Files:       {o.Files.Total} ({o.Files.Markdown} markdown, {o.Files.Plain} plain)");
+                text.WriteLine($"Files:       {o.Files.Total} ({o.Files.Markdown} markdown, {o.Files.Other} other)");
                 text.WriteLine($"Frontmatter: {o.Files.ParseErrors} with errors");
                 text.WriteLine($"Last sweep:  {last.FinishedAt:O}, {last.ElapsedMs} ms: {Format.Summary(last.Added, last.Updated, last.Removed)}");
             });

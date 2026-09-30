@@ -18,7 +18,7 @@ public sealed class LinkQueriesTests : IDisposable
         {
             AddFile(path, "markdown");
         }
-        AddFile("img.png", "plain");
+        AddFile("img.png", "other");
 
         Link("wiki/a.md", 3, "body", "path", "b.md", "wiki/b.md");
         Link("wiki/a.md", 4, "body", "path", "../raw/gone.md", "raw/gone.md");

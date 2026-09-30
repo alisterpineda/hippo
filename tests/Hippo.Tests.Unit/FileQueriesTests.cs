@@ -19,7 +19,7 @@ public sealed class FileQueriesTests : IDisposable
         Insert("wiki/a.md", "markdown", """{"type":"Topic","title":"A","tags":["x","y"],"count":3,"draft":true,"generated":{"at":"2026-09-01"}}""");
         Insert("wiki/b.md", "markdown", """{"type":"Person","title":"B","tags":"x"}""");
         Insert("raw/bad.md", "markdown", null, "line 2: bad");
-        Insert("raw/c.png", "plain", null);
+        Insert("raw/c.png", "other", null);
     }
 
     public void Dispose()

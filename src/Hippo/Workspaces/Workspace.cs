@@ -29,7 +29,7 @@ internal sealed record Workspace(string Root, WorkspaceConfig Config)
         return new Workspace(root, WorkspaceConfig.Parse(json));
     }
 
-    /// <summary>A file whose name ends in <c>.md</c> is markdown; every other file is plain.</summary>
+    /// <summary>A file whose name ends in <c>.md</c> is <c>markdown</c>; every other file is <c>other</c>.</summary>
     public static bool IsMarkdown(string path) => path.EndsWith(".md", StringComparison.Ordinal);
 
     /// <summary>

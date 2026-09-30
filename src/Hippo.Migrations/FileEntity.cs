@@ -20,7 +20,7 @@ public sealed class FileEntity
     /// <summary>When the content was last hashed, in the same ticks as <see cref="Mtime"/>.</summary>
     public long HashedAt { get; set; }
 
-    /// <summary><c>markdown</c> or <c>plain</c>.</summary>
+    /// <summary><c>markdown</c> or <c>other</c>.</summary>
     public required string Kind { get; set; }
 
     /// <summary>The frontmatter as a JSON object; null when the file has none or it failed to parse.</summary>

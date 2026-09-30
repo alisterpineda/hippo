@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Dapper;
 using Hippo.Indexing;
 using Hippo.Migrations;
@@ -55,7 +56,7 @@ public class SchemaTests
         using var connection = database.Open();
 
         var ex = Assert.Throws<SqliteException>(() => connection.Execute(
-            "INSERT INTO files (path, mtime, size, hash, hashed_at, kind) VALUES ('a', 0, 0, 'h', 0, 'other')"));
+            "INSERT INTO files (path, mtime, size, hash, hashed_at, kind) VALUES ('a', 0, 0, 'h', 0, 'image')"));
 
         Assert.Contains("CHECK constraint failed", ex.Message);
     }
@@ -92,9 +93,10 @@ public class SchemaTests
     private static List<string> Tables(SqliteConnection connection) => connection.Query<string>(
         "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").AsList();
 
-    /// <summary>Columns, indexes and foreign keys, as SQLite reports them, in a form that compares as text. Columns
-    /// are listed by name: <c>ALTER TABLE ADD COLUMN</c> appends and EF's table rebuilds sort, and nothing in hippo
-    /// reads a column by position.</summary>
+    /// <summary>Columns, indexes, foreign keys and CHECK constraints, as SQLite reports them, in a form that compares
+    /// as text. Columns are listed by name: <c>ALTER TABLE ADD COLUMN</c> appends and EF's table rebuilds sort, and
+    /// nothing in hippo reads a column by position. No pragma reports CHECK constraints, so they are read from the
+    /// table's DDL and listed by name.</summary>
     private static string Describe(SqliteConnection connection, string table)
     {
         var lines = new List<string>
@@ -126,6 +128,10 @@ public class SchemaTests
                 lines.Add($"fk {reader[1]} -> {reader[0]}.{reader[2]} update={reader[3]} delete={reader[4]}");
             }
         }
+        var sql = connection.ExecuteScalar<string>("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = @table", new { table })!;
+        lines.AddRange(Regex.Matches(sql, @"CONSTRAINT\s+""([^""]+)""\s+CHECK\s+(.+?),?\s*$", RegexOptions.Multiline)
+            .Select(m => $"check {m.Groups[1].Value} {m.Groups[2].Value}")
+            .Order(StringComparer.Ordinal));
         return string.Join('\n', lines);
     }
 }

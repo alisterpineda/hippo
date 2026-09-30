@@ -19,7 +19,7 @@ public sealed class HippoDbContext(DbContextOptions<HippoDbContext> options) : D
     {
         modelBuilder.Entity<FileEntity>(file =>
         {
-            file.ToTable("files", table => table.HasCheckConstraint("ck_files_kind", "kind IN ('markdown', 'plain')"));
+            file.ToTable("files", table => table.HasCheckConstraint("ck_files_kind", "kind IN ('markdown', 'other')"));
             file.HasKey(f => f.Id);
             file.Property(f => f.Id).HasColumnName("id");
             file.Property(f => f.Path).HasColumnName("path");

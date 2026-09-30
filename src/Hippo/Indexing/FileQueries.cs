@@ -26,7 +26,7 @@ internal sealed record FileListing(string Path, string Kind, long Size, long Mti
 
 internal sealed record FileDetail(string Path, string Kind, long Size, long Mtime, string Hash, string? Frontmatter, string? ParseError);
 
-internal sealed record FileCounts(long Total, long Markdown, long Plain, long ParseErrors);
+internal sealed record FileCounts(long Total, long Markdown, long Other, long ParseErrors);
 
 internal static class FileQueries
 {
@@ -55,7 +55,7 @@ internal static class FileQueries
         db.QuerySingle<FileCounts>("""
             SELECT count(*) AS Total,
                    count(*) FILTER (WHERE kind = 'markdown') AS Markdown,
-                   count(*) FILTER (WHERE kind = 'plain') AS Plain,
+                   count(*) FILTER (WHERE kind = 'other') AS Other,
                    count(*) FILTER (WHERE parse_error IS NOT NULL) AS ParseErrors
             FROM files
             """);

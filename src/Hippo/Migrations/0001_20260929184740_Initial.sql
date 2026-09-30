@@ -8,7 +8,7 @@ CREATE TABLE "files" (
     "kind" TEXT NOT NULL,
     "frontmatter" TEXT NULL,
     "parse_error" TEXT NULL,
-    CONSTRAINT "ck_files_kind" CHECK (kind IN ('markdown', 'plain'))
+    CONSTRAINT "ck_files_kind" CHECK (kind IN ('markdown', 'other'))
 );
 
 CREATE TABLE "meta" (
