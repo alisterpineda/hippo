@@ -44,11 +44,7 @@ internal static class Sweeper
 
     internal sealed record LinkRow(string Path, string Hash, int Line, string Kind, string Type, string Raw, string? Target);
 
-    internal sealed record MetaRow(string Key, string Value);
-
     private sealed record ParsedFile(FileRow Row, List<LinkRow> Links);
-
-    private const string LinkSettingsKey = "links";
 
     public static SweepResult Run(Workspace workspace, SqliteConnection db, bool rebuild, TimeProvider clock)
     {
@@ -61,7 +57,7 @@ internal static class Sweeper
         // pages have links, so every other file is still skipped when its stats show it unchanged.
         var settings = workspace.Config.Links;
         var linkSettings = settings.Fingerprint;
-        var relink = db.QuerySingleOrDefault<string>("SELECT value FROM meta WHERE key = @LinkSettingsKey", new { LinkSettingsKey }) != linkSettings;
+        var relink = IndexMeta.Get(db, IndexMeta.LinkSettings) != linkSettings;
         // A page that cannot be read keeps its old links, so the new settings are recorded only once every page was
         // read under them; until then each sweep parses the pages again.
         var unreadPage = false;
@@ -153,10 +149,7 @@ internal static class Sweeper
             db.Execute("UPDATE files SET mtime = @Mtime, size = @Size, hashed_at = @HashedAt WHERE path = @Path AND hash = @Hash", stats, transaction);
             if (!unreadPage)
             {
-                db.Execute("""
-                    INSERT INTO meta (key, value) VALUES (@Key, @Value)
-                    ON CONFLICT (key) DO UPDATE SET value = excluded.value
-                    """, new MetaRow(LinkSettingsKey, linkSettings), transaction);
+                IndexMeta.Set(db, IndexMeta.LinkSettings, linkSettings, transaction);
             }
             transaction.Commit();
         }

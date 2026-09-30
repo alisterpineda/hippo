@@ -10,6 +10,8 @@
     <!-- Trim, single-file and AOT analyzers; TreatWarningsAsErrors makes their warnings errors. -->
     <IsAotCompatible>true</IsAotCompatible>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- The code LibraryImport generates for CanonicalPath's Windows calls is unsafe. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
     <PublishAot>true</PublishAot>
     <!-- Keeps the native debug symbols (.dSYM, .dbg, .pdb), several times the binary's size, out of the publish

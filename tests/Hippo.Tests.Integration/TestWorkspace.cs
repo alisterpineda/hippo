@@ -29,7 +29,23 @@ internal sealed class TestWorkspace : IDisposable
     /// <summary>The clock hippo reads: the real one unless a test sets its own.</summary>
     public TimeProvider Clock { get; set; } = TimeProvider.System;
 
+    /// <summary>The mount points hippo reads: only the root of the temp directory's drive unless a test sets its own,
+    /// so what a test sees does not depend on what this machine has mounted.</summary>
+    public IReadOnlyList<string> MountPoints { get; set; } = [Path.GetPathRoot(Path.GetTempPath())!];
+
     public string Combine(string relativePath) => Path.Combine(Root, relativePath);
+
+    /// <summary>A path in the temp directory beside the workspace and the cache.</summary>
+    public string Beside(string relativePath) => _dir.Combine(relativePath);
+
+    /// <summary>Makes another workspace at <paramref name="relativePath"/> beside this one; run hippo there with
+    /// <see cref="RunIn"/>, and it shares this cache.</summary>
+    public string AddWorkspace(string relativePath)
+    {
+        var root = Beside(relativePath);
+        _dir.Write(Path.Combine(relativePath, ".hippo", "config.json"), "");
+        return root;
+    }
 
     public string Write(string relativePath, string content)
     {
@@ -63,7 +79,7 @@ internal sealed class TestWorkspace : IDisposable
     {
         var output = new StringWriter();
         var error = new StringWriter();
-        var environment = new CliEnvironment(workingDirectory, name => variables.GetValueOrDefault(name), Clock);
+        var environment = new CliEnvironment(workingDirectory, name => variables.GetValueOrDefault(name), Clock, () => MountPoints);
 
         var exitCode = Cli.Run(args, environment, new InvocationConfiguration { Output = output, Error = error });
 

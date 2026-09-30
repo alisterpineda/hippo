@@ -27,6 +27,28 @@ public class CacheLocationTests
     }
 
     [Fact]
+    public void An_index_folder_is_named_by_the_sha256_of_its_root()
+    {
+        var env = Env(("HIPPO_CACHE_DIR", "/tmp/cache"));
+
+        // printf '/notes' | shasum -a 256
+        Assert.Equal("46bd1cc6315ac282a32b61f24a8937664346f79c43b44ad47d3a95b919a26600", CacheLocation.FolderName("/notes"));
+        Assert.Equal(Path.Combine(CacheLocation.CacheRoot(env), CacheLocation.FolderName("/notes"), "index.db"),
+            CacheLocation.DatabasePath("/notes", env));
+    }
+
+    [Theory]
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", true)]
+    [InlineData("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF", false)]
+    [InlineData("0123456789abcdef", false)]
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg", false)]
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.1.removing", false)]
+    public void Only_64_lowercase_hex_digits_name_an_index_folder(string name, bool expected)
+    {
+        Assert.Equal(expected, CacheLocation.IsFolderName(name));
+    }
+
+    [Fact]
     public void The_default_is_the_user_cache_folder_for_this_os()
     {
         var env = Env(("HOME", "/home/me"), ("LOCALAPPDATA", @"C:\Users\me\AppData\Local"));

@@ -123,4 +123,32 @@ public sealed class SmokeTests : IDisposable
     {
         Assert.Equal(["raw/lonely.md"], Strings(await Json(1, "orphans"), "path"));
     }
+
+    [Fact]
+    public async Task Cache_list()
+    {
+        var database = (await Json(0, "status")).GetProperty("database").GetString();
+
+        var index = Assert.Single((await Json(0, "cache", "list")).EnumerateArray());
+
+        Assert.Equal(("live", database), (index.GetProperty("state").GetString(), index.GetProperty("database").GetString()));
+        Assert.Equal("workspace", Path.GetFileName(index.GetProperty("root").GetString()));
+    }
+
+    [Fact]
+    public async Task Cache_prune()
+    {
+        var nested = _workspace.Write("gone/.hippo/config.json", "");
+        var gone = Path.GetDirectoryName(Path.GetDirectoryName(nested))!;
+        var result = await _workspace.RunInAsync(gone, "index");
+        Assert.True(result.ExitCode == 0, $"exit {result.ExitCode}: {result.Stderr}");
+        Directory.Delete(gone, recursive: true);
+        await Json(0, "index");
+
+        var removed = Assert.Single((await Json(0, "cache", "prune")).EnumerateArray());
+
+        Assert.Equal(("orphaned", "gone"), (removed.GetProperty("state").GetString(), Path.GetFileName(removed.GetProperty("root").GetString())));
+        Assert.False(File.Exists(removed.GetProperty("database").GetString()));
+        Assert.Equal("live", Assert.Single((await Json(0, "cache", "list")).EnumerateArray()).GetProperty("state").GetString());
+    }
 }

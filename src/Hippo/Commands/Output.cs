@@ -29,6 +29,8 @@ internal sealed record BrokenOutput(string Source, long Line, string Kind, strin
 
 internal sealed record OrphanOutput(string Path);
 
+internal sealed record CacheIndexOutput(string Database, string? Root, string State, long Size);
+
 /// <summary>
 /// The <c>--json</c> shapes. They are hippo's contract with scripts, so each is a record of its own, never a row type
 /// from <c>Hippo.Indexing</c>, and <c>OutputJsonTests</c> pins every one. Generated, so serialization needs no
@@ -44,6 +46,7 @@ internal sealed record OrphanOutput(string Path);
 [JsonSerializable(typeof(List<TransitiveBackrefOutput>))]
 [JsonSerializable(typeof(List<BrokenOutput>))]
 [JsonSerializable(typeof(List<OrphanOutput>))]
+[JsonSerializable(typeof(List<CacheIndexOutput>))]
 internal sealed partial class OutputJson : JsonSerializerContext;
 
 /// <summary>How values read as text. Named apart from the <c>*Output</c> shapes and the session's output writer.</summary>

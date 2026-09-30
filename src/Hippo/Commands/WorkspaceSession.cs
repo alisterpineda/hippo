@@ -24,8 +24,10 @@ internal sealed record WorkspaceSession(
         return Guard.Run(error, () =>
         {
             var workspace = Workspace.Open(environment.WorkingDirectory);
-            var databasePath = CacheLocation.DatabasePath(workspace.Root, environment.GetVariable);
+            var canonicalRoot = CanonicalPath.Of(workspace.Root);
+            var databasePath = CacheLocation.DatabasePath(canonicalRoot, environment.GetVariable);
             using var db = IndexDatabase.Open(databasePath, out var scriptsApplied);
+            IndexMeta.RecordRoot(db, canonicalRoot, environment.GetMountPoints);
             // A schema change may alter what the sweep stores for unchanged files, so it re-reads them all.
             var sweep = Sweeper.Run(workspace, db, rebuild || scriptsApplied > 0, environment.Clock);
             Warn(error, sweep.Warnings);
@@ -41,30 +43,39 @@ internal sealed record WorkspaceSession(
 
     /// <summary>Prints <paramref name="value"/> as JSON under <c>--json</c>, and otherwise as <paramref name="text"/>
     /// writes it. Both print the one value, so the two forms say the same.</summary>
-    public void Emit<T>(T value, JsonTypeInfo<T> json, Action<TextWriter, T> text)
-    {
-        if (Json)
-        {
-            Output.WriteLine(JsonSerializer.Serialize(value, json));
-        }
-        else
-        {
-            text(Output, value);
-        }
-    }
+    public void Emit<T>(T value, JsonTypeInfo<T> json, Action<TextWriter, T> text) => Emit(Output, Json, value, json, text);
 
     /// <summary>Prints <paramref name="items"/> as a JSON array under <c>--json</c>, and otherwise one
     /// <paramref name="line"/> per item.</summary>
     public void EmitList<T>(List<T> items, JsonTypeInfo<List<T>> json, Func<T, string> line) =>
-        Emit(items, json, (output, list) =>
+        EmitList(Output, Json, items, json, line);
+
+    /// <summary><see cref="Emit{T}(T, JsonTypeInfo{T}, Action{TextWriter, T})"/> for a command that opens no
+    /// session.</summary>
+    public static void Emit<T>(TextWriter output, bool asJson, T value, JsonTypeInfo<T> json, Action<TextWriter, T> text)
+    {
+        if (asJson)
+        {
+            output.WriteLine(JsonSerializer.Serialize(value, json));
+        }
+        else
+        {
+            text(output, value);
+        }
+    }
+
+    /// <summary><see cref="EmitList{T}(List{T}, JsonTypeInfo{List{T}}, Func{T, string})"/> for a command that opens no
+    /// session.</summary>
+    public static void EmitList<T>(TextWriter output, bool asJson, List<T> items, JsonTypeInfo<List<T>> json, Func<T, string> line) =>
+        Emit(output, asJson, items, json, (writer, list) =>
         {
             foreach (var item in list)
             {
-                output.WriteLine(line(item));
+                writer.WriteLine(line(item));
             }
         });
 
-    private static void Warn(TextWriter error, IEnumerable<string> warnings)
+    public static void Warn(TextWriter error, IEnumerable<string> warnings)
     {
         foreach (var warning in warnings)
         {

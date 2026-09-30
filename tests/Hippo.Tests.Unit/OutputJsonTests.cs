@@ -144,4 +144,24 @@ public class OutputJsonTests
           }
         ]
         """, [new OrphanOutput("a.md")], OutputJson.Default.ListOrphanOutput);
+
+    [Fact]
+    public void Cache_indexes() => AssertJson("""
+        [
+          {
+            "database": "/c/ab/index.db",
+            "root": "/w",
+            "state": "orphaned",
+            "size": 4096
+          },
+          {
+            "database": "/c/cd/index.db",
+            "root": null,
+            "state": "unknown",
+            "size": 0
+          }
+        ]
+        """,
+        [new CacheIndexOutput("/c/ab/index.db", "/w", "orphaned", 4096), new CacheIndexOutput("/c/cd/index.db", null, "unknown", 0)],
+        OutputJson.Default.ListCacheIndexOutput);
 }
