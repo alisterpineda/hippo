@@ -18,7 +18,7 @@ public sealed class InitCommandTests : IDisposable
         _workspace.Git("init");
 
         var init = await _workspace.RunAsync("init");
-        var files = await _workspace.RunAsync("files", "--json");
+        var files = await _workspace.RunAsync("find", "--json");
 
         Assert.Equal(0, init.ExitCode);
         Assert.Contains(Config, init.Stdout);

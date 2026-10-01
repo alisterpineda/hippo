@@ -48,7 +48,7 @@ public sealed class CommandTests : IDisposable
         Assert.SkipWhen(OperatingSystem.IsWindows(), "Windows file names cannot hold control characters");
         _workspace.Write("n\u001b]0;T\u0007.md", "# N\n");
 
-        var result = await _workspace.RunAsync("files");
+        var result = await _workspace.RunAsync("find");
 
         Assert.Contains("n\\x1b]0;T\\x07.md", Lines(result.Stdout));
         Assert.DoesNotContain('\u001b', result.Stdout);
@@ -95,7 +95,7 @@ public sealed class CommandTests : IDisposable
     [Fact]
     public async Task A_usage_error_exits_2()
     {
-        var result = await _workspace.RunAsync("files", "--bogus");
+        var result = await _workspace.RunAsync("status", "--bogus");
 
         Assert.Equal(2, result.ExitCode);
     }

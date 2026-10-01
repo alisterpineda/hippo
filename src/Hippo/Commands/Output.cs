@@ -13,7 +13,10 @@ internal sealed record CountsOutput(long Total, long Markdown, long Other, long 
 
 internal sealed record SweepOutput(DateTimeOffset FinishedAt, long ElapsedMs, int Added, int Updated, int Removed);
 
-internal sealed record FileOutput(string Path, string Kind, long Size, DateTimeOffset Modified, string? ParseError);
+/// <summary>A file <c>find</c> lists. <see cref="Title"/> is null when the file is not a page or the page has none;
+/// <see cref="Snippet"/> is null without a query, and with one marks each matched term <c>**</c>.</summary>
+internal sealed record FindOutput(
+    string Path, string Kind, long Size, DateTimeOffset Modified, string? Title, string? ParseError, string? Snippet);
 
 internal sealed record ShowOutput(
     string Path, string Kind, long Size, DateTimeOffset Modified, string Hash, JsonElement? Frontmatter, string? ParseError);
@@ -30,10 +33,6 @@ internal sealed record OrphanOutput(string Path);
 
 internal sealed record FindingOutput(string Rule, string Path, long? Line, string Message, List<string> Related);
 
-/// <summary>A page a search found. <see cref="Title"/> is null when the page has none; <see cref="Snippet"/> marks each
-/// matched term <c>**</c>.</summary>
-internal sealed record SearchOutput(string Path, string? Title, string Snippet);
-
 internal sealed record CacheIndexOutput(string Database, string? Root, string State, long Size);
 
 /// <summary>
@@ -44,7 +43,7 @@ internal sealed record CacheIndexOutput(string Database, string? Root, string St
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]
 [JsonSerializable(typeof(IndexOutput))]
 [JsonSerializable(typeof(StatusOutput))]
-[JsonSerializable(typeof(List<FileOutput>))]
+[JsonSerializable(typeof(List<FindOutput>))]
 [JsonSerializable(typeof(ShowOutput))]
 [JsonSerializable(typeof(List<RefOutput>))]
 [JsonSerializable(typeof(List<BackrefOutput>))]
@@ -52,7 +51,6 @@ internal sealed record CacheIndexOutput(string Database, string? Root, string St
 [JsonSerializable(typeof(List<BrokenOutput>))]
 [JsonSerializable(typeof(List<OrphanOutput>))]
 [JsonSerializable(typeof(List<FindingOutput>))]
-[JsonSerializable(typeof(List<SearchOutput>))]
 [JsonSerializable(typeof(List<CacheIndexOutput>))]
 internal sealed partial class OutputJson : JsonSerializerContext;
 

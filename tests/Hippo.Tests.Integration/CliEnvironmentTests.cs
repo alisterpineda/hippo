@@ -22,7 +22,7 @@ public sealed class CliEnvironmentTests : IDisposable
     {
         using var elsewhere = new TempDirectory();
 
-        var result = _workspace.RunIn(elsewhere.FullPath, "files");
+        var result = _workspace.RunIn(elsewhere.FullPath, "find");
 
         Assert.Equal(ExitCode.Error, result.ExitCode);
         Assert.Contains($"no .hippo/config.json in {elsewhere.FullPath} or any folder above it", result.Stderr);

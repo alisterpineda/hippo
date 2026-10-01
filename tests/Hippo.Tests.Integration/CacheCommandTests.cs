@@ -85,8 +85,8 @@ public sealed class CacheCommandTests : IDisposable
         CopyFolder(_workspace.Root, copy);
         File.WriteAllText(Path.Combine(copy, "b.md"), "# B\n");
 
-        var original = Json(_workspace.Run("files", "--json")).EnumerateArray().Select(f => f.GetProperty("path").GetString());
-        var copied = Json(_workspace.RunIn(copy, "files", "--json")).EnumerateArray().Select(f => f.GetProperty("path").GetString());
+        var original = Json(_workspace.Run("find", "--json")).EnumerateArray().Select(f => f.GetProperty("path").GetString());
+        var copied = Json(_workspace.RunIn(copy, "find", "--json")).EnumerateArray().Select(f => f.GetProperty("path").GetString());
 
         Assert.Equal(["a.md"], original);
         Assert.Equal(["a.md", "b.md"], copied);

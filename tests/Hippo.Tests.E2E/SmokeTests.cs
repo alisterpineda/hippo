@@ -67,12 +67,13 @@ public sealed class SmokeTests : IDisposable
     }
 
     [Fact]
-    public async Task Files()
+    public async Task Find()
     {
-        Assert.Equal(
-            ["raw/day.md", "raw/lonely.md", "wiki/index.md", "wiki/topics/topic.md"],
-            Strings(await Json(0, "files"), "path"));
-        Assert.Equal(["wiki/topics/topic.md"], Strings(await Json(0, "files", "--where", "type=Topic"), "path"));
+        var all = await Json(0, "find");
+
+        Assert.Equal(["raw/day.md", "raw/lonely.md", "wiki/index.md", "wiki/topics/topic.md"], Strings(all, "path"));
+        Assert.Equal(["Day", "Lonely", "Index", "Topic"], Strings(all, "title"));
+        Assert.Equal(["wiki/topics/topic.md"], Strings(await Json(0, "find", "--where", "type=Topic", "--limit", "5"), "path"));
     }
 
     [Fact]
@@ -142,9 +143,9 @@ public sealed class SmokeTests : IDisposable
     }
 
     [Fact]
-    public async Task Search()
+    public async Task Find_with_a_query()
     {
-        var porter = await Json(0, "search", "topics", "--where", "type=Topic", "--glob", "wiki/**", "--limit", "5");
+        var porter = await Json(0, "find", "topics", "--where", "type=Topic", "--glob", "wiki/**", "--limit", "5");
 
         var result = Assert.Single(porter.EnumerateArray());
         Assert.Equal(("wiki/topics/topic.md", "Topic"), (result.GetProperty("path").GetString(), result.GetProperty("title").GetString()));
@@ -159,7 +160,7 @@ public sealed class SmokeTests : IDisposable
               "search": { "tokenizer": "trigram" }
             }
             """);
-        Assert.Equal(["wiki/topics/topic.md"], Strings(await Json(0, "search", "gap"), "path"));
+        Assert.Equal(["wiki/topics/topic.md"], Strings(await Json(0, "find", "gap"), "path"));
     }
 
     [Fact]

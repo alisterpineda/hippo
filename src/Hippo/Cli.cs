@@ -20,14 +20,13 @@ public static class Cli
         root.Subcommands.Add(InitCommand.Build(environment));
         root.Subcommands.Add(IndexCommand.Build(environment));
         root.Subcommands.Add(StatusCommand.Build(environment));
-        root.Subcommands.Add(FilesCommand.Build(environment));
+        root.Subcommands.Add(FindCommand.Build(environment));
         root.Subcommands.Add(ShowCommand.Build(environment));
         root.Subcommands.Add(RefsCommand.Build(environment));
         root.Subcommands.Add(BackrefsCommand.Build(environment));
         root.Subcommands.Add(BrokenCommand.Build(environment));
         root.Subcommands.Add(OrphansCommand.Build(environment));
         root.Subcommands.Add(LintCommand.Build(environment));
-        root.Subcommands.Add(SearchCommand.Build(environment));
         root.Subcommands.Add(CacheCommand.Build(environment));
         return root;
     }

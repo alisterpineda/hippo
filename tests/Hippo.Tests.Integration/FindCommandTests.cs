@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 
 namespace Hippo.Tests.Integration;
 
-public sealed class SearchCommandTests : IDisposable
+public sealed class FindCommandTests : IDisposable
 {
     private readonly TestWorkspace _workspace = new();
 
@@ -15,17 +15,189 @@ public sealed class SearchCommandTests : IDisposable
         return JsonDocument.Parse(result.Stdout).RootElement;
     }
 
-    /// <summary>The paths <c>search --json</c> returns, in rank order.</summary>
+    /// <summary>The paths <c>find --json</c> returns, in order.</summary>
     private List<string> Paths(params string[] args) =>
-        Json(_workspace.Run(["search", .. args, "--json"])).EnumerateArray().Select(r => r.GetProperty("path").GetString()!).ToList();
+        Json(_workspace.Run(["find", .. args, "--json"])).EnumerateArray().Select(r => r.GetProperty("path").GetString()!).ToList();
+
+    private static string[] Lines(string text) => text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     [Fact]
-    public void Search_prints_each_matching_page_with_its_title_and_a_snippet()
+    public void Without_a_query_find_lists_every_indexed_path()
+    {
+        _workspace.Write("wiki/a.md", "# A\n");
+        _workspace.Write("raw/b.txt", "b");
+
+        var result = _workspace.Run("find");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["raw/b.txt", "wiki/a.md"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void Without_a_query_glob_filters_by_workspace_relative_pattern()
+    {
+        _workspace.Write("wiki/a.md", "# A\n");
+        _workspace.Write("wiki/deep/b.md", "# B\n");
+        _workspace.Write("raw/c.md", "# C\n");
+
+        var result = _workspace.Run("find", "--glob", "wiki/**/*.md");
+
+        Assert.Equal(["wiki/a.md", "wiki/deep/b.md"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void Without_a_query_where_filters_by_frontmatter_value()
+    {
+        _workspace.Write("wiki/topic.md", "---\ntype: Topic\n---\n");
+        _workspace.Write("wiki/person.md", "---\ntype: Person\n---\n");
+
+        var result = _workspace.Run("find", "--where", "type=Topic");
+
+        Assert.Equal(["wiki/topic.md"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void Without_a_query_glob_and_where_combine()
+    {
+        _workspace.Write("wiki/topic.md", "---\ntype: Topic\n---\n");
+        _workspace.Write("drafts/topic.md", "---\ntype: Topic\n---\n");
+        _workspace.Write("wiki/person.md", "---\ntype: Person\n---\n");
+
+        var result = _workspace.Run("find", "--glob", "wiki/**", "--where", "type=Topic");
+
+        Assert.Equal(["wiki/topic.md"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void Errors_lists_only_files_whose_frontmatter_failed_to_parse_with_the_error()
+    {
+        _workspace.Write("good.md", "---\ntitle: A\n---\n");
+        _workspace.Write("bad.md", "---\ntitle: [unclosed\n---\n");
+        _workspace.Write("c.txt", "c");
+
+        var result = _workspace.Run("find", "--errors");
+
+        Assert.Equal(0, result.ExitCode);
+        var line = Assert.Single(Lines(result.Stdout));
+        Assert.StartsWith("bad.md: line ", line);
+    }
+
+    [Fact]
+    public void Without_a_query_json_lists_path_kind_size_modified_title_parse_error_and_no_snippet()
+    {
+        _workspace.Write("a.md", "---\ntitle: Alpha\n---\n");
+
+        var json = Json(_workspace.Run("find", "--glob", "*.md", "--json"));
+
+        var file = Assert.Single(json.EnumerateArray());
+        Assert.Equal("a.md", file.GetProperty("path").GetString());
+        Assert.Equal("markdown", file.GetProperty("kind").GetString());
+        Assert.Equal(21, file.GetProperty("size").GetInt64());
+        Assert.Equal(File.GetLastWriteTimeUtc(_workspace.Combine("a.md")), file.GetProperty("modified").GetDateTimeOffset().UtcDateTime);
+        Assert.Equal("Alpha", file.GetProperty("title").GetString());
+        Assert.Equal(JsonValueKind.Null, file.GetProperty("parseError").ValueKind);
+        Assert.Equal(JsonValueKind.Null, file.GetProperty("snippet").ValueKind);
+    }
+
+    [Fact]
+    public void Without_a_query_a_page_titled_by_its_heading_has_that_title()
+    {
+        _workspace.Write("a.md", "# Alpha\n\nText.\n");
+
+        var file = Assert.Single(Json(_workspace.Run("find", "--json")).EnumerateArray());
+
+        Assert.Equal("Alpha", file.GetProperty("title").GetString());
+    }
+
+    [Fact]
+    public void Without_a_query_a_page_with_no_title_and_a_file_that_is_not_a_page_have_a_null_title()
+    {
+        _workspace.Write("a.md", "Just text.\n");
+        _workspace.Write("b.txt", "# Not a page\n");
+
+        var json = Json(_workspace.Run("find", "--json"));
+
+        Assert.Equal([JsonValueKind.Null, JsonValueKind.Null], json.EnumerateArray().Select(f => f.GetProperty("title").ValueKind));
+    }
+
+    [Fact]
+    public void Json_rows_carry_the_parse_error()
+    {
+        _workspace.Write("bad.md", "---\ntitle: [unclosed\n---\n");
+
+        var json = Json(_workspace.Run("find", "--json"));
+
+        var file = Assert.Single(json.EnumerateArray());
+        Assert.StartsWith("line ", file.GetProperty("parseError").GetString());
+    }
+
+    [Fact]
+    public void Without_a_query_there_is_no_limit_unless_one_is_given()
+    {
+        for (var i = 0; i < 25; i++)
+        {
+            _workspace.Write($"p{i:d2}.md", "heron\n");
+        }
+
+        Assert.Equal(Enumerable.Range(0, 25).Select(i => $"p{i:d2}.md"), Paths());
+        Assert.Equal(["p00.md", "p01.md", "p02.md"], Paths("--limit", "3"));
+    }
+
+    [Fact]
+    public void Without_a_query_limit_applies_after_the_filters()
+    {
+        _workspace.Write("raw/a.md", "---\ntitle: [unclosed\n---\n");
+        _workspace.Write("wiki/b.md", "# B\n");
+        _workspace.Write("wiki/c.md", "---\ntitle: [unclosed\n---\n");
+
+        Assert.Equal(["wiki/b.md"], Paths("--glob", "wiki/**", "--limit", "1"));
+        Assert.Equal(["raw/a.md"], Paths("--errors", "--limit", "1"));
+        Assert.Equal(["wiki/c.md"], Paths("--glob", "wiki/**", "--errors", "--limit", "1"));
+    }
+
+    [Fact]
+    public void Without_a_query_finding_nothing_is_not_an_error()
+    {
+        _workspace.Write("a.md", "# A\n");
+
+        var text = _workspace.Run("find", "--glob", "*.txt");
+        var json = _workspace.Run("find", "--glob", "*.txt", "--json");
+
+        Assert.Equal((0, ""), (text.ExitCode, text.Stdout));
+        Assert.Equal((0, "[]"), (json.ExitCode, json.Stdout.Trim()));
+    }
+
+    [Fact]
+    public void With_a_query_errors_keeps_only_matching_pages_whose_frontmatter_failed_to_parse()
+    {
+        _workspace.Write("good.md", "---\ntitle: A\n---\nkestrel\n");
+        _workspace.Write("bad.md", "---\ntitle: [unclosed\n---\nkestrel\n");
+        _workspace.Write("other.md", "---\ntitle: [unclosed\n---\nheron\n");
+
+        var file = Assert.Single(Json(_workspace.Run("find", "kestrel", "--errors", "--json")).EnumerateArray());
+
+        Assert.Equal("bad.md", file.GetProperty("path").GetString());
+        Assert.StartsWith("line ", file.GetProperty("parseError").GetString());
+    }
+
+    [Fact]
+    public void With_a_query_errors_prints_each_page_as_a_query_does_without_it()
+    {
+        _workspace.Write("bad.md", "---\ntags: [unclosed\n---\n# Herons\n\nA kestrel.\n");
+
+        var result = _workspace.Run("find", "kestrel", "--errors");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("bad.md  Herons\n  # Herons A **kestrel**.\n", result.Stdout.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void A_query_prints_each_matching_page_with_its_title_and_a_snippet()
     {
         _workspace.Write("wiki/heron.md", "---\ntitle: Herons\n---\nThe grey heron waits by the water.\n");
         _workspace.Write("wiki/owl.md", "# Owls\n\nOwls hunt at night.\n");
 
-        var result = _workspace.Run("search", "heron");
+        var result = _workspace.Run("find", "heron");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("", result.Stderr);
@@ -33,15 +205,19 @@ public sealed class SearchCommandTests : IDisposable
     }
 
     [Fact]
-    public void Search_json_gives_path_title_and_snippet()
+    public void A_query_json_gives_the_file_its_title_and_a_snippet()
     {
         _workspace.Write("a.md", "# Alpha\n\nA kestrel hovers.\n");
 
-        var json = Json(_workspace.Run("search", "kestrel", "--json"));
+        var json = Json(_workspace.Run("find", "kestrel", "--json"));
 
         var result = Assert.Single(json.EnumerateArray());
         Assert.Equal("a.md", result.GetProperty("path").GetString());
+        Assert.Equal("markdown", result.GetProperty("kind").GetString());
+        Assert.Equal(27, result.GetProperty("size").GetInt64());
+        Assert.Equal(File.GetLastWriteTimeUtc(_workspace.Combine("a.md")), result.GetProperty("modified").GetDateTimeOffset().UtcDateTime);
         Assert.Equal("Alpha", result.GetProperty("title").GetString());
+        Assert.Equal(JsonValueKind.Null, result.GetProperty("parseError").ValueKind);
         Assert.Equal("# Alpha A **kestrel** hovers.", result.GetProperty("snippet").GetString());
     }
 
@@ -50,7 +226,7 @@ public sealed class SearchCommandTests : IDisposable
     {
         _workspace.Write("a.md", "Plain kestrel text.\n");
 
-        var result = _workspace.Run("search", "kestrel");
+        var result = _workspace.Run("find", "kestrel");
 
         Assert.Equal("a.md\n  Plain **kestrel** text.\n", result.Stdout.ReplaceLineEndings("\n"));
     }
@@ -61,7 +237,7 @@ public sealed class SearchCommandTests : IDisposable
         string Words(string prefix) => string.Join(' ', Enumerable.Range(0, 60).Select(i => $"{prefix}{i}"));
         _workspace.Write("a.md", $"{Words("before")}\n\nThe kestrel\nhovers over the field.\n\n{Words("after")}\n");
 
-        var snippet = Assert.Single(Json(_workspace.Run("search", "kestrel", "--json")).EnumerateArray()).GetProperty("snippet").GetString()!;
+        var snippet = Assert.Single(Json(_workspace.Run("find", "kestrel", "--json")).EnumerateArray()).GetProperty("snippet").GetString()!;
 
         Assert.Contains("**kestrel** hovers", snippet);
         Assert.StartsWith("...", snippet);
@@ -72,12 +248,12 @@ public sealed class SearchCommandTests : IDisposable
     }
 
     [Fact]
-    public void Nothing_found_is_not_an_error()
+    public void A_query_finding_nothing_is_not_an_error()
     {
         _workspace.Write("a.md", "# A\n");
 
-        var text = _workspace.Run("search", "kestrel");
-        var json = _workspace.Run("search", "kestrel", "--json");
+        var text = _workspace.Run("find", "kestrel");
+        var json = _workspace.Run("find", "kestrel", "--json");
 
         Assert.Equal((0, ""), (text.ExitCode, text.Stdout));
         Assert.Equal((0, "[]"), (json.ExitCode, json.Stdout.Trim()));
@@ -120,7 +296,7 @@ public sealed class SearchCommandTests : IDisposable
         _workspace.Write(".hippo/config.json", """{ "search": { "tokenizer": "trigram" } }""");
         _workspace.Write("a.md", $"{Words("before")}\n\nThe kestrel\nhovers over the field.\n\n{Words("after")}\n");
 
-        var snippet = Assert.Single(Json(_workspace.Run("search", "kestrel", "--json")).EnumerateArray()).GetProperty("snippet").GetString()!;
+        var snippet = Assert.Single(Json(_workspace.Run("find", "kestrel", "--json")).EnumerateArray()).GetProperty("snippet").GetString()!;
 
         Assert.Contains("The **kestrel** hovers over the field.", snippet);
         Assert.StartsWith("...", snippet);
@@ -138,7 +314,7 @@ public sealed class SearchCommandTests : IDisposable
         // The 64-character window then starts at kestrel and ends at falcon, so each match sits beside a cut.
         _workspace.Write("a.md", $"{Words("before")} kestrel {between} falcon {Words("after")}\n");
 
-        var snippet = Assert.Single(Json(_workspace.Run("search", "kestrel falcon", "--json")).EnumerateArray()).GetProperty("snippet").GetString();
+        var snippet = Assert.Single(Json(_workspace.Run("find", "kestrel falcon", "--json")).EnumerateArray()).GetProperty("snippet").GetString();
 
         Assert.Equal($"...**kestrel** {between} **falcon**...", snippet);
     }
@@ -149,7 +325,7 @@ public sealed class SearchCommandTests : IDisposable
         _workspace.Write(".hippo/config.json", """{ "search": { "tokenizer": "trigram" } }""");
         _workspace.Write("a.md", "...and the kestrel waits...\n");
 
-        var snippet = Assert.Single(Json(_workspace.Run("search", "kestrel", "--json")).EnumerateArray()).GetProperty("snippet").GetString();
+        var snippet = Assert.Single(Json(_workspace.Run("find", "kestrel", "--json")).EnumerateArray()).GetProperty("snippet").GetString();
 
         Assert.Equal("...and the **kestrel** waits...", snippet);
     }
@@ -185,10 +361,10 @@ public sealed class SearchCommandTests : IDisposable
     [InlineData("   ")]
     public void An_empty_query_is_an_error(string query)
     {
-        var result = _workspace.Run("search", query);
+        var result = _workspace.Run("find", query);
 
         Assert.Equal(2, result.ExitCode);
-        Assert.Contains("search", result.Stderr);
+        Assert.Contains("find needs at least one word to look for", result.Stderr);
     }
 
     [Fact]
@@ -277,7 +453,16 @@ public sealed class SearchCommandTests : IDisposable
     [Fact]
     public void A_malformed_where_is_an_error()
     {
-        var result = _workspace.Run("search", "kestrel", "--where", "type");
+        var result = _workspace.Run("find", "kestrel", "--where", "type");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("--where", result.Stderr);
+    }
+
+    [Fact]
+    public void Without_a_query_a_malformed_where_is_an_error()
+    {
+        var result = _workspace.Run("find", "--where", "type");
 
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("--where", result.Stderr);
@@ -303,7 +488,7 @@ public sealed class SearchCommandTests : IDisposable
     }
 
     [Fact]
-    public void Without_a_limit_there_are_at_most_20_results()
+    public void With_a_query_and_no_limit_there_are_at_most_20_results()
     {
         for (var i = 0; i < 25; i++)
         {
@@ -318,7 +503,18 @@ public sealed class SearchCommandTests : IDisposable
     [InlineData("-1")]
     public void A_limit_below_1_is_an_error(string limit)
     {
-        var result = _workspace.Run("search", "heron", "--limit", limit);
+        var result = _workspace.Run("find", "heron", "--limit", limit);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("--limit", result.Stderr);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    public void Without_a_query_a_limit_below_1_is_an_error(string limit)
+    {
+        var result = _workspace.Run("find", "--limit", limit);
 
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("--limit", result.Stderr);

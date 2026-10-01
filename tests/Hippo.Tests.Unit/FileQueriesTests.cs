@@ -43,6 +43,26 @@ public sealed class FileQueriesTests : IDisposable
     }
 
     [Fact]
+    public void List_reads_each_page_title_from_the_search_row_that_shares_its_id()
+    {
+        _db.Execute("INSERT INTO search (rowid, title, path, body) SELECT id, 'Alpha', path, '' FROM files WHERE path = 'wiki/a.md'");
+        _db.Execute("INSERT INTO search (rowid, title, path, body) SELECT id, '', path, '' FROM files WHERE path = 'wiki/b.md'");
+
+        Assert.Equal([null, null, "Alpha", null], FileQueries.List(_db, null).Select(f => f.Title));
+    }
+
+    [Fact]
+    public void List_without_titles_leaves_every_title_null()
+    {
+        _db.Execute("INSERT INTO search (rowid, title, path, body) SELECT id, 'Alpha', path, '' FROM files WHERE path = 'wiki/a.md'");
+
+        var files = FileQueries.List(_db, null, titles: false);
+
+        Assert.Equal(["raw/bad.md", "raw/c.png", "wiki/a.md", "wiki/b.md"], files.Select(f => f.Path));
+        Assert.All(files, f => Assert.Null(f.Title));
+    }
+
+    [Fact]
     public void Where_matches_a_string_field()
     {
         Assert.Equal(["wiki/a.md"], Where("type", "Topic"));

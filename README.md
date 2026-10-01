@@ -12,9 +12,12 @@ Status: phase 5 (full-text search). hippo indexes every file in the workspace, t
 hippo init                   write a starter .hippo/config.json in the current folder
 hippo index [--rebuild]      bring the index up to date; --rebuild re-reads every file
 hippo status                 workspace root, database path, file counts, last sweep
-hippo files [--glob <pattern>] [--where <field>=<value>] [--errors]
-                             list indexed files, filtered by path or frontmatter value;
-                             --errors lists only files whose frontmatter failed to parse, with the error
+hippo find ["<query>"] [--glob <pattern>] [--where <field>=<value>] [--errors] [--limit n]
+                             every indexed file in path order, or with a query, the pages holding every
+                             word of it, best match first, each with its title and a snippet; --glob and
+                             --where filter by path or frontmatter value; --errors keeps only files whose
+                             frontmatter failed to parse, with the error; --limit caps the results
+                             (20 by default with a query, none without)
 hippo show <path>            what the index holds for one file
 hippo refs <path>            the links out of a file: line, kind, and file, directory, missing, url or anchor
 hippo backrefs <path> [--kind body|frontmatter] [--transitive]
@@ -24,9 +27,6 @@ hippo orphans [--exclude <pattern>…]
                              files with no link to or from another file
 hippo lint [--rule <name>…]  where OKF bundles depart from OKF v0.2; --rule lists only the rules named,
                              even one lint.off turns off
-hippo search "<query>" [--glob <pattern>] [--where <field>=<value>] [--limit n]
-                             pages holding every word of the query, best match first, each with its title
-                             and a snippet; --limit caps the results (20 by default)
 hippo cache list             every index in the cache: its state, size and workspace root
 hippo cache prune [--dry-run] [--include-unreachable]
                              remove the indexes of workspaces that were deleted, moved or renamed
@@ -91,9 +91,11 @@ Every rule is on for every OKF bundle. `lint.off` turns off SHOULD rules; naming
 
 `okf-index` reads an entry as a list item that opens with a link, `* [Title](url) - description`. The description is the text after the link and its separator (a hyphen, dash or colon) as written, with each run of whitespace read as one space, and it must equal the page's `description`, read the same way. An entry for a folder, an `index.md` or `log.md`, a file that is not markdown, or a page whose frontmatter fails to parse has no description to compare. An `index.md` covers the pages in its own folder and every folder below it, up to its bundle's root, and a page is listed when any `index.md` covering it links to it, in an entry or anywhere else. Every OKF bundle has a root `index.md`, so every page in it must be linked from one; a bundle that keeps no listing can turn the rule off. Each `okf-index` finding concerns an index and a page that can change apart, so it is worked out when `lint` runs, from what the index holds.
 
-### Search
+### Find
 
-`hippo search` looks through every markdown file's title, path and body: the body is the text after the frontmatter, as written, and the title is the frontmatter `title`, or the first level-1 heading when there is none. A page matches when it holds every word of the query. Each word is matched as text, so punctuation in it is never query syntax: `foo-bar` finds the words `foo` and `bar` side by side, and `"`, `*`, `:`, `AND` and `OR` mean nothing special. Results rank by BM25, with a match in the title counting for more than one in the path, and one in the path for more than one in the body. Each result shows a snippet of the body around the match, on one line, with the matched words marked `**` as in markdown bold; a page that matches only in its title or path shows the start of its body, with nothing marked. `--glob` and `--where` keep only the pages they match, as for `files`, and `--limit` counts what is left. Finding nothing is not an error, so `search` exits 0 either way.
+Without a query, `hippo find` lists every indexed file in path order, one path per line, and under `--errors` each path followed by its frontmatter error. With `--json`, each file has its path, kind, size, modified time, title (null for a file that is not a page, or a page with none), parse error and snippet (null without a query). `--glob`, `--where` and `--errors` keep only the files they match, and `--limit` counts what is left; without a query there is no limit unless one is given.
+
+With a query, `hippo find` looks through every markdown file's title, path and body: the body is the text after the frontmatter, as written, and the title is the frontmatter `title`, or the first level-1 heading when there is none. A page matches when it holds every word of the query. Each word is matched as text, so punctuation in it is never query syntax: `foo-bar` finds the words `foo` and `bar` side by side, and `"`, `*`, `:`, `AND` and `OR` mean nothing special. Results rank by BM25, with a match in the title counting for more than one in the path, and one in the path for more than one in the body. Each result shows a snippet of the body around the match, on one line, with the matched words marked `**` as in markdown bold; a page that matches only in its title or path shows the start of its body, with nothing marked. `--glob`, `--where` and `--errors` keep only the pages they match, as without a query, and `--limit` counts what is left, 20 unless another is given. Finding nothing is not an error, so `find` exits 0 either way.
 
 The `porter` tokenizer, the default, matches whole words and other forms of them, so `running` finds `runs`. The `trigram` tokenizer matches any run of three or more characters, inside words too, so `dex` finds `index`, but a word shorter than three characters finds nothing. Changing `search.tokenizer` rebuilds the search index on the next command, without reading the files again.
 

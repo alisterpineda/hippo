@@ -34,7 +34,9 @@ internal sealed record FrontmatterFilter(string Field, string Value)
         """;
 }
 
-internal sealed record FileListing(string Path, string Kind, long Size, long Mtime, string? ParseError);
+/// <summary>An indexed file. <see cref="Title"/> is its page's title, null when it is not a page, the page has none,
+/// or the listing was read without titles.</summary>
+internal sealed record FileListing(string Path, string Kind, long Size, long Mtime, string? ParseError, string? Title);
 
 internal sealed record FileDetail(string Path, string Kind, long Size, long Mtime, string Hash, string? Frontmatter, string? ParseError);
 
@@ -42,17 +44,37 @@ internal sealed record FileCounts(long Total, long Markdown, long Other, long Pa
 
 internal static class FileQueries
 {
-    public static List<FileListing> List(SqliteConnection db, FrontmatterFilter? where) =>
-        where is null
-            ? db.Query<FileListing>("SELECT path, kind, size, mtime, parse_error AS ParseError FROM files ORDER BY path").ToList()
-            : db.Query<FileListing>("""
-                SELECT path, kind, size, mtime, parse_error AS ParseError
-                FROM files
-                WHERE
-                """ + FrontmatterFilter.Sql + """
+    /// <summary>The columns of a <c>files</c> row that a listing and a search match both carry, named for their
+    /// records.</summary>
+    internal const string Columns =
+        "files.path AS Path, files.kind AS Kind, files.size AS Size, files.mtime AS Mtime, files.parse_error AS ParseError";
 
-                ORDER BY path
-                """, new { where.JsonPath, where.Value }).ToList();
+    /// <summary>A page's title is in its row of the <c>search</c> table, whose rowid is the page's id. Reading it reads
+    /// that whole row, body included, so a listing joins it only when titles are wanted.</summary>
+    private const string TitledListSql = $"""
+        SELECT {Columns}, {SearchIndex.Title} AS Title
+        FROM files LEFT JOIN search ON search.rowid = files.id
+        """;
+
+    private const string UntitledListSql = $"""
+        SELECT {Columns}, NULL AS Title
+        FROM files
+        """;
+
+    private const string WhereSql = "\nWHERE " + FrontmatterFilter.Sql;
+
+    private const string OrderSql = "\nORDER BY files.path";
+
+    /// <summary>Every indexed file in path order, less those whose frontmatter fails <paramref name="where"/>, each with
+    /// its title when <paramref name="titles"/> is set.</summary>
+    public static List<FileListing> List(SqliteConnection db, FrontmatterFilter? where, bool titles = true) =>
+        (where, titles) switch
+        {
+            (null, true) => db.Query<FileListing>(TitledListSql + OrderSql).ToList(),
+            (null, false) => db.Query<FileListing>(UntitledListSql + OrderSql).ToList(),
+            ({ } filter, true) => db.Query<FileListing>(TitledListSql + WhereSql + OrderSql, new { filter.JsonPath, filter.Value }).ToList(),
+            ({ } filter, false) => db.Query<FileListing>(UntitledListSql + WhereSql + OrderSql, new { filter.JsonPath, filter.Value }).ToList(),
+        };
 
     public static FileDetail? Get(SqliteConnection db, string path) =>
         db.QuerySingleOrDefault<FileDetail>(

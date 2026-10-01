@@ -4,12 +4,12 @@ using Microsoft.Data.Sqlite;
 
 namespace Hippo.Indexing;
 
-/// <summary>A page that matches a search, by rank. <see cref="Id"/> is its row in the search table, valid only within the
-/// transaction it was read in.</summary>
-internal sealed record SearchMatch(long Id, string Path);
+/// <summary>A page that matches a search, by rank, with its row in <c>files</c>. <see cref="Id"/> is its row in the search
+/// table, valid only within the transaction it was read in.</summary>
+internal sealed record SearchMatch(long Id, string Path, string Kind, long Size, long Mtime, string? ParseError);
 
-/// <summary>A matching page's title, <c>""</c> when it has none, and the stretch of its body around the match.</summary>
-internal sealed record SearchText(string Title, string Snippet);
+/// <summary>A matching page's title, null when it has none, and the stretch of its body around the match.</summary>
+internal sealed record SearchText(string? Title, string Snippet);
 
 /// <summary>A search as <see cref="SearchIndex.Query"/> reads it: <see cref="Match"/> is its FTS5 query, and
 /// <see cref="CanMatch"/> is false when no page can hold every word under <see cref="Tokenizer"/>.</summary>
@@ -33,6 +33,10 @@ internal static class SearchIndex
 
     /// <summary>The body's place in <see cref="Columns"/>, counting from 0.</summary>
     private const int BodyColumn = 2;
+
+    /// <summary>The title of the page in a query's <c>search</c> row, null when it has none: the sweep stores a page
+    /// with no title as <c>""</c>.</summary>
+    internal const string Title = "NULLIF(search.title, '')";
 
     /// <summary>The table as a migration or <see cref="UseTokenizer"/> creates it. The tokenize clause is how
     /// <see cref="UseTokenizer"/> tells which tokenizer the table has.</summary>
@@ -102,8 +106,8 @@ internal static class SearchIndex
         return new SearchQuery(match, tokenizer, canMatch);
     }
 
-    private const string MatchSql = """
-        SELECT search.rowid AS Id, files.path AS Path
+    private const string MatchSql = $"""
+        SELECT search.rowid AS Id, {FileQueries.Columns}
         FROM search JOIN files ON files.id = search.rowid
         WHERE search MATCH @Match
         """;
@@ -128,16 +132,18 @@ internal static class SearchIndex
 
     /// <summary>The title of the page at <paramref name="id"/>, from <see cref="Matches"/> in the same transaction, and
     /// its body around the match on one line, each matched term marked <c>**</c> as markdown bold.</summary>
+    private const string TextSql = $"""
+        SELECT {Title} AS Title, snippet(search, @Column, '**', '**', @Cut, @Tokens) AS Snippet
+        FROM search
+        WHERE search MATCH @Match AND rowid = @Id
+        """;
+
     public static SearchText Text(SqliteConnection db, SqliteTransaction transaction, SearchQuery query, long id)
     {
         // The snippet runs to about 20 tokens: 20 words under porter. A trigram token is one character's three-character
         // window, so trigram takes FTS5's most, 64, about that many characters.
         var trigram = query.Tokenizer == SearchTokenizer.Trigram;
-        var text = db.QuerySingle<SearchText>("""
-            SELECT title, snippet(search, @Column, '**', '**', @Cut, @Tokens) AS Snippet
-            FROM search
-            WHERE search MATCH @Match AND rowid = @Id
-            """, new { query.Match, Id = id, Column = BodyColumn, Cut, Tokens = trigram ? 64 : 20 }, transaction);
+        var text = db.QuerySingle<SearchText>(TextSql, new { query.Match, Id = id, Column = BodyColumn, Cut, Tokens = trigram ? 64 : 20 }, transaction);
         var snippet = PlainText.Collapse(text.Snippet);
         return text with { Snippet = (trigram ? WholeWords(snippet) : snippet).Replace(Cut, "...", StringComparison.Ordinal) };
     }

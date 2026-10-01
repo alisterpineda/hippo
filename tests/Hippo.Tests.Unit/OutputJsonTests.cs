@@ -52,17 +52,33 @@ public class OutputJsonTests
         OutputJson.Default.StatusOutput);
 
     [Fact]
-    public void Files() => AssertJson("""
+    public void Find() => AssertJson("""
         [
           {
-            "path": "a.md",
+            "path": "wiki/heron.md",
+            "kind": "markdown",
+            "size": 40,
+            "modified": "2026-09-01T12:30:00+00:00",
+            "title": "Herons",
+            "parseError": null,
+            "snippet": "The grey **heron** waits..."
+          },
+          {
+            "path": "raw/day.md",
             "kind": "markdown",
             "size": 4,
             "modified": "2026-09-01T12:30:00+00:00",
-            "parseError": null
+            "title": null,
+            "parseError": "line 1: bad",
+            "snippet": null
           }
         ]
-        """, [new FileOutput("a.md", "markdown", 4, Time, null)], OutputJson.Default.ListFileOutput);
+        """,
+        [
+            new FindOutput("wiki/heron.md", "markdown", 40, Time, "Herons", null, "The grey **heron** waits..."),
+            new FindOutput("raw/day.md", "markdown", 4, Time, null, "line 1: bad", null),
+        ],
+        OutputJson.Default.ListFindOutput);
 
     [Fact]
     public void Show() => AssertJson("""
@@ -192,22 +208,4 @@ public class OutputJsonTests
         """,
         [new CacheIndexOutput("/c/ab/index.db", "/w", "orphaned", 4096), new CacheIndexOutput("/c/cd/index.db", null, "unknown", 0)],
         OutputJson.Default.ListCacheIndexOutput);
-
-    [Fact]
-    public void Search() => AssertJson("""
-        [
-          {
-            "path": "wiki/heron.md",
-            "title": "Herons",
-            "snippet": "The grey **heron** waits..."
-          },
-          {
-            "path": "raw/day.md",
-            "title": null,
-            "snippet": "...saw a **heron** today"
-          }
-        ]
-        """,
-        [new SearchOutput("wiki/heron.md", "Herons", "The grey **heron** waits..."), new SearchOutput("raw/day.md", null, "...saw a **heron** today")],
-        OutputJson.Default.ListSearchOutput);
 }

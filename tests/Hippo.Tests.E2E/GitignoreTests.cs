@@ -28,7 +28,7 @@ public sealed class GitignoreTests : IDisposable
     {
         WriteIgnoredTree();
 
-        var files = await _workspace.RunAsync("files");
+        var files = await _workspace.RunAsync("find");
 
         Assert.True(files.ExitCode == 0, $"exit {files.ExitCode}: {files.Stderr}");
         Assert.Equal("", files.Stderr);
@@ -41,7 +41,7 @@ public sealed class GitignoreTests : IDisposable
         WriteIgnoredTree();
         _workspace.Git("add", "--force", "build/out.md");
 
-        var files = await _workspace.RunAsync("files");
+        var files = await _workspace.RunAsync("find");
 
         Assert.Contains("build/out.md", Lines(files.Stdout));
         Assert.DoesNotContain("build/deep/more.md", Lines(files.Stdout));
@@ -53,7 +53,7 @@ public sealed class GitignoreTests : IDisposable
         WriteIgnoredTree();
         _workspace.Write(".hippo/config.json", """{ "files": { "exclude": [".git/**"], "gitignore": false } }""");
 
-        var files = await _workspace.RunAsync("files");
+        var files = await _workspace.RunAsync("find");
 
         Assert.Equal(
             [".gitignore", "a.md", "build/deep/more.md", "build/out.md", "notes/b.md", "notes/debug.log", "only-logs/x.log"],
@@ -70,7 +70,7 @@ public sealed class GitignoreTests : IDisposable
         await _workspace.RunAsync("index");
 
         _workspace.Write(".gitignore", "draft.md\n");
-        var files = await _workspace.RunAsync("files");
+        var files = await _workspace.RunAsync("find");
 
         Assert.DoesNotContain("draft.md", Lines(files.Stdout));
         Assert.Contains("a.md", Lines(files.Stdout));
@@ -85,7 +85,7 @@ public sealed class GitignoreTests : IDisposable
         _workspace.Write("vault/a.md", "# A\n");
         _workspace.Write("vault/drafts/b.md", "# B\n");
 
-        var files = await _workspace.RunInAsync(_workspace.Combine("vault"), "files");
+        var files = await _workspace.RunInAsync(_workspace.Combine("vault"), "find");
 
         Assert.Equal("", files.Stderr);
         Assert.Equal(["a.md"], Lines(files.Stdout).Order(StringComparer.Ordinal));
@@ -103,7 +103,7 @@ public sealed class GitignoreTests : IDisposable
         _workspace.Write("vault/a.md", "# A\n");
         _workspace.Write("vault/s/b.md", "# B\n");
 
-        var files = await _workspace.RunInAsync(_workspace.Combine("vault"), "files");
+        var files = await _workspace.RunInAsync(_workspace.Combine("vault"), "find");
 
         Assert.Equal("", files.Stderr);
         Assert.Equal(["a.md", "s/b.md"], Lines(files.Stdout).Order(StringComparer.Ordinal));
@@ -115,7 +115,7 @@ public sealed class GitignoreTests : IDisposable
         _workspace.Write(".gitignore", "*.log\n");
         _workspace.Write("debug.log", "log");
 
-        var files = await _workspace.RunAsync("files");
+        var files = await _workspace.RunAsync("find");
 
         Assert.Equal("", files.Stderr);
         Assert.Equal([".gitignore", "debug.log"], Lines(files.Stdout).Order(StringComparer.Ordinal));
@@ -129,7 +129,7 @@ public sealed class GitignoreTests : IDisposable
         _workspace.Write(".gitignore", "*.log\n");
         _workspace.Write("debug.log", "log");
 
-        var files = await _workspace.RunAsync("files");
+        var files = await _workspace.RunAsync("find");
 
         Assert.True(File.Exists(_workspace.Combine(".git")));
         Assert.Equal("", files.Stderr);
@@ -150,7 +150,7 @@ public sealed class GitignoreTests : IDisposable
         var planted = _workspace.Write("git", $"#!/bin/sh\ntouch '{marker}'\n");
         File.SetUnixFileMode(planted, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
-        var files = await _workspace.RunAsync("files");
+        var files = await _workspace.RunAsync("find");
 
         Assert.False(File.Exists(marker), "hippo ran the git in the workspace");
         Assert.Equal("", files.Stderr);
@@ -166,7 +166,7 @@ public sealed class GitignoreTests : IDisposable
         // git runs a core.fsmonitor that is not a boolean through the shell.
         _workspace.Git("config", "core.fsmonitor", $"touch '{marker}'");
 
-        var files = await _workspace.RunAsync("files");
+        var files = await _workspace.RunAsync("find");
 
         Assert.Equal(0, files.ExitCode);
         Assert.False(File.Exists(marker), "hippo let git run the repository's core.fsmonitor");
@@ -184,7 +184,7 @@ public sealed class GitignoreTests : IDisposable
             _workspace.Write($"an-ignored-file-with-a-rather-long-name-{i:D5}.log", "");
         }
 
-        var files = await _workspace.RunAsync("files");
+        var files = await _workspace.RunAsync("find");
 
         Assert.Equal("", files.Stderr);
         Assert.Equal([".gitignore"], Lines(files.Stdout).Order(StringComparer.Ordinal));
@@ -197,7 +197,7 @@ public sealed class GitignoreTests : IDisposable
         _workspace.Write(".gitignore", "*.log\n");
         _workspace.Write("debug.log", "log");
 
-        var files = await _workspace.RunAsync("files");
+        var files = await _workspace.RunAsync("find");
 
         Assert.Equal(0, files.ExitCode);
         Assert.Contains("hippo: warning: git could not list the files it ignores, so they are indexed:", files.Stderr);
@@ -213,7 +213,7 @@ public sealed class GitignoreTests : IDisposable
         var empty = Directory.CreateDirectory(Path.Combine(_workspace.CacheDir, "empty-path")).FullName;
 
         var files = await _workspace.RunWithAsync(
-            new Dictionary<string, string> { ["HIPPO_CACHE_DIR"] = _workspace.CacheDir, ["PATH"] = empty }, "files");
+            new Dictionary<string, string> { ["HIPPO_CACHE_DIR"] = _workspace.CacheDir, ["PATH"] = empty }, "find");
 
         Assert.Equal(0, files.ExitCode);
         Assert.Contains("hippo: warning: cannot run git, so the files it ignores are indexed", files.Stderr);
