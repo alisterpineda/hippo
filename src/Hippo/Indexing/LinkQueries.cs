@@ -23,16 +23,24 @@ internal sealed record BrokenLink(string Source, long Line, string Kind, string 
 /// </summary>
 internal static class LinkQueries
 {
-    /// <summary>The type of link <c>l</c>: its stored type, or for a path link <c>file</c>, <c>directory</c> or
-    /// <c>missing</c>. <see cref="Refs"/> reports it and <see cref="Broken"/> filters on it, so the two agree.</summary>
-    private const string TypeSql = """
+    /// <summary>What the path <c>l.target</c> reaches: <c>file</c>, <c>directory</c> or <c>missing</c>. A query over
+    /// another table of paths, such as <c>okf-index</c>'s over index entries, names that table <c>l</c> to share it, so
+    /// the two agree on what is missing.</summary>
+    internal const string PathTypeSql = """
         CASE
-            WHEN l.type != 'path' THEN l.type
             WHEN EXISTS (SELECT 1 FROM files t WHERE t.path = l.target) THEN 'file'
             WHEN l.target = '' OR EXISTS (SELECT 1 FROM files t WHERE t.path > l.target || '/' AND t.path < l.target || '0')
                 THEN 'directory'
             ELSE 'missing'
         END
+        """;
+
+    /// <summary>The type of link <c>l</c>: its stored type, or for a path link <see cref="PathTypeSql"/>.
+    /// <see cref="Refs"/> reports it and <see cref="Broken"/> filters on it, so the two agree.</summary>
+    private const string TypeSql = """
+        CASE WHEN l.type != 'path' THEN l.type ELSE (
+        """ + PathTypeSql + """
+        ) END
         """;
 
     public static List<LinkOut> Refs(SqliteConnection db, string path) =>

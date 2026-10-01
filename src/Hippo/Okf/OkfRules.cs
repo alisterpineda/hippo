@@ -21,6 +21,7 @@ internal static class OkfRules
     public const string Timestamp = "okf-timestamp";
     public const string Actor = "okf-actor";
     public const string Status = "okf-status";
+    public const string Index = "okf-index";
 
     public static IReadOnlyList<OkfRule> All { get; } =
     [
@@ -32,6 +33,7 @@ internal static class OkfRules
         new(Timestamp, RuleLevel.Should),
         new(Actor, RuleLevel.Should),
         new(Status, RuleLevel.Should),
+        new(Index, RuleLevel.Should),
     ];
 
     public static string[] Names { get; } = All.Select(rule => rule.Name).ToArray();

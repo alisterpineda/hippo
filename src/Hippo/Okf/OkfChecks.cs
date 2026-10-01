@@ -29,10 +29,10 @@ internal static partial class OkfChecks
         var findings = new List<Finding>();
         switch (path[(path.LastIndexOf('/') + 1)..])
         {
-            case "index.md":
+            case OkfBundle.IndexName:
                 CheckIndex(findings, path == OkfBundle.IndexOf(bundle), block);
                 break;
-            case "log.md":
+            case OkfBundle.LogName:
                 if (document is not null)
                 {
                     CheckLog(findings, document, block.BodyLine);

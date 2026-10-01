@@ -14,7 +14,7 @@ internal sealed record SweepResult(
     DateTimeOffset FinishedAt, TimeSpan Elapsed, IReadOnlyList<string> Warnings, IReadOnlyList<OkfBundle> OkfBundles);
 
 /// <summary>
-/// Brings the <c>files</c>, <c>links</c> and <c>findings</c> tables in line with the workspace on disk: enumerate, stat,
+/// Brings the <c>files</c>, <c>links</c>, <c>findings</c> and <c>index_entries</c> tables in line with the workspace on disk: enumerate, stat,
 /// re-hash only when mtime or size changed or the row is racy, re-parse only when the hash changed, and drop rows for
 /// files that are gone. A change to the settings that shape links and findings, such as a bundle becoming an OKF bundle,
 /// re-parses every page. Every write is idempotent, so several processes may sweep the same workspace at once.
@@ -79,7 +79,14 @@ internal static class Sweeper
         int? Line,
         [property: DbValue(Size = Unsized)] string Message);
 
-    private sealed record ParsedFile(FileRow Row, List<LinkRow> Links, List<FindingRow> Findings);
+    internal sealed record EntryRow(
+        [property: DbValue(Size = Unsized)] string Path,
+        [property: DbValue(Size = Unsized)] string Hash,
+        int Line,
+        [property: DbValue(Size = Unsized)] string Target,
+        [property: DbValue(Size = Unsized)] string? Description);
+
+    private sealed record ParsedFile(FileRow Row, List<LinkRow> Links, List<FindingRow> Findings, List<EntryRow> Entries);
 
     public static SweepResult Run(Workspace workspace, SqliteConnection db, bool rebuild, TimeProvider clock)
     {
@@ -222,7 +229,7 @@ internal static class Sweeper
         WHERE excluded.hash != files.hash
         """;
 
-    /// <summary>Writes parsed files and replaces each page's links and findings, in the caller's transaction so a reader
+    /// <summary>Writes parsed files and replaces each page's links, findings and index entries, in the caller's transaction so a reader
     /// never sees a page without them. <paramref name="overwrite"/> rewrites rows whose content is unchanged.</summary>
     private static void Write(SqliteConnection db, List<ParsedFile> files, bool overwrite, SqliteTransaction transaction)
     {
@@ -238,6 +245,7 @@ internal static class Sweeper
         var pages = files.Where(f => f.Row.Kind == "markdown").Select(f => new SourceRow(f.Row.Path, f.Row.Hash)).ToList();
         db.Execute("DELETE FROM links WHERE source_id = (SELECT id FROM files WHERE path = @Path AND hash = @Hash)", pages, transaction);
         db.Execute("DELETE FROM findings WHERE file_id = (SELECT id FROM files WHERE path = @Path AND hash = @Hash)", pages, transaction);
+        db.Execute("DELETE FROM index_entries WHERE file_id = (SELECT id FROM files WHERE path = @Path AND hash = @Hash)", pages, transaction);
         db.Execute("""
             INSERT INTO links (source_id, line, kind, type, raw, target)
             SELECT id, @Line, @Kind, @Type, @Raw, @Target FROM files WHERE path = @Path AND hash = @Hash
@@ -247,6 +255,10 @@ internal static class Sweeper
             INSERT INTO findings (file_id, rule, line, message, related)
             SELECT id, @Rule, @Line, @Message, '[]' FROM files WHERE path = @Path AND hash = @Hash
             """, files.SelectMany(f => f.Findings).ToList(), transaction);
+        db.Execute("""
+            INSERT INTO index_entries (file_id, line, target, description)
+            SELECT id, @Line, @Target, @Description FROM files WHERE path = @Path AND hash = @Hash
+            """, files.SelectMany(f => f.Entries).ToList(), transaction);
     }
 
     /// <summary>Whether the row still describes the file: same mtime and size, and not racy.</summary>
@@ -276,13 +288,14 @@ internal static class Sweeper
         bodyError = null;
         if (!Workspace.IsMarkdown(file.Path))
         {
-            return new ParsedFile(new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "other", null, null), [], []);
+            return new ParsedFile(new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "other", null, null), [], [], []);
         }
         var page = Page.Parse(file.Path, content!, settings);
         bodyError = page.BodyError;
         return new ParsedFile(
             new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "markdown", page.Frontmatter.Json, page.Frontmatter.Error),
             page.Links.Select(l => new LinkRow(file.Path, hash, l.Line, l.Kind, l.Type, l.Raw, l.Target)).ToList(),
-            page.Findings.Select(f => new FindingRow(file.Path, hash, f.Rule, f.Line, f.Message)).ToList());
+            page.Findings.Select(f => new FindingRow(file.Path, hash, f.Rule, f.Line, f.Message)).ToList(),
+            page.Entries.Select(e => new EntryRow(file.Path, hash, e.Line, e.Target, e.Description)).ToList());
     }
 }

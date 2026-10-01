@@ -15,8 +15,16 @@ internal sealed record OkfBundle(string Root, string? Version)
 
     public const string VersionKey = "okf_version";
 
+    /// <summary>The names OKF reserves for a folder's index (§8) and a bundle's log.</summary>
+    public const string IndexName = "index.md";
+
+    public const string LogName = "log.md";
+
     /// <summary>The key of the <c>index.md</c> at <paramref name="root"/>.</summary>
-    public static string IndexOf(string root) => root + "/index.md";
+    public static string IndexOf(string root) => root + "/" + IndexName;
+
+    /// <summary>Whether the file at <paramref name="path"/> is an <c>index.md</c> or a <c>log.md</c>.</summary>
+    public static bool IsReserved(string path) => path[(path.LastIndexOf('/') + 1)..] is IndexName or LogName;
 
     /// <summary>The OKF bundles among the workspace's bundles, read from the root <c>index.md</c> of each when it is
     /// among <paramref name="files"/>. A bundle whose <c>index.md</c> cannot be read is a plain bundle until it can; the

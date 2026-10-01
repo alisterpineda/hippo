@@ -130,11 +130,15 @@ public sealed class SmokeTests : IDisposable
         _workspace.Write("wiki/index.md", "---\nokf_version: \"0.2\"\n---\n# Index\n\n- [Topic](topics/topic.md)\n");
         _workspace.Write("wiki/draft.md", "---\ntype: Topic\nstatus: final\n---\n");
 
-        var finding = Assert.Single((await Json(1, "lint")).EnumerateArray());
+        var findings = (await Json(1, "lint")).EnumerateArray().ToList();
 
+        Assert.Equal(2, findings.Count);
+        Assert.Equal(("okf-index", "wiki/draft.md", JsonValueKind.Null, "wiki/index.md"),
+            (findings[0].GetProperty("rule").GetString(), findings[0].GetProperty("path").GetString(), findings[0].GetProperty("line").ValueKind,
+                findings[0].GetProperty("related")[0].GetString()));
         Assert.Equal(("okf-status", "wiki/draft.md", 3, 0),
-            (finding.GetProperty("rule").GetString(), finding.GetProperty("path").GetString(), finding.GetProperty("line").GetInt32(),
-                finding.GetProperty("related").GetArrayLength()));
+            (findings[1].GetProperty("rule").GetString(), findings[1].GetProperty("path").GetString(), findings[1].GetProperty("line").GetInt32(),
+                findings[1].GetProperty("related").GetArrayLength()));
     }
 
     [Fact]

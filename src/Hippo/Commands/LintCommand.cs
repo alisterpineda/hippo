@@ -40,6 +40,15 @@ internal static class LintCommand
                 .Where(f => rules.Contains(f.Rule))
                 .Select(f => new FindingOutput(f.Rule, f.Path, f.Line, f.Message, JsonSerializer.Deserialize(f.Related, OutputJson.Default.ListString)!))
                 .ToList();
+            if (rules.Contains(OkfRules.Index))
+            {
+                output = FindingQueries.Merge(
+                    output,
+                    IndexSync.Check(session.Db, bundles.Select(b => b.Root).ToList(), session.Workspace.Config.Links.Bundles)
+                        .Select(f => new FindingOutput(OkfRules.Index, f.Path, f.Line, f.Message, f.Related)),
+                    f => f.Path,
+                    f => f.Line);
+            }
 
             session.EmitList(output, OutputJson.Default.ListFindingOutput, finding =>
             {

@@ -17,4 +17,10 @@ internal static class FindingQueries
             JOIN files f ON f.id = fi.file_id
             ORDER BY f.path, fi.line, fi.id
             """).ToList();
+
+    /// <summary>Merges <paramref name="worked"/>, findings worked out rather than stored, into <paramref name="stored"/>,
+    /// in <see cref="List"/>'s order, which this must keep in step with. The sort is stable, so ties keep the stored
+    /// findings' own order, then the worked ones'.</summary>
+    public static List<T> Merge<T>(IEnumerable<T> stored, IEnumerable<T> worked, Func<T, string> path, Func<T, long?> line) =>
+        stored.Concat(worked).OrderBy(path, StringComparer.Ordinal).ThenBy(f => line(f) ?? 0).ToList();
 }

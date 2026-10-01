@@ -69,14 +69,20 @@ internal sealed record PageSettings(LinkSettings Links, IReadOnlyList<string> Ok
 /// when the finding is about the whole file.</summary>
 internal sealed record Finding(string Rule, int? Line, string Message);
 
+/// <summary>An entry in an OKF bundle's <c>index.md</c> whose link resolves to <see cref="Target"/>, a workspace key.
+/// <see cref="Description"/> is its text after the link, or null when it has none.</summary>
+internal sealed record IndexEntry(int Line, string Target, string? Description);
+
 /// <summary>A parsed page. <see cref="BodyError"/> says why the body could not be parsed, in which case
-/// <see cref="Links"/> holds only its frontmatter links, and <see cref="Findings"/> only what its frontmatter shows.</summary>
-internal sealed record ParsedPage(FrontmatterResult Frontmatter, List<Link> Links, List<Finding> Findings, string? BodyError = null);
+/// <see cref="Links"/> holds only its frontmatter links, <see cref="Findings"/> only what its frontmatter shows, and
+/// <see cref="Entries"/> nothing. Only an <c>index.md</c> in an OKF bundle has entries.</summary>
+internal sealed record ParsedPage(
+    FrontmatterResult Frontmatter, List<Link> Links, List<Finding> Findings, List<IndexEntry> Entries, string? BodyError = null);
 
 /// <summary>Parses a markdown page: its frontmatter, and its links from the body (through Markdig), resolved from the
 /// page's folder (or its bundle root when they start with <c>/</c>), and from the frontmatter fields the config names,
 /// each resolved per the config. A page in an OKF bundle also has OKF's path fields as links, and is checked against
-/// OKF's rules.</summary>
+/// OKF's rules; an <c>index.md</c> there also has its entries read.</summary>
 internal static partial class Page
 {
     // Plain CommonMark: [[x]] stays text.
@@ -128,7 +134,7 @@ internal static partial class Page
         {
             // Markdig throws on some inputs, such as blocks nested past its depth limit; one such page must not stop
             // the rest of the workspace from indexing.
-            return new ParsedPage(block.Result, links.OrderBy(link => link.Line).ToList(), Check(okf, path, bundle, block, null), ex.Message);
+            return new ParsedPage(block.Result, links.OrderBy(link => link.Line).ToList(), Check(okf, path, bundle, block, null), [], ex.Message);
         }
 
         foreach (var node in document.Descendants())
@@ -148,7 +154,20 @@ internal static partial class Page
             }
         }
 
-        return new ParsedPage(block.Result, links.OrderBy(link => link.Line).ToList(), Check(okf, path, bundle, block, document));
+        var entries = new List<IndexEntry>();
+        if (okf && IndexEntries.IsIndex(path))
+        {
+            foreach (var (line, url, description) in IndexEntries.Read(document, block.Body, block.BodyLine))
+            {
+                // An entry that is a URL or an anchor, or leaves the workspace, lists no file that could be checked.
+                if (Resolve(path, bundle, LinkBase.Page, line, "body", url, isUrl: true) is { Type: "path", Target: { } target })
+                {
+                    entries.Add(new IndexEntry(line, target, description));
+                }
+            }
+        }
+
+        return new ParsedPage(block.Result, links.OrderBy(link => link.Line).ToList(), Check(okf, path, bundle, block, document), entries);
     }
 
     private static List<Finding> Check(bool okf, string path, string bundle, FrontmatterBlock block, MarkdownDocument? document) =>
@@ -261,7 +280,7 @@ internal static partial class Page
 
     /// <summary>The root of the deepest bundle holding <paramref name="path"/>, or the workspace root (<c>""</c>) when
     /// no bundle holds it.</summary>
-    private static string BundleRoot(string path, IReadOnlyList<string> bundles) =>
+    public static string BundleRoot(string path, IReadOnlyList<string> bundles) =>
         bundles.Where(root => path.StartsWith(root + "/", StringComparison.Ordinal)).MaxBy(root => root.Length) ?? "";
 
     /// <summary>A URI scheme, at least two characters so a Windows drive letter is not one.</summary>

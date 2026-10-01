@@ -115,6 +115,7 @@ public sealed class SweeperTests : IDisposable
     [InlineData(typeof(Sweeper.PathRow))]
     [InlineData(typeof(Sweeper.SourceRow))]
     [InlineData(typeof(Sweeper.LinkRow))]
+    [InlineData(typeof(Sweeper.EntryRow))]
     public void Every_string_of_a_row_written_in_batches_is_unsized(Type row)
     {
         var strings = row.GetProperties().Where(p => p.PropertyType == typeof(string));

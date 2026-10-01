@@ -15,6 +15,8 @@ public sealed class HippoDbContext(DbContextOptions<HippoDbContext> options) : D
 
     public DbSet<FindingEntity> Findings => Set<FindingEntity>();
 
+    public DbSet<IndexEntryEntity> IndexEntries => Set<IndexEntryEntity>();
+
     public DbSet<MetaEntity> Meta => Set<MetaEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -70,6 +72,20 @@ public sealed class HippoDbContext(DbContextOptions<HippoDbContext> options) : D
             finding.Property(f => f.Related).HasColumnName("related");
             finding.HasOne<FileEntity>().WithMany().HasForeignKey(f => f.FileId).OnDelete(DeleteBehavior.Cascade);
             finding.HasIndex(f => f.FileId).HasDatabaseName("ix_findings_file_id");
+        });
+
+        modelBuilder.Entity<IndexEntryEntity>(entry =>
+        {
+            entry.ToTable("index_entries");
+            entry.HasKey(e => e.Id);
+            // A plain INTEGER PRIMARY KEY, as for links: entries are rewritten whenever their file is.
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedNever();
+            entry.Property(e => e.FileId).HasColumnName("file_id");
+            entry.Property(e => e.Line).HasColumnName("line");
+            entry.Property(e => e.Target).HasColumnName("target");
+            entry.Property(e => e.Description).HasColumnName("description");
+            entry.HasOne<FileEntity>().WithMany().HasForeignKey(e => e.FileId).OnDelete(DeleteBehavior.Cascade);
+            entry.HasIndex(e => e.FileId).HasDatabaseName("ix_index_entries_file_id");
         });
 
         modelBuilder.Entity<MetaEntity>(meta =>

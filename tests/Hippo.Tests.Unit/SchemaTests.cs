@@ -103,6 +103,19 @@ public class SchemaTests
         Assert.Equal(0, connection.ExecuteScalar<long>("SELECT count(*) FROM findings"));
     }
 
+    [Fact]
+    public void Deleting_a_file_deletes_its_index_entries()
+    {
+        using var database = new TestDatabase();
+        using var connection = database.Open();
+        connection.Execute("INSERT INTO files (path, mtime, size, hash, hashed_at, kind) VALUES ('kb/index.md', 0, 0, 'h', 0, 'markdown')");
+        connection.Execute("INSERT INTO index_entries (file_id, line, target, description) VALUES (1, 1, 'kb/a.md', NULL)");
+
+        connection.Execute("DELETE FROM files");
+
+        Assert.Equal(0, connection.ExecuteScalar<long>("SELECT count(*) FROM index_entries"));
+    }
+
     private static List<string> Tables(SqliteConnection connection) => connection.Query<string>(
         "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").AsList();
 

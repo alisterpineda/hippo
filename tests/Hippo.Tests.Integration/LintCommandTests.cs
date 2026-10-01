@@ -28,16 +28,31 @@ public sealed class LintCommandTests : IDisposable
         }
         """);
 
+    private const string Declaration = "---\nokf_version: \"0.2\"\n---\n";
+
+    /// <summary>The root index of <see cref="WriteBundle"/>, which links to every page: two as entries, and the rest from
+    /// a paragraph, which lists them without entries to check.</summary>
+    private const string Listing = """
+        # KB
+
+        * [Revenue](metrics/revenue.md) - Revenue
+        * [Policy](references/policy.md)
+
+        Also [untyped](untyped.md), [sourced](sourced.md), [footnoted](footnoted.md), [dated](dated.md),
+        [attributed](attributed.md) and [lifecycle](lifecycle.md).
+        """;
+
     /// <summary>An OKF bundle that breaks every rule exactly once, beside pages that break none.</summary>
     private void WriteBundle()
     {
         WriteConfig();
-        _workspace.Write("kb/index.md", "---\nokf_version: \"0.2\"\n---\n# KB\n\n* [Revenue](metrics/revenue.md) - Revenue\n");
+        _workspace.Write("kb/index.md", Declaration + Listing);
         _workspace.Write("kb/log.md", "# Log\n\n## 2026-05-22\n* **Update**: Added revenue.\n\n## May 15\n* **Creation**: Started.\n");
         _workspace.Write("kb/metrics/index.md", "---\ntitle: Metrics\n---\n# Metrics\n");
         _workspace.Write("kb/metrics/revenue.md", """
             ---
             type: Metric
+            description: Revenue recognized in the period
             status: stable
             generated: { by: reference_agent/gemini-2.5-pro, at: 2026-06-20T22:53:05Z }
             sources:
@@ -68,6 +83,7 @@ public sealed class LintCommandTests : IDisposable
                 "okf-actor kb/attributed.md:3",
                 "okf-timestamp kb/dated.md:3",
                 "okf-footnote kb/footnoted.md:6",
+                "okf-index kb/index.md:6",
                 "okf-status kb/lifecycle.md:3",
                 "okf-log-date kb/log.md:6",
                 "okf-index-frontmatter kb/metrics/index.md:1",
@@ -102,6 +118,7 @@ public sealed class LintCommandTests : IDisposable
         {
             File.Delete(_workspace.Combine($"kb/{page}"));
         }
+        _workspace.Write("kb/index.md", Declaration + "* [Revenue](metrics/revenue.md) - Revenue recognized in the period\n* [Policy](references/policy.md)\n");
 
         var result = _workspace.Run("lint");
 
@@ -118,7 +135,7 @@ public sealed class LintCommandTests : IDisposable
         var findings = Findings(1);
 
         Assert.DoesNotContain(findings, f => f.StartsWith("okf-footnote", StringComparison.Ordinal) || f.StartsWith("okf-status", StringComparison.Ordinal));
-        Assert.Equal(6, findings.Count);
+        Assert.Equal(7, findings.Count);
     }
 
     [Fact]
@@ -234,13 +251,13 @@ public sealed class LintCommandTests : IDisposable
     public void Declaring_okf_version_later_lints_pages_that_did_not_change()
     {
         WriteBundle();
-        _workspace.Write("kb/index.md", "# KB\n");
+        _workspace.Write("kb/index.md", Listing);
         _workspace.Settle();
         Assert.Empty(Findings(0));
 
-        _workspace.Write("kb/index.md", "---\nokf_version: \"0.2\"\n---\n# KB\n");
+        _workspace.Write("kb/index.md", Declaration + Listing);
 
-        Assert.Equal(8, Findings(1).Count);
+        Assert.Equal(9, Findings(1).Count);
     }
 
     [Fact]
@@ -248,11 +265,127 @@ public sealed class LintCommandTests : IDisposable
     {
         WriteBundle();
         _workspace.Settle();
-        Assert.Equal(8, Findings(1).Count);
+        Assert.Equal(9, Findings(1).Count);
 
         _workspace.Write("kb/index.md", "# KB\n");
 
         Assert.Empty(Findings(0));
+    }
+
+    /// <summary>An OKF bundle whose root index drifts from its pages once per kind of drift <c>okf-index</c> reports,
+    /// beside entries and pages it leaves alone.</summary>
+    private void WriteDrift()
+    {
+        WriteConfig();
+        _workspace.Write("kb/index.md", Declaration + """
+            # KB
+
+            * [A](a.md) - Alpha, in short
+            * [B](b.md)
+            * [C](/c.md) - Gamma
+            * [Gone](gone.md) - Gone
+            * [D](d.md) - Delta,
+              wrapped
+            * [Sub](sub/) - A folder
+            * [Sub index](sub/index.md) - The sub index
+            * [H](h.md) - Eta
+            * [Picture](picture.png) - A picture
+            * [Site](https://example.com) - Elsewhere
+            * [Log](log.md) - Change history
+            * [I](i.md) - Iota, folded
+            * [J](j.md)
+            * [K](k.md)
+            * [L](l.md) - 42
+
+            See also [G](g.md).
+            """);
+        // Links to kb/sub/f.md from a page and from an index that does not cover it, neither of which lists it.
+        _workspace.Write("kb/a.md", "---\ntype: Topic\ndescription: Alpha\n---\nSee [F](sub/f.md).\n");
+        _workspace.Write("kb/other/index.md", "# Other\n\nSee [F](../sub/f.md).\n");
+        _workspace.Write("kb/b.md", "---\ntype: Topic\ndescription: Beta\n---\n");
+        _workspace.Write("kb/c.md", "---\ntype: Topic\n---\n");
+        _workspace.Write("kb/d.md", "---\ntype: Topic\ndescription: Delta, wrapped\n---\n");
+        _workspace.Write("kb/g.md", "---\ntype: Topic\ndescription: Linked from a paragraph\n---\n");
+        _workspace.Write("kb/h.md", "---\ntype: [\n---\n");
+        _workspace.Write("kb/picture.png", "");
+        // Pages whose description reads the same as their entry's once normalized, or is no description at all.
+        _workspace.Write("kb/log.md", "# Log\n");
+        _workspace.Write("kb/i.md", "---\ntype: Topic\ndescription: >\n  Iota,\n  folded\n---\n");
+        _workspace.Write("kb/j.md", "---\ntype: Topic\ndescription:\n---\n");
+        _workspace.Write("kb/k.md", "---\ntype: Topic\ndescription: \"\"\n---\n");
+        _workspace.Write("kb/l.md", "---\ntype: Topic\ndescription: 42\n---\n");
+        _workspace.Write("kb/sub/index.md", "# Sub\n\n* [E](e.md) - Epsilon\n");
+        _workspace.Write("kb/sub/e.md", "---\ntype: Topic\ndescription: Epsilon\n---\n");
+        _workspace.Write("kb/sub/f.md", "---\ntype: Topic\ndescription: Listed nowhere\n---\n");
+    }
+
+    [Fact]
+    public void Okf_index_reports_each_kind_of_drift()
+    {
+        WriteDrift();
+
+        var result = _workspace.Run("lint", "--rule", "okf-index");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(
+            [
+                "kb/index.md:6  okf-index  entry for kb/a.md does not match the page's description 'Alpha'",
+                "kb/index.md:7  okf-index  entry for kb/b.md has no description; the page's is 'Beta'",
+                "kb/index.md:8  okf-index  entry for kb/c.md has a description, but the page has none",
+                "kb/index.md:9  okf-index  entry links to kb/gone.md, which does not exist",
+                "kb/sub/f.md  okf-index  no index above it links to it: kb/sub/index.md, kb/index.md",
+            ],
+            Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void An_okf_index_finding_relates_the_page_and_its_indexes()
+    {
+        WriteDrift();
+
+        var related = Json(_workspace.Run("lint", "--rule", "okf-index", "--json"), 1).EnumerateArray()
+            .Select(f => $"{f.GetProperty("path").GetString()}: {string.Join(", ", f.GetProperty("related").EnumerateArray().Select(r => r.GetString()))}")
+            .ToList();
+
+        Assert.Equal("kb/index.md: kb/a.md", related[0]);
+        Assert.Equal("kb/sub/f.md: kb/sub/index.md, kb/index.md", related[^1]);
+    }
+
+    [Fact]
+    public void A_page_listed_by_the_index_in_its_own_folder_alone_is_listed()
+    {
+        WriteDrift();
+        _workspace.Write("kb/sub/index.md", "# Sub\n\n* [E](e.md) - Epsilon\n* [F](f.md) - Listed nowhere\n");
+
+        Assert.DoesNotContain(Findings(1, "--rule", "okf-index"), f => f.StartsWith("okf-index kb/sub/f.md", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Changing_a_page_description_reports_drift_though_the_index_did_not_change()
+    {
+        WriteConfig();
+        _workspace.Write("kb/index.md", Declaration + "* [A](a.md) - Alpha\n");
+        _workspace.Write("kb/a.md", "---\ntype: Topic\ndescription: Alpha\n---\n");
+        _workspace.Settle();
+        Assert.Empty(Findings(0, "--rule", "okf-index"));
+
+        _workspace.Write("kb/a.md", "---\ntype: Topic\ndescription: Alpha, revised\n---\n");
+        Assert.Equal(["okf-index kb/index.md:4"], Findings(1, "--rule", "okf-index"));
+
+        File.Delete(_workspace.Combine("kb/a.md"));
+        var result = _workspace.Run("lint", "--rule", "okf-index");
+        Assert.Equal(["kb/index.md:4  okf-index  entry links to kb/a.md, which does not exist"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void A_page_in_a_plain_bundle_nested_in_an_okf_one_need_not_be_listed()
+    {
+        WriteConfig();
+        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["kb", "kb/plain"] } }""");
+        _workspace.Write("kb/index.md", Declaration + "# KB\n");
+        _workspace.Write("kb/plain/a.md", "# A\n");
+
+        Assert.Empty(Findings(0, "--rule", "okf-index"));
     }
 
     /// <summary>OKF's path fields, each written as the spec's examples write them.</summary>
