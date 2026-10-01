@@ -63,7 +63,8 @@ public class WorkspaceTests
         Assert.Equal(["**/*"], config.Include);
         Assert.Equal([".git/**", ".obsidian/**", ".trash/**"], config.Exclude);
         Assert.True(config.Gitignore);
-        Assert.Equal(WorkspaceConfig.Default.Links.Fingerprint, config.Links.Fingerprint);
+        Assert.Equal(new PageSettings(WorkspaceConfig.Default.Links, []).Fingerprint, new PageSettings(config.Links, []).Fingerprint);
+        Assert.Empty(config.LintOff);
     }
 
     [Fact]
@@ -75,7 +76,8 @@ public class WorkspaceTests
         var config = WorkspaceConfig.Parse(uncommented);
 
         Assert.Equal(["wiki"], config.Links.Bundles);
-        Assert.Equal([("sources[].resource", LinkBase.Bundle)], config.Links.Frontmatter.Select(f => (f.Field, f.Resolve)));
+        Assert.Equal([("related[]", LinkBase.Page)], config.Links.Frontmatter.Select(f => (f.Field, f.Resolve)));
+        Assert.Equal(["okf-footnote"], config.LintOff);
     }
 
     [Fact]
@@ -147,7 +149,8 @@ public class WorkspaceTests
     }
 
     [Theory]
-    [InlineData("""{ "fils": {} }""", "unknown key fils; expected files or links")]
+    [InlineData("""{ "fils": {} }""", "unknown key fils; expected files or links or lint")]
+    [InlineData("""{ "lint": { "of": [] } }""", "unknown key lint.of; expected off")]
     [InlineData("""{ "files": { "exlcude": [] } }""", "unknown key files.exlcude; expected include or exclude or gitignore")]
     [InlineData("""{ "links": { "roots": [] } }""", "unknown key links.roots; expected bundles or frontmatter")]
     [InlineData("""{ "links": { "frontmatter": [{ "field": "a", "reslove": "page" }] } }""", "unknown key links.frontmatter[].reslove")]
@@ -218,12 +221,46 @@ public class WorkspaceTests
     }
 
     [Fact]
+    public void Lint_off_names_should_rules()
+    {
+        var config = WorkspaceConfig.Parse("""{ "lint": { "off": ["okf-footnote", "okf-status"] } }""");
+
+        Assert.Equal(["okf-footnote", "okf-status"], config.LintOff);
+    }
+
+    [Theory]
+    [InlineData("""{ "lint": { "off": ["okf-type"] } }""", "lint.off: okf-type is a MUST rule, which cannot be turned off")]
+    [InlineData("""{ "lint": { "off": ["okf-index-frontmatter"] } }""", "okf-index-frontmatter is a MUST rule")]
+    [InlineData("""{ "lint": { "off": ["okf-log-date"] } }""", "okf-log-date is a MUST rule")]
+    [InlineData("""{ "lint": { "off": ["okf-footnotes"] } }""", "lint.off: unknown rule okf-footnotes; expected one of okf-type, ")]
+    [InlineData("""{ "lint": { "off": "okf-footnote" } }""", "lint.off must be an array of rule names")]
+    [InlineData("""{ "lint": { "off": [1] } }""", "lint.off must be an array of rule names")]
+    [InlineData("""{ "lint": [] }""", "lint must be an object")]
+    public void Lint_off_refuses_must_rules_and_unknown_names(string json, string message)
+    {
+        var ex = Assert.Throws<HippoException>(() => WorkspaceConfig.Parse(json));
+
+        Assert.Contains(message, ex.Message);
+    }
+
+    [Fact]
+    public void The_link_fingerprint_changes_with_the_okf_bundles()
+    {
+        var links = new LinkSettings(["wiki", "docs"], []);
+        string Fingerprint(params string[] okf) => new PageSettings(links, okf).Fingerprint;
+
+        Assert.NotEqual(Fingerprint(), Fingerprint("wiki"));
+        Assert.NotEqual(Fingerprint("docs"), Fingerprint("wiki"));
+    }
+
+    [Fact]
     public void The_link_fingerprint_changes_with_the_settings_that_shape_links_only()
     {
-        string Fingerprint(string json) => WorkspaceConfig.Parse(json).Links.Fingerprint;
+        string Fingerprint(string json) => new PageSettings(WorkspaceConfig.Parse(json).Links, []).Fingerprint;
         var baseline = Fingerprint("""{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "a" }] } }""");
 
         Assert.Equal(baseline, Fingerprint("""{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "a" }] }, "files": { "exclude": ["y/**"] } }"""));
+        Assert.Equal(baseline, Fingerprint("""{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "a" }] }, "lint": { "off": ["okf-status"] } }"""));
         Assert.NotEqual(baseline, Fingerprint("""{ "links": { "bundles": ["docs"], "frontmatter": [{ "field": "a" }] } }"""));
         Assert.NotEqual(baseline, Fingerprint("""{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "a", "resolve": "bundle" }] } }"""));
         Assert.NotEqual(baseline, Fingerprint("""{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "b" }] } }"""));

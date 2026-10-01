@@ -147,6 +147,33 @@ public class OutputJsonTests
         """, [new OrphanOutput("a.md")], OutputJson.Default.ListOrphanOutput);
 
     [Fact]
+    public void Lint() => AssertJson("""
+        [
+          {
+            "rule": "okf-type",
+            "path": "kb/a.md",
+            "line": null,
+            "message": "it has no frontmatter",
+            "related": []
+          },
+          {
+            "rule": "okf-status",
+            "path": "kb/b.md",
+            "line": 4,
+            "message": "status \u0027Stable\u0027 is not draft, stable or deprecated",
+            "related": [
+              "kb/c.md"
+            ]
+          }
+        ]
+        """,
+        [
+            new FindingOutput("okf-type", "kb/a.md", null, "it has no frontmatter", []),
+            new FindingOutput("okf-status", "kb/b.md", 4, "status 'Stable' is not draft, stable or deprecated", ["kb/c.md"]),
+        ],
+        OutputJson.Default.ListFindingOutput);
+
+    [Fact]
     public void Cache_indexes() => AssertJson("""
         [
           {

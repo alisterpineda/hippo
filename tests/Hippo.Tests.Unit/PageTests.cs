@@ -16,8 +16,10 @@ public class PageTests
         }
         """);
 
+    private static readonly PageSettings Notes = new(NotesConfig.Links, []);
+
     private static List<Link> Links(string path, string text, WorkspaceConfig? config = null) =>
-        Page.Parse(path, text, (config ?? NotesConfig).Links).Links;
+        Page.Parse(path, text, new PageSettings((config ?? NotesConfig).Links, [])).Links;
 
     private static Link Only(string path, string text, WorkspaceConfig? config = null) => Assert.Single(Links(path, text, config));
 
@@ -203,7 +205,7 @@ public class PageTests
     {
         var text = $"---\ngenerated:\n  from: b.md\n---\n{new string('>', 200)} x\n";
 
-        var page = Page.Parse("a.md", text, NotesConfig.Links);
+        var page = Page.Parse("a.md", text, Notes);
 
         Assert.NotNull(page.BodyError);
         Assert.Equal("b.md", Assert.Single(page.Links).Target);
@@ -212,7 +214,7 @@ public class PageTests
     [Fact]
     public void Malformed_frontmatter_has_no_links_but_the_body_still_does()
     {
-        var page = Page.Parse("a.md", "---\nsources: [\n---\n[b](b.md)\n", NotesConfig.Links);
+        var page = Page.Parse("a.md", "---\nsources: [\n---\n[b](b.md)\n", Notes);
 
         Assert.NotNull(page.Frontmatter.Error);
         Assert.Equal(new Link(4, "body", "path", "b.md", "b.md"), Assert.Single(page.Links));
@@ -229,7 +231,7 @@ public class PageTests
     [Fact]
     public void Page_parse_returns_the_frontmatter_as_json()
     {
-        var page = Page.Parse("a.md", "---\ntitle: A\n---\n", NotesConfig.Links);
+        var page = Page.Parse("a.md", "---\ntitle: A\n---\n", Notes);
 
         Assert.Equal("""{"title":"A"}""", page.Frontmatter.Json);
     }

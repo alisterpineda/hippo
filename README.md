@@ -1,12 +1,12 @@
 # hippo
 
-A standalone CLI that indexes a markdown workspace into a local SQLite cache and answers structural questions about it: what links where, what is broken, what breaks the workspace's conventions, and where a phrase appears.
+A standalone CLI that indexes a markdown workspace into a local SQLite cache and answers structural questions about it: what links where, what is broken, where a bundle departs from the standard it follows, and where a phrase appears.
 
-Status: phase 2 (link graph). hippo indexes every file in the workspace, the frontmatter of every markdown file, and every link out of a markdown file.
+Status: phase 3 (OKF bundles). hippo indexes every file in the workspace, the frontmatter of every markdown file, and every link out of a markdown file, and checks [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md) bundles against the format.
 
 ## Commands
 
-`hippo init` makes the current folder a workspace by writing a starter `.hippo/config.json`; it will not overwrite one, and warns when the folder is already inside another workspace. `hippo cache` runs from anywhere and works on every index in the cache. Every other command runs from anywhere inside a workspace: hippo walks up to the first folder with a `.hippo/config.json`. Each brings the index up to date first, prints text by default and JSON with `--json`, and exits 0 when clean, 1 when it reports findings (`broken`, `orphans`), and 2 on error.
+`hippo init` makes the current folder a workspace by writing a starter `.hippo/config.json`; it will not overwrite one, and warns when the folder is already inside another workspace. `hippo cache` runs from anywhere and works on every index in the cache. Every other command runs from anywhere inside a workspace: hippo walks up to the first folder with a `.hippo/config.json`. Each brings the index up to date first, prints text by default and JSON with `--json`, and exits 0 when clean, 1 when it reports findings (`broken`, `orphans`, `lint`), and 2 on error.
 
 ```
 hippo init                   write a starter .hippo/config.json in the current folder
@@ -22,6 +22,8 @@ hippo backrefs <path> [--kind body|frontmatter] [--transitive]
 hippo broken                 links whose target is not an indexed file or folder
 hippo orphans [--exclude <pattern>…]
                              files with no link to or from another file
+hippo lint [--rule <name>…]  where OKF bundles depart from OKF v0.2; --rule lists only the rules named,
+                             even one lint.off turns off
 hippo cache list             every index in the cache: its state, size and workspace root
 hippo cache prune [--dry-run] [--include-unreachable]
                              remove the indexes of workspaces that were deleted, moved or renamed
@@ -38,12 +40,15 @@ hippo cache prune [--dry-run] [--include-unreachable]
   },
   "links": {
     "bundles": ["wiki"],                // a leading "/" in a link on a page in wiki resolves against wiki
-    "frontmatter": [
+    "frontmatter": [                    // an OKF bundle's path fields, such as sources[].resource, need no entry
       {
-        "field": "sources[].resource",  // dotted for nested mappings; [] for each element of a list
-        "resolve": "bundle"             // page (the page's own folder, the default) or bundle (its bundle root)
+        "field": "related[]",           // dotted for nested mappings; [] for each element of a list
+        "resolve": "page"               // page (the page's own folder, the default) or bundle (its bundle root)
       }
     ]
+  },
+  "lint": {
+    "off": ["okf-footnote"]             // SHOULD rules to leave unchecked in OKF bundles
   }
 }
 ```
@@ -56,13 +61,34 @@ A bundle is a folder whose pages treat it as their root: a leading `/` in a link
 
 Body links are CommonMark links, images, reference links and autolinks; their destinations are URLs, so percent-encoding is decoded and a query or fragment dropped. Frontmatter values are literal paths: nothing is decoded and a `?` is part of the path, but a `#` still starts a fragment that is dropped, so a frontmatter value cannot name a file with `#` in its name. A link with a scheme is a URL, one starting with `#` is anchor-only, and any other is a file when it resolves to an indexed file, a directory when it resolves to a folder holding an indexed file, and missing otherwise. A trailing `/` makes no difference, and the workspace root is a directory. A folder holding no indexed file, because it is empty or everything in it is excluded, is missing. `backrefs` of a folder lists the links to the folder itself, and `backrefs .` from the root lists those to the root.
 
+### OKF bundles
+
+A bundle is an [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md) bundle when its root `index.md` declares `okf_version` in its frontmatter. hippo reads every OKF bundle as 0.2; `lint` notes one that declares another version. A bundle without the declaration is a plain bundle, and a folder not listed in `links.bundles` is never an OKF bundle, whatever its `index.md` says. A page belongs to the deepest bundle holding it.
+
+In an OKF bundle, OKF's path fields are frontmatter links with no `links.frontmatter` entry: `resource`, `sources[].resource`, `computation`, `executor.resource` and `attester.resource`. A relative value resolves against the bundle root, as the spec's examples do; a `links.frontmatter` entry for the same field resolves it as the entry says instead. A path may leave its bundle. Every `sources[].resource` that is not a URL is read as a path, so a scope descriptor such as `all queries in BigQuery project X` is a broken link. Body links resolve as they do anywhere else.
+
+`hippo lint` checks every markdown file in every OKF bundle. `index.md` and `log.md` are reserved at every level and checked for their own structure; every other markdown file is a concept.
+
+| Rule | Level | Reports |
+| --- | --- | --- |
+| `okf-type` | MUST | A concept with no frontmatter, frontmatter that fails to parse, or no non-empty `type` |
+| `okf-index-frontmatter` | MUST | Frontmatter in an `index.md` below the bundle root, or a key other than `okf_version` in the root one |
+| `okf-log-date` | MUST | A level-2 heading in a `log.md` that is not a `YYYY-MM-DD` date |
+| `okf-source-resource` | SHOULD | A `sources` entry with no `resource` |
+| `okf-footnote` | SHOULD | A footnote whose label matches no `sources[].id` on its page, explanatory footnotes included. A definition nothing references is not checked |
+| `okf-timestamp` | SHOULD | A value in `generated.at`, `verified[].at`, `stale_after`, `sources[].last_modified` or a `usage_window` that is not an ISO 8601 datetime with an explicit UTC offset |
+| `okf-actor` | SHOULD | A `generated` with no `by`, or a `generated.by` or `verified[].by` not shaped `<producer>/<version>`, `human:<id>` or `process:<id>`. A bare `verified` mapping counts as a one-element list |
+| `okf-status` | SHOULD | A `status` other than `draft`, `stable` or `deprecated` |
+
+Every rule is on for every OKF bundle. `lint.off` turns off SHOULD rules; naming a MUST rule there is a config error, so a run with no MUST findings means the bundle is conformant. A concept whose frontmatter fails to parse is reported by `okf-type` alone, since the rest cannot be checked without it. Findings are made when a page is indexed and kept in the index, so `lint` costs no more than a query.
+
 The index lives in `<user cache>/hippo/<hash of workspace root>/index.db`; set `HIPPO_CACHE_DIR` to an absolute path to replace `<user cache>/hippo`. The hash is the SHA-256 of the root's path. On Windows that is the path the OS resolves the folder to, so a different letter case, an 8.3 short name, a junction or a `subst` drive still finds the same index. Each index records its root, which `hippo cache list` checks: `live` when the root still has a `.hippo/config.json`; `orphaned` when it does not but the root or the folder above it exists, as after the workspace was deleted, moved or renamed; `unreachable` when the drive the root was on is not mounted, or when neither the root nor the folder above it exists or they cannot be checked, as for an offline share; and `unknown` when the index records no root or cannot be read. `hippo cache prune` removes the orphaned indexes, and with `--include-unreachable` the unreachable ones too; nothing else removes an index. A moved workspace is indexed afresh at its new path, and its old index stays until pruned.
 
 ## Known limits
 
 - **Pathological markdown parses slowly.** A long run of text with no spaces or line breaks that holds many unclosed `[x](` takes time that grows with the square of its length: about 1 s at 50 KB and 14 s at 200 KB. Ordinary pages, even large ones full of links, parse in milliseconds. The cost is paid when the file changes, not on every command, and the answers stay correct. Minified code pasted outside a code block is the realistic way to hit it.
 - **A page Markdig cannot parse has no body links.** Blocks nested past Markdig's depth limit make it give up on the page; hippo warns, keeps the page's frontmatter links, and indexes the rest of the workspace.
-- **An unreadable page after a link-settings change slows every command.** Changing `links` makes hippo re-read every page to redo its links. If a page cannot be read then, hippo keeps its old links and does not record the new settings as applied, so each later command re-reads every page again, with a warning naming the file, until that page can be read. The answers stay correct; fixing the file's permissions ends it.
+- **An unreadable page after a link-settings change slows every command.** Changing `links`, or whether a bundle's root `index.md` declares `okf_version`, makes hippo re-read every page to redo its links and findings. If a page cannot be read then, hippo keeps its old links and does not record the new settings as applied, so each later command re-reads every page again, with a warning naming the file, until that page can be read. The answers stay correct; fixing the file's permissions ends it.
 - **A same-size edit can hide on a skewed clock.** hippo re-reads a file whose mtime is within 2 s of when it was last read, which catches an edit made in the same mtime tick. On a filesystem whose clock is more than 2 s off this machine's, such as some network shares, such an edit can still be missed; `hippo index --rebuild` re-reads everything.
 - **A file dated in the future is re-read on every command** until the clock passes its mtime, though its row is not rewritten.
 - **On macOS, a gitignored name with accented letters can still be indexed.** git reports names in composed Unicode form, but a name can be stored decomposed on disk, and hippo compares the two exactly. A file or folder whose name is stored that way is indexed even though git ignores it. An exclude pattern that matches it with `*` in place of the accented letters, such as `**/*.log`, leaves it out.

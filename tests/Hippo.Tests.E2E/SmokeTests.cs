@@ -125,6 +125,19 @@ public sealed class SmokeTests : IDisposable
     }
 
     [Fact]
+    public async Task Lint()
+    {
+        _workspace.Write("wiki/index.md", "---\nokf_version: \"0.2\"\n---\n# Index\n\n- [Topic](topics/topic.md)\n");
+        _workspace.Write("wiki/draft.md", "---\ntype: Topic\nstatus: final\n---\n");
+
+        var finding = Assert.Single((await Json(1, "lint")).EnumerateArray());
+
+        Assert.Equal(("okf-status", "wiki/draft.md", 3, 0),
+            (finding.GetProperty("rule").GetString(), finding.GetProperty("path").GetString(), finding.GetProperty("line").GetInt32(),
+                finding.GetProperty("related").GetArrayLength()));
+    }
+
+    [Fact]
     public async Task Cache_list()
     {
         var database = (await Json(0, "status")).GetProperty("database").GetString();

@@ -13,6 +13,8 @@ public sealed class HippoDbContext(DbContextOptions<HippoDbContext> options) : D
 
     public DbSet<LinkEntity> Links => Set<LinkEntity>();
 
+    public DbSet<FindingEntity> Findings => Set<FindingEntity>();
+
     public DbSet<MetaEntity> Meta => Set<MetaEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -53,6 +55,21 @@ public sealed class HippoDbContext(DbContextOptions<HippoDbContext> options) : D
             link.HasOne<FileEntity>().WithMany().HasForeignKey(l => l.SourceId).OnDelete(DeleteBehavior.Cascade);
             link.HasIndex(l => l.SourceId).HasDatabaseName("ix_links_source_id");
             link.HasIndex(l => l.Target).HasDatabaseName("ix_links_target");
+        });
+
+        modelBuilder.Entity<FindingEntity>(finding =>
+        {
+            finding.ToTable("findings");
+            finding.HasKey(f => f.Id);
+            // A plain INTEGER PRIMARY KEY, as for links: findings are rewritten whenever their file is.
+            finding.Property(f => f.Id).HasColumnName("id").ValueGeneratedNever();
+            finding.Property(f => f.FileId).HasColumnName("file_id");
+            finding.Property(f => f.Rule).HasColumnName("rule");
+            finding.Property(f => f.Line).HasColumnName("line");
+            finding.Property(f => f.Message).HasColumnName("message");
+            finding.Property(f => f.Related).HasColumnName("related");
+            finding.HasOne<FileEntity>().WithMany().HasForeignKey(f => f.FileId).OnDelete(DeleteBehavior.Cascade);
+            finding.HasIndex(f => f.FileId).HasDatabaseName("ix_findings_file_id");
         });
 
         modelBuilder.Entity<MetaEntity>(meta =>

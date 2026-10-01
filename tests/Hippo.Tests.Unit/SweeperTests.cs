@@ -605,6 +605,56 @@ public sealed class SweeperTests : IDisposable
         Assert.False(Sweep().Rebuilt);
     }
 
+    private long FindingCount() => _db.ExecuteScalar<long>("SELECT count(*) FROM findings");
+
+    [Fact]
+    public void Declaring_okf_version_relinks_once()
+    {
+        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["kb"] } }""");
+        _workspace.Write("kb/index.md", "# KB\n");
+        _workspace.Write("kb/a.md", "# No frontmatter\n");
+        Sweep();
+
+        _workspace.Write("kb/index.md", "---\nokf_version: \"0.2\"\n---\n# KB\n");
+        var declared = Sweep();
+        var after = Sweep();
+
+        Assert.True(declared.Rebuilt);
+        Assert.Equal(1, FindingCount());
+        Assert.False(after.Rebuilt);
+        Assert.Equal(0, after.Hashed);
+    }
+
+    [Fact]
+    [UnsupportedOSPlatform("windows")] // MakeUnreadable skips the test there.
+    public void An_unreadable_root_index_makes_a_plain_bundle_until_readable_and_then_its_findings_come_back()
+    {
+        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["kb"] } }""");
+        var index = _workspace.Write("kb/index.md", "---\nokf_version: \"0.2\"\n---\n# KB\n");
+        _workspace.Write("kb/a.md", "# No frontmatter\n");
+        Sweep();
+        Assert.Equal(1, FindingCount());
+
+        MakeUnreadable(index);
+        try
+        {
+            var locked = Sweep();
+            Assert.Contains(locked.Warnings, w => w.Contains("kb/index.md"));
+            Assert.Empty(locked.OkfBundles);
+        }
+        finally
+        {
+            File.SetUnixFileMode(index, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+
+        var unlocked = Sweep();
+
+        Assert.Equal(["kb"], unlocked.OkfBundles.Select(b => b.Root));
+        Assert.True(unlocked.Rebuilt);
+        Assert.Equal(1, FindingCount());
+        Assert.False(Sweep().Rebuilt);
+    }
+
     [Fact]
     public void A_page_markdig_cannot_parse_warns_and_the_rest_still_index()
     {

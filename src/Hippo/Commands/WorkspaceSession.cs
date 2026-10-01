@@ -13,7 +13,7 @@ namespace Hippo.Commands;
 /// </summary>
 internal sealed record WorkspaceSession(
     Workspace Workspace, string WorkingDirectory, string DatabasePath, SqliteConnection Db, SweepResult Sweep, TextWriter Output,
-    bool Json)
+    TextWriter Error, bool Json)
 {
     public static readonly Option<bool> JsonOption = new("--json") { Description = "Print JSON instead of text" };
 
@@ -33,7 +33,7 @@ internal sealed record WorkspaceSession(
             Warn(error, sweep.Warnings);
 
             var session = new WorkspaceSession(workspace, environment.WorkingDirectory, databasePath, db, sweep,
-                result.InvocationConfiguration.Output, result.GetValue(JsonOption));
+                result.InvocationConfiguration.Output, error, result.GetValue(JsonOption));
             return command(session);
         });
     }
@@ -74,6 +74,9 @@ internal sealed record WorkspaceSession(
                 writer.WriteLine(line(item));
             }
         });
+
+    /// <summary>Prints <paramref name="warning"/> to the error stream.</summary>
+    public void Warn(string warning) => Warn(Error, [warning]);
 
     public static void Warn(TextWriter error, IEnumerable<string> warnings)
     {

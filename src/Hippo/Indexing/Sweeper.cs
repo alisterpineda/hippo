@@ -1,22 +1,23 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using Dapper;
+using Hippo.Okf;
 using Hippo.Workspaces;
 using Microsoft.Data.Sqlite;
 
 namespace Hippo.Indexing;
 
 /// <summary>What one sweep found. <see cref="Hashed"/> counts files read from disk; <see cref="Updated"/> counts files
-/// whose content changed.</summary>
+/// whose content changed. <see cref="OkfBundles"/> are the OKF bundles the pages were read under.</summary>
 internal sealed record SweepResult(
     int Files, int Added, int Updated, int Removed, int Hashed, bool Rebuilt,
-    DateTimeOffset FinishedAt, TimeSpan Elapsed, IReadOnlyList<string> Warnings);
+    DateTimeOffset FinishedAt, TimeSpan Elapsed, IReadOnlyList<string> Warnings, IReadOnlyList<OkfBundle> OkfBundles);
 
 /// <summary>
-/// Brings the <c>files</c> and <c>links</c> tables in line with the workspace on disk: enumerate, stat, re-hash only when
-/// mtime or size changed or the row is racy, re-parse only when the hash changed, and drop rows for files that are gone.
-/// A change to the settings that shape links re-parses every page. Every write is idempotent, so several processes may
-/// sweep the same workspace at once.
+/// Brings the <c>files</c>, <c>links</c> and <c>findings</c> tables in line with the workspace on disk: enumerate, stat,
+/// re-hash only when mtime or size changed or the row is racy, re-parse only when the hash changed, and drop rows for
+/// files that are gone. A change to the settings that shape links and findings, such as a bundle becoming an OKF bundle,
+/// re-parses every page. Every write is idempotent, so several processes may sweep the same workspace at once.
 /// </summary>
 internal static class Sweeper
 {
@@ -71,7 +72,14 @@ internal static class Sweeper
         [property: DbValue(Size = Unsized)] string Raw,
         [property: DbValue(Size = Unsized)] string? Target);
 
-    private sealed record ParsedFile(FileRow Row, List<LinkRow> Links);
+    internal sealed record FindingRow(
+        [property: DbValue(Size = Unsized)] string Path,
+        [property: DbValue(Size = Unsized)] string Hash,
+        [property: DbValue(Size = Unsized)] string Rule,
+        int? Line,
+        [property: DbValue(Size = Unsized)] string Message);
+
+    private sealed record ParsedFile(FileRow Row, List<LinkRow> Links, List<FindingRow> Findings);
 
     public static SweepResult Run(Workspace workspace, SqliteConnection db, bool rebuild, TimeProvider clock)
     {
@@ -80,9 +88,11 @@ internal static class Sweeper
         // row look racy more often, never less.
         var hashedAt = Ticks(clock.GetUtcNow());
         var warnings = new List<string>();
-        // Links extracted under other settings would resolve differently now, so every page is parsed again. Only
-        // pages have links, so every other file is still skipped when its stats show it unchanged.
-        var settings = workspace.Config.Links;
+        var listed = workspace.ListFiles(warnings);
+        var okfBundles = OkfBundle.Find(workspace, listed.Select(f => f.Path).ToHashSet(StringComparer.Ordinal));
+        // Links extracted and findings made under other settings would differ now, so every page is parsed again. Only
+        // pages have links and findings, so every other file is still skipped when its stats show it unchanged.
+        var settings = new PageSettings(workspace.Config.Links, okfBundles.Select(b => b.Root).ToList());
         var linkSettings = settings.Fingerprint;
         var relink = IndexMeta.Get(db, IndexMeta.LinkSettings) != linkSettings;
         // A page that cannot be read keeps its old links, so the new settings are recorded only once every page was
@@ -94,7 +104,7 @@ internal static class Sweeper
         var rows = new List<ParsedFile>();
         var stats = new List<StatRow>();
         int added = 0, updated = 0, hashed = 0;
-        foreach (var file in workspace.ListFiles(warnings).Select(f => new DiskFile(f.Path, f.FullPath, f.Size, Ticks(f.Modified))))
+        foreach (var file in listed.Select(f => new DiskFile(f.Path, f.FullPath, f.Size, Ticks(f.Modified))))
         {
             known.TryGetValue(file.Path, out var previous);
             var reparse = rebuild || relink && Workspace.IsMarkdown(file.Path);
@@ -178,10 +188,10 @@ internal static class Sweeper
             db.Execute("DELETE FROM files WHERE path = @Path", removed, transaction);
             Write(db, rows, overwrite: true, transaction);
             db.Execute("UPDATE files SET mtime = @Mtime, size = @Size, hashed_at = @HashedAt WHERE path = @Path AND hash = @Hash", stats, transaction);
-            if (!unreadPage)
-            {
-                IndexMeta.Set(db, IndexMeta.LinkSettings, linkSettings, transaction);
-            }
+            // With a page unread, a value no settings have is recorded, not the old one: the settings can change back
+            // to the old ones, as when a bundle's root index.md cannot be read for one sweep, and the pages this sweep
+            // parsed under the new ones must still be parsed again.
+            IndexMeta.Set(db, IndexMeta.LinkSettings, unreadPage ? "" : linkSettings, transaction);
             transaction.Commit();
         }
         else
@@ -193,7 +203,7 @@ internal static class Sweeper
             InBatches(db, removed, (batch, transaction) => db.Execute("DELETE FROM files WHERE path = @Path", batch, transaction));
         }
 
-        return new SweepResult(seen.Count, added, updated, removed.Count, hashed, rebuild || relink, clock.GetUtcNow(), stopwatch.Elapsed, warnings);
+        return new SweepResult(seen.Count, added, updated, removed.Count, hashed, rebuild || relink, clock.GetUtcNow(), stopwatch.Elapsed, warnings, okfBundles);
     }
 
     /// <summary>Writes each row whatever it held, keeping the id of a row that was there: a rebuild rewrites what a new
@@ -212,8 +222,8 @@ internal static class Sweeper
         WHERE excluded.hash != files.hash
         """;
 
-    /// <summary>Writes parsed files and replaces each page's links, in the caller's transaction so a reader never sees a
-    /// page without its links. <paramref name="overwrite"/> rewrites rows whose content is unchanged.</summary>
+    /// <summary>Writes parsed files and replaces each page's links and findings, in the caller's transaction so a reader
+    /// never sees a page without them. <paramref name="overwrite"/> rewrites rows whose content is unchanged.</summary>
     private static void Write(SqliteConnection db, List<ParsedFile> files, bool overwrite, SqliteTransaction transaction)
     {
         var rows = files.Select(f => f.Row).ToList();
@@ -225,13 +235,18 @@ internal static class Sweeper
         {
             db.Execute(UpsertSql, rows, transaction);
         }
-        db.Execute(
-            "DELETE FROM links WHERE source_id = (SELECT id FROM files WHERE path = @Path AND hash = @Hash)",
-            files.Where(f => f.Row.Kind == "markdown").Select(f => new SourceRow(f.Row.Path, f.Row.Hash)).ToList(), transaction);
+        var pages = files.Where(f => f.Row.Kind == "markdown").Select(f => new SourceRow(f.Row.Path, f.Row.Hash)).ToList();
+        db.Execute("DELETE FROM links WHERE source_id = (SELECT id FROM files WHERE path = @Path AND hash = @Hash)", pages, transaction);
+        db.Execute("DELETE FROM findings WHERE file_id = (SELECT id FROM files WHERE path = @Path AND hash = @Hash)", pages, transaction);
         db.Execute("""
             INSERT INTO links (source_id, line, kind, type, raw, target)
             SELECT id, @Line, @Kind, @Type, @Raw, @Target FROM files WHERE path = @Path AND hash = @Hash
             """, files.SelectMany(f => f.Links).ToList(), transaction);
+        // No rule yet reports other paths, so every finding's related list is empty.
+        db.Execute("""
+            INSERT INTO findings (file_id, rule, line, message, related)
+            SELECT id, @Rule, @Line, @Message, '[]' FROM files WHERE path = @Path AND hash = @Hash
+            """, files.SelectMany(f => f.Findings).ToList(), transaction);
     }
 
     /// <summary>Whether the row still describes the file: same mtime and size, and not racy.</summary>
@@ -256,17 +271,18 @@ internal static class Sweeper
         }
     }
 
-    private static ParsedFile Parse(LinkSettings settings, DiskFile file, string hash, long hashedAt, byte[]? content, out string? bodyError)
+    private static ParsedFile Parse(PageSettings settings, DiskFile file, string hash, long hashedAt, byte[]? content, out string? bodyError)
     {
         bodyError = null;
         if (!Workspace.IsMarkdown(file.Path))
         {
-            return new ParsedFile(new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "other", null, null), []);
+            return new ParsedFile(new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "other", null, null), [], []);
         }
         var page = Page.Parse(file.Path, content!, settings);
         bodyError = page.BodyError;
         return new ParsedFile(
             new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "markdown", page.Frontmatter.Json, page.Frontmatter.Error),
-            page.Links.Select(l => new LinkRow(file.Path, hash, l.Line, l.Kind, l.Type, l.Raw, l.Target)).ToList());
+            page.Links.Select(l => new LinkRow(file.Path, hash, l.Line, l.Kind, l.Type, l.Raw, l.Target)).ToList(),
+            page.Findings.Select(f => new FindingRow(file.Path, hash, f.Rule, f.Line, f.Message)).ToList());
     }
 }

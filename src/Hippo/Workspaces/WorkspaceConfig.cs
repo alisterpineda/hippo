@@ -1,7 +1,7 @@
-using System.Buffers;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Hippo.Okf;
 
 namespace Hippo.Workspaces;
 
@@ -27,47 +27,13 @@ internal sealed record FrontmatterLinkField(string Field, LinkBase Resolve)
 }
 
 /// <summary>
-/// The <c>links</c> section: every setting that shapes the links stored for a page, and nothing else. It is all that
-/// <see cref="Page.Parse(string, string, LinkSettings)"/> reads, so a setting it comes to need is added here, beside the
-/// <see cref="Fingerprint"/> that must cover it. <see cref="Bundles"/> are folder roots, relative to the workspace root
-/// without leading or trailing <c>/</c>.
+/// The <c>links</c> section: how a page's links are found and resolved. <see cref="Bundles"/> are folder roots, relative
+/// to the workspace root without leading or trailing <c>/</c>. Pages are parsed under a <see cref="PageSettings"/>,
+/// which adds what the sweep reads from the workspace itself.
 /// </summary>
 internal sealed record LinkSettings(IReadOnlyList<string> Bundles, IReadOnlyList<FrontmatterLinkField> Frontmatter)
 {
     public static LinkSettings Default { get; } = new([], []);
-
-    /// <summary>These settings as one string. The index keeps the value its links were extracted under, and
-    /// re-extracts them all when it differs.</summary>
-    public string Fingerprint
-    {
-        get
-        {
-            var buffer = new ArrayBufferWriter<byte>();
-            using (var writer = new Utf8JsonWriter(buffer))
-            {
-                writer.WriteStartObject();
-                writer.WriteStartArray("bundles");
-                foreach (var bundle in Bundles)
-                {
-                    writer.WriteStringValue(bundle);
-                }
-                writer.WriteEndArray();
-                writer.WriteStartArray("frontmatter");
-                foreach (var link in Frontmatter)
-                {
-                    writer.WriteStartObject();
-                    writer.WriteString("field", link.Field);
-                    writer.WriteString("resolve", Name(link.Resolve));
-                    writer.WriteEndObject();
-                }
-                writer.WriteEndArray();
-                writer.WriteEndObject();
-            }
-            return Encoding.UTF8.GetString(buffer.WrittenSpan);
-        }
-    }
-
-    private static string Name(LinkBase resolve) => resolve == LinkBase.Page ? "page" : "bundle";
 }
 
 /// <summary>
@@ -86,9 +52,9 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
     public const string RelativePath = Folder + "/" + FileName;
 
     /// <summary>What <c>hippo init</c> writes: every file but the ones git ignores and the usual tool folders, with the
-    /// <c>links</c> section shown commented out. It sets only what differs from <see cref="Default"/>; the annotated example
-    /// in README.md spells out every key, so change both together. A unit test parses the commented section to catch stale
-    /// syntax.</summary>
+    /// <c>links</c> and <c>lint</c> sections shown commented out. It sets only what differs from <see cref="Default"/>; the
+    /// annotated example in README.md spells out every key, so change both together. A unit test parses the commented
+    /// sections to catch stale syntax.</summary>
     public const string Starter = """
         {
           "files": {
@@ -96,12 +62,15 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
           },
           // "links": {
           //   "bundles": ["wiki"],                // a leading "/" in a link on a page in wiki resolves against wiki
-          //   "frontmatter": [
+          //   "frontmatter": [                    // an OKF bundle's path fields, such as sources[].resource, need no entry
           //     {
-          //       "field": "sources[].resource",  // dotted for nested mappings; [] for each element of a list
-          //       "resolve": "bundle"             // page (the page's own folder, the default) or bundle (its bundle root)
+          //       "field": "related[]",           // dotted for nested mappings; [] for each element of a list
+          //       "resolve": "page"               // page (the page's own folder, the default) or bundle (its bundle root)
           //     }
           //   ]
+          // },
+          // "lint": {
+          //   "off": ["okf-footnote"]             // SHOULD rules to leave unchecked in OKF bundles
           // }
         }
 
@@ -122,6 +91,9 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
     public bool Gitignore { get; init; } = true;
 
     public LinkSettings Links { get; init; } = LinkSettings.Default;
+
+    /// <summary>The SHOULD rules <c>lint.off</c> turns off.</summary>
+    public IReadOnlyList<string> LintOff { get; init; } = [];
 
     /// <summary>The config's full path in the workspace at <paramref name="root"/>.</summary>
     public static string PathIn(string root) => Path.Combine(root, Folder, FileName);
@@ -157,12 +129,13 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
             }
 
             var config = Default;
-            foreach (var (key, value) in Properties(null, document.RootElement, "files", "links"))
+            foreach (var (key, value) in Properties(null, document.RootElement, "files", "links", "lint"))
             {
                 config = key switch
                 {
                     "files" => ParseFiles(config, value),
                     "links" => config with { Links = ParseLinks(value) },
+                    "lint" => config with { LintOff = ParseLint(value) },
                     _ => throw new UnreachableException(key),
                 };
             }
@@ -256,6 +229,32 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
             fields.Add(link);
         }
         return fields;
+    }
+
+    /// <summary>The rules <c>lint.off</c> names. Only a SHOULD rule can be turned off: with every MUST rule on, a run that
+    /// reports none of them means the bundle is conformant (§11).</summary>
+    private static List<string> ParseLint(JsonElement element)
+    {
+        var off = new List<string>();
+        foreach (var (_, value) in Object("lint", element, "off"))
+        {
+            if (value.ValueKind != JsonValueKind.Array)
+            {
+                throw Error("lint.off must be an array of rule names");
+            }
+            foreach (var item in value.EnumerateArray())
+            {
+                var name = String(item) ?? throw Error("lint.off must be an array of rule names");
+                var rule = OkfRules.Find(name)
+                    ?? throw Error($"lint.off: unknown rule {name}; expected one of {string.Join(", ", OkfRules.Names)}");
+                if (rule.Level == RuleLevel.Must)
+                {
+                    throw Error($"lint.off: {name} is a MUST rule, which cannot be turned off");
+                }
+                off.Add(name);
+            }
+        }
+        return off;
     }
 
     private static LinkBase Resolve(string key, JsonElement element) => String(element) switch

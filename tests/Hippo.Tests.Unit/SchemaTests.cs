@@ -90,6 +90,19 @@ public class SchemaTests
         Assert.Equal(0, connection.ExecuteScalar<long>("SELECT count(*) FROM links"));
     }
 
+    [Fact]
+    public void Deleting_a_file_deletes_its_findings()
+    {
+        using var database = new TestDatabase();
+        using var connection = database.Open();
+        connection.Execute("INSERT INTO files (path, mtime, size, hash, hashed_at, kind) VALUES ('a.md', 0, 0, 'h', 0, 'markdown')");
+        connection.Execute("INSERT INTO findings (file_id, rule, line, message, related) VALUES (1, 'okf-type', NULL, 'm', '[]')");
+
+        connection.Execute("DELETE FROM files");
+
+        Assert.Equal(0, connection.ExecuteScalar<long>("SELECT count(*) FROM findings"));
+    }
+
     private static List<string> Tables(SqliteConnection connection) => connection.Query<string>(
         "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").AsList();
 

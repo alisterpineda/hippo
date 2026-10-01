@@ -93,6 +93,23 @@ internal static partial class Frontmatter
     public static bool IsNull(YamlScalarNode scalar) =>
         !IsString(scalar) && (scalar.Value ?? "") is "" or "~" or "null" or "Null" or "NULL";
 
+    /// <summary>Whether a node is a scalar that is YAML null, as <see cref="IsNull(YamlScalarNode)"/> says.</summary>
+    public static bool IsNull(YamlNode node) => node is YamlScalarNode scalar && IsNull(scalar);
+
+    /// <summary>The key and value of the field <paramref name="name"/> in <paramref name="mapping"/>, or null when it has
+    /// none.</summary>
+    public static (YamlScalarNode Key, YamlNode Value)? Field(YamlMappingNode mapping, string name)
+    {
+        foreach (var (key, value) in mapping.Children)
+        {
+            if (key is YamlScalarNode scalar && scalar.Value == name)
+            {
+                return (scalar, value);
+            }
+        }
+        return null;
+    }
+
     private static (string Json, YamlMappingNode? Root) ToJson(string yaml)
     {
         var stream = new YamlStream();

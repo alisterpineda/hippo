@@ -6,7 +6,7 @@ namespace Hippo.Indexing;
 /// <summary>The <c>meta</c> table: facts about how an index was built and whose it is, one value per key.</summary>
 internal static class IndexMeta
 {
-    /// <summary>The fingerprint of the link settings the index's links were extracted under.</summary>
+    /// <summary>The <see cref="Workspaces.PageSettings.Fingerprint"/> the index's links and findings were made under.</summary>
     public const string LinkSettings = "links";
 
     /// <summary>The canonical root of the workspace the index belongs to, which tells <c>hippo cache</c> whether that
