@@ -26,8 +26,8 @@ hippo refs <path>            the links out of a file: line, kind, and file, dire
 hippo backrefs <path> [--kind body|frontmatter] [--transitive]
                              the links into a path; --transitive lists every file that reaches it
 hippo lint [--rule <name>…]  where the workspace breaks a lint rule: links whose target is not an indexed
-                             file or folder, and where OKF bundles depart from OKF v0.2; --rule lists only
-                             the rules named, even one lint.off turns off
+                             file or folder, frontmatter that fails to parse, and where OKF bundles depart
+                             from OKF v0.2; --rule lists only the rules named, even one lint.off turns off
 hippo cache list             every index in the cache: its state, size and workspace root
 hippo cache prune [--dry-run] [--include-unreachable]
                              remove the indexes of workspaces that were deleted, moved or renamed
@@ -83,8 +83,11 @@ In an OKF bundle, OKF's path fields are frontmatter links with no `links.frontma
 | Rule | `lint.off` | Reports |
 | --- | --- | --- |
 | `broken-link` | Yes | A path link whose target is neither an indexed file nor a folder holding one, or that leaves the workspace |
+| `frontmatter-syntax` | Yes | A markdown file whose frontmatter fails to parse |
 
 A `broken-link` finding is on the line of the link, gives the link as written and the path it resolves to, and relates that path. It is worked out when `lint` runs, from the links the index holds, so a target that comes or goes changes it without its linking pages being read again.
+
+A `frontmatter-syntax` finding is on the whole file and gives the parse error; it reports the files `hippo find --errors` lists. It checks only that the frontmatter parses, not what it holds, and it reports a concept in an OKF bundle as well as `okf-type` does, so turning it off leaves the OKF finding in place.
 
 #### OKF rules
 
@@ -104,7 +107,7 @@ A rule marked *No* is a MUST rule in OKF v0.2: a bundle that breaks it does not 
 | `okf-status` | Yes | A `status` other than `draft`, `stable` or `deprecated` |
 | `okf-index` | Yes | An `index.md` entry whose page is missing or whose description is not the page's `description`, or a page that no `index.md` above it links to |
 
-Every OKF rule is on for every OKF bundle. `lint.off` turns off the rules marked *Yes*; naming one marked *No* there is a config error, so a run with no findings from those means the bundle is conformant. A concept whose frontmatter fails to parse is reported by `okf-type` alone among the rules that read frontmatter, since the rest cannot be checked without it; `okf-index` still checks that an index lists it. Findings are made when a page is indexed and kept in the index, so `lint` costs no more than a query.
+Every OKF rule is on for every OKF bundle. `lint.off` turns off the rules marked *Yes*; naming one marked *No* there is a config error, so a run with no findings from those means the bundle is conformant. A concept whose frontmatter fails to parse is reported by `okf-type` alone among the OKF rules that read frontmatter, since the rest cannot be checked without it; `okf-index` still checks that an index lists it. Findings are made when a page is indexed and kept in the index, so `lint` costs no more than a query.
 
 `okf-index` reads an entry as a list item that opens with a link, `* [Title](url) - description`. The description is the text after the link and its separator (a hyphen, dash or colon) as written, with each run of whitespace read as one space, and it must equal the page's `description`, read the same way. An entry for a folder, an `index.md` or `log.md`, a file that is not markdown, or a page whose frontmatter fails to parse has no description to compare. An `index.md` covers the pages in its own folder and every folder below it, up to its bundle's root, and a page is listed when any `index.md` covering it links to it, in an entry or anywhere else. Every OKF bundle has a root `index.md`, so every page in it must be linked from one; a bundle that keeps no listing can turn the rule off. Each `okf-index` finding concerns an index and a page that can change apart, so it is worked out when `lint` runs, from what the index holds.
 

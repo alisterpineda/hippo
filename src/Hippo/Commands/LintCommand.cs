@@ -16,7 +16,7 @@ internal static class LintCommand
             HelpName = "name",
         };
         rule.AcceptOnlyFromAmong(LintRules.Names);
-        var command = new Command("lint", "List broken links, and where OKF bundles depart from OKF v0.2; exits 1 when there are any findings")
+        var command = new Command("lint", "List broken links, frontmatter that fails to parse, and where OKF bundles depart from OKF v0.2; exits 1 when there are any findings")
         {
             rule,
             WorkspaceSession.JsonOption,
@@ -55,6 +55,11 @@ internal static class LintCommand
                 worked.AddRange(LinkQueries.Broken(session.Db).Select(l => l.Target is null
                     ? new FindingOutput(LintRules.BrokenLink, l.Source, l.Line, $"{l.Raw} -> outside the workspace", [])
                     : new FindingOutput(LintRules.BrokenLink, l.Source, l.Line, $"{l.Raw} -> {l.Target}", [l.Target])));
+            }
+            if (rules.Contains(LintRules.FrontmatterSyntax))
+            {
+                worked.AddRange(FileQueries.ParseErrors(session.Db)
+                    .Select(f => new FindingOutput(LintRules.FrontmatterSyntax, f.Path, null, f.ParseError, [])));
             }
             var output = FindingQueries.Merge(stored, worked, f => f.Path, f => f.Line);
 

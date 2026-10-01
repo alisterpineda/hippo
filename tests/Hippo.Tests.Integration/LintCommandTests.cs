@@ -677,6 +677,94 @@ public sealed class LintCommandTests : IDisposable
     }
 
     [Fact]
+    public void Frontmatter_that_fails_to_parse_outside_any_bundle_is_one_finding_and_exits_1()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("notes/broken.md", "---\n- not\n- a mapping\n---\n# Broken\n");
+        _workspace.Write("notes/fine.md", "---\ntitle: Fine\n---\n# Fine\n");
+
+        var finding = Assert.Single(Json(_workspace.Run("lint", "--json"), 1).EnumerateArray());
+
+        Assert.Equal(("frontmatter-syntax", "notes/broken.md", JsonValueKind.Null, "frontmatter is not a mapping", 0),
+            (finding.GetProperty("rule").GetString(), finding.GetProperty("path").GetString(), finding.GetProperty("line").ValueKind,
+                finding.GetProperty("message").GetString(), finding.GetProperty("related").GetArrayLength()));
+    }
+
+    [Fact]
+    public void A_frontmatter_syntax_finding_prints_the_path_and_the_error()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("notes/broken.md", "---\n- not\n- a mapping\n---\n# Broken\n");
+
+        var result = _workspace.Run("lint", "--rule", "frontmatter-syntax");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(["notes/broken.md  frontmatter-syntax  frontmatter is not a mapping"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void Lint_off_turns_off_frontmatter_syntax()
+    {
+        WriteBundle();
+        _workspace.Write("notes/free.md", "---\ntitle: [\n---\n");
+        Assert.Contains("frontmatter-syntax notes/free.md:", Findings(1));
+
+        WriteConfig(""", "lint": { "off": ["frontmatter-syntax"] }""");
+
+        Assert.DoesNotContain(Findings(1), f => f.StartsWith("frontmatter-syntax", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_concept_whose_frontmatter_fails_to_parse_gets_okf_type_and_frontmatter_syntax()
+    {
+        WriteBundle();
+        _workspace.Write("kb/untyped.md", "---\ntype: [\n---\n");
+
+        Assert.Equal(
+            ["okf-type kb/untyped.md:", "frontmatter-syntax kb/untyped.md:"],
+            Findings(1, "--rule", "okf-type", "--rule", "frontmatter-syntax"));
+    }
+
+    [Fact]
+    public void A_concept_whose_frontmatter_fails_to_parse_still_gets_okf_type_with_frontmatter_syntax_off()
+    {
+        WriteBundle();
+        WriteConfig(""", "lint": { "off": ["frontmatter-syntax"] }""");
+        _workspace.Write("kb/untyped.md", "---\ntype: [\n---\n");
+
+        var findings = Findings(1);
+
+        Assert.Contains("okf-type kb/untyped.md:", findings);
+        Assert.DoesNotContain(findings, f => f.StartsWith("frontmatter-syntax", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_root_index_or_log_whose_frontmatter_fails_to_parse_gets_only_frontmatter_syntax()
+    {
+        WriteBundle();
+        _workspace.Write("kb/log.md", "---\ntitle: [\n---\n# Log\n");
+
+        Assert.Equal(["frontmatter-syntax kb/log.md:"],
+            Findings(1, "--rule", "okf-type", "--rule", "frontmatter-syntax").Where(f => f.EndsWith(" kb/log.md:", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void Rule_frontmatter_syntax_reports_the_files_find_errors_lists()
+    {
+        WriteBundle();
+        _workspace.Write("kb/broken.md", "---\ntype: [\n---\n");
+        _workspace.Write("notes/a.md", "---\na: [\n---\n");
+        _workspace.Write("notes/b.md", "---\n- not\n- a mapping\n---\n");
+
+        var errors = Json(_workspace.Run("find", "--errors", "--json"), 0).EnumerateArray().Select(f => f.GetProperty("path").GetString()).ToList();
+        var findings = Json(_workspace.Run("lint", "--rule", "frontmatter-syntax", "--json"), 1).EnumerateArray()
+            .Select(f => f.GetProperty("path").GetString()).ToList();
+
+        Assert.Equal(["kb/broken.md", "notes/a.md", "notes/b.md"], errors);
+        Assert.Equal(errors, findings);
+    }
+
+    [Fact]
     public void A_bundle_that_declares_another_version_is_not_noted_without_an_okf_rule()
     {
         WriteBundle();

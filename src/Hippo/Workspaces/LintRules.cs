@@ -14,6 +14,7 @@ internal sealed record LintRule(string Name, bool CanTurnOff)
 internal static class LintRules
 {
     public const string BrokenLink = "broken-link";
+    public const string FrontmatterSyntax = "frontmatter-syntax";
 
     public static IReadOnlyList<LintRule> All { get; } =
     [
@@ -27,6 +28,7 @@ internal static class LintRules
         new(OkfRules.Status, CanTurnOff: true),            // SHOULD
         new(OkfRules.Index, CanTurnOff: true),             // SHOULD
         new(BrokenLink, CanTurnOff: true),
+        new(FrontmatterSyntax, CanTurnOff: true),
     ];
 
     public static string[] Names { get; } = All.Select(rule => rule.Name).ToArray();

@@ -51,6 +51,8 @@ internal sealed record FileDetail(string Path, string Kind, long Size, long Mtim
 
 internal sealed record FileCounts(long Total, long Markdown, long Other, long ParseErrors);
 
+internal sealed record FileParseError(string Path, string ParseError);
+
 internal static class FileQueries
 {
     /// <summary>The columns of a <c>files</c> row that a listing and a search match both carry, named for their
@@ -89,6 +91,11 @@ internal static class FileQueries
         db.QuerySingleOrDefault<FileDetail>(
             "SELECT path, kind, size, mtime, hash, frontmatter, parse_error AS ParseError FROM files WHERE path = @path",
             new { path });
+
+    /// <summary>Every file whose frontmatter failed to parse, in path order, with the error.</summary>
+    public static List<FileParseError> ParseErrors(SqliteConnection db) =>
+        db.Query<FileParseError>(
+            "SELECT path, parse_error AS ParseError FROM files WHERE parse_error IS NOT NULL ORDER BY path").ToList();
 
     public static FileCounts Count(SqliteConnection db) =>
         db.QuerySingle<FileCounts>("""
