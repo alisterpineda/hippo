@@ -7,7 +7,9 @@ internal static class IndexCommand
     public static Command Build(CliEnvironment environment)
     {
         var rebuild = new Option<bool>("--rebuild") { Description = "Re-read and re-parse every file, replacing the whole index" };
-        var command = new Command("index", "Bring the index up to date with the workspace") { rebuild, WorkspaceSession.JsonOption };
+        var command = new Command("index",
+            "Bring the index up to date with the workspace; every workspace command does this first, so index is only needed "
+            + "for --rebuild") { rebuild, WorkspaceSession.JsonOption };
         command.SetAction(result => WorkspaceSession.Run(result, environment, result.GetValue(rebuild), session =>
         {
             var sweep = session.Sweep;
