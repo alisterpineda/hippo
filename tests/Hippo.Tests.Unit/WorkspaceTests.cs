@@ -231,10 +231,18 @@ public class WorkspaceTests
         Assert.Equal(["okf-footnote", "okf-status"], config.LintOff);
     }
 
+    [Fact]
+    public void Lint_off_names_workspace_rules()
+    {
+        var config = WorkspaceConfig.Parse("""{ "lint": { "off": ["broken-link"] } }""");
+
+        Assert.Equal(["broken-link"], config.LintOff);
+    }
+
     [Theory]
-    [InlineData("""{ "lint": { "off": ["okf-type"] } }""", "lint.off: okf-type is a MUST rule, which cannot be turned off")]
-    [InlineData("""{ "lint": { "off": ["okf-index-frontmatter"] } }""", "okf-index-frontmatter is a MUST rule")]
-    [InlineData("""{ "lint": { "off": ["okf-log-date"] } }""", "okf-log-date is a MUST rule")]
+    [InlineData("""{ "lint": { "off": ["okf-type"] } }""", "lint.off: okf-type cannot be turned off; it is a MUST rule in OKF v0.2")]
+    [InlineData("""{ "lint": { "off": ["okf-index-frontmatter"] } }""", "lint.off: okf-index-frontmatter cannot be turned off")]
+    [InlineData("""{ "lint": { "off": ["okf-log-date"] } }""", "lint.off: okf-log-date cannot be turned off")]
     [InlineData("""{ "lint": { "off": ["okf-footnotes"] } }""", "lint.off: unknown rule okf-footnotes; expected one of okf-type, ")]
     [InlineData("""{ "lint": { "off": "okf-footnote" } }""", "lint.off must be an array of rule names")]
     [InlineData("""{ "lint": { "off": [1] } }""", "lint.off must be an array of rule names")]

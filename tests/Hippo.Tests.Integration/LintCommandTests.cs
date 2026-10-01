@@ -173,7 +173,7 @@ public sealed class LintCommandTests : IDisposable
         var result = _workspace.Run("lint");
 
         Assert.Equal(2, result.ExitCode);
-        Assert.Contains("lint.off: okf-type is a MUST rule, which cannot be turned off", result.Stderr);
+        Assert.Contains("lint.off: okf-type cannot be turned off; it is a MUST rule in OKF v0.2", result.Stderr);
     }
 
     [Fact]
@@ -441,9 +441,9 @@ public sealed class LintCommandTests : IDisposable
     {
         WriteComputation();
 
-        var broken = Json(_workspace.Run("broken", "--json"), 1).EnumerateArray().Select(l => l.GetProperty("raw").GetString());
+        var broken = Json(_workspace.Run("lint", "--rule", "broken-link", "--json"), 1).EnumerateArray().Select(f => f.GetProperty("message").GetString());
 
-        Assert.Contains("all queries in BigQuery project X", broken);
+        Assert.Contains("all queries in BigQuery project X -> kb/all queries in BigQuery project X", broken);
     }
 
     [Fact]
@@ -464,5 +464,226 @@ public sealed class LintCommandTests : IDisposable
         _workspace.Write("kb/index.md", "# KB\n");
 
         Assert.Equal(["14 body missing kb/metrics/revenue.md"], Refs("kb/computations/revenue.md"));
+    }
+
+    /// <summary>A small workspace in the notes repo's shape: a wiki bundle, not an OKF one, whose pages cite raw files
+    /// from frontmatter.</summary>
+    private void WriteNotes()
+    {
+        _workspace.Write(".hippo/config.json", """
+            {
+              "links": {
+                "bundles": ["wiki"],
+                "frontmatter": [{ "field": "sources[].resource", "resolve": "bundle" }]
+              }
+            }
+            """);
+        _workspace.Write("wiki/index.md", "# Index\n\n- [Topic](topics/topic.md)\n");
+        _workspace.Write("wiki/topics/topic.md", """
+            ---
+            title: Topic
+            sources:
+              - id: j-2026-09-01
+                resource: ../raw/journal/2026-09-01.md
+              - id: j-gone
+                resource: ../raw/journal/gone.md
+            ---
+            # Topic
+
+            See [the index](/index.md), [[Wikilink]] and [the web](https://example.com).
+            """);
+        _workspace.Write("raw/journal/2026-09-01.md", "# Day\n\n![photo](img/photo%201.png)\n");
+        _workspace.Write("raw/journal/img/photo 1.png", "png");
+    }
+
+    private TestWorkspace.Result BrokenLinks() => _workspace.Run("lint", "--rule", "broken-link");
+
+    [Fact]
+    public void Broken_link_lists_links_to_missing_files_and_exits_1()
+    {
+        WriteNotes();
+
+        var result = BrokenLinks();
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(["wiki/topics/topic.md:7  broken-link  ../raw/journal/gone.md -> raw/journal/gone.md"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void A_broken_link_finding_names_the_link_and_relates_its_target()
+    {
+        WriteNotes();
+        _workspace.Write("wiki/escape.md", "[out](../../outside.md)\n");
+
+        var json = Json(_workspace.Run("lint", "--rule", "broken-link", "--json"), 1);
+
+        Assert.Equal(
+            [
+                "broken-link wiki/escape.md 1 ../../outside.md -> outside the workspace []",
+                "broken-link wiki/topics/topic.md 7 ../raw/journal/gone.md -> raw/journal/gone.md [raw/journal/gone.md]",
+            ],
+            json.EnumerateArray().Select(f =>
+                $"{f.GetProperty("rule").GetString()} {f.GetProperty("path").GetString()} {f.GetProperty("line").GetInt32()} {f.GetProperty("message").GetString()} [{string.Join(", ", f.GetProperty("related").EnumerateArray().Select(r => r.GetString()))}]"));
+    }
+
+    [Fact]
+    public void Creating_a_missing_target_fixes_its_links_on_the_next_command()
+    {
+        WriteNotes();
+        _workspace.Run("index");
+
+        _workspace.Write("raw/journal/gone.md", "# Back\n");
+        var result = BrokenLinks();
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Stdout);
+    }
+
+    [Fact]
+    public void Deleting_a_target_breaks_its_links_on_the_next_command()
+    {
+        WriteNotes();
+        _workspace.Run("index");
+
+        File.Delete(_workspace.Combine("raw/journal/2026-09-01.md"));
+        var result = BrokenLinks();
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("wiki/topics/topic.md:5  broken-link  ../raw/journal/2026-09-01.md -> raw/journal/2026-09-01.md", Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void A_clean_workspace_exits_0_from_broken_link()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("index.md", "[a](a.md)\n");
+        _workspace.Write("a.md", "[index](index.md)\n");
+
+        var result = BrokenLinks();
+
+        Assert.Equal((0, ""), (result.ExitCode, result.Stdout));
+    }
+
+    [Fact]
+    public void A_link_into_the_roots_hippo_folder_is_broken()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("index.md", "[config](.hippo/config.json)\n");
+
+        var result = BrokenLinks();
+
+        Assert.Equal(["index.md:1  broken-link  .hippo/config.json -> .hippo/config.json"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void A_link_to_a_folder_holding_an_indexed_file_is_a_directory_and_not_broken()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("wiki/index.md", "[home](../) [2021](../raw/2021/) [2021](../raw/2021) [empty](../raw/empty/)\n");
+        _workspace.Write("raw/2021/day.md", "# Day\n");
+        Directory.CreateDirectory(_workspace.Combine("raw/empty"));
+
+        var refs = _workspace.Run("refs", "wiki/index.md");
+        var broken = BrokenLinks();
+
+        Assert.Equal(
+            ["1  body         directory  ../", "1  body         directory  raw/2021", "1  body         directory  raw/2021", "1  body         missing    raw/empty"],
+            Lines(refs.Stdout));
+        Assert.Equal(1, broken.ExitCode);
+        Assert.Equal(["wiki/index.md:1  broken-link  ../raw/empty/ -> raw/empty"], Lines(broken.Stdout));
+    }
+
+    [Fact]
+    public void A_folder_link_breaks_once_the_last_indexed_file_under_it_is_gone()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("index.md", "[2021](raw/2021/)\n");
+        _workspace.Write("raw/2021/01/day.md", "# Day\n");
+        _workspace.Run("index");
+
+        File.Delete(_workspace.Combine("raw/2021/01/day.md"));
+        var result = BrokenLinks();
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(["index.md:1  broken-link  raw/2021/ -> raw/2021"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void Broken_link_names_a_link_that_leaves_the_workspace_as_such()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("index.md", "[out](../outside.md)\n");
+
+        var result = BrokenLinks();
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(["index.md:1  broken-link  ../outside.md -> outside the workspace"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void Rule_broken_link_lists_only_broken_links()
+    {
+        WriteBundle();
+        _workspace.Write("notes/free.md", "See [nothing](nothing.md).\n");
+
+        Assert.Equal(["broken-link notes/free.md:1"], Findings(1, "--rule", "broken-link"));
+    }
+
+    [Fact]
+    public void Broken_links_fall_in_path_and_line_order_among_the_stored_findings()
+    {
+        WriteBundle();
+        _workspace.Write("kb/attributed.md", "---\ntype: Topic\ngenerated: { by: claude, at: 2026-06-20T22:53:05Z }\n---\nSee [gone](gone.md).\n");
+
+        Assert.Equal(
+            ["okf-actor kb/attributed.md:3", "broken-link kb/attributed.md:5", "okf-status kb/lifecycle.md:3"],
+            Findings(1, "--rule", "okf-actor", "--rule", "broken-link", "--rule", "okf-status"));
+    }
+
+    [Fact]
+    public void Lint_off_turns_off_broken_link()
+    {
+        WriteBundle();
+        _workspace.Write("notes/free.md", "See [nothing](nothing.md).\n");
+        Assert.Contains("broken-link notes/free.md:1", Findings(1));
+
+        WriteConfig(""", "lint": { "off": ["broken-link"] }""");
+
+        Assert.DoesNotContain(Findings(1), f => f.StartsWith("broken-link", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_workspace_with_no_okf_bundle_reports_broken_links_without_the_bundle_warning()
+    {
+        WriteNotes();
+
+        var result = BrokenLinks();
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(["wiki/topics/topic.md:7  broken-link  ../raw/journal/gone.md -> raw/journal/gone.md"], Lines(result.Stdout));
+        Assert.Equal("", result.Stderr);
+    }
+
+    [Fact]
+    public void A_plain_lint_with_no_okf_bundle_reports_broken_links_and_scopes_the_bundle_warning_to_okf()
+    {
+        WriteNotes();
+
+        var result = _workspace.Run("lint");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(["wiki/topics/topic.md:7  broken-link  ../raw/journal/gone.md -> raw/journal/gone.md"], Lines(result.Stdout));
+        Assert.Equal("hippo: warning: no bundle in links.bundles declares okf_version in its root index.md, so there is no OKF bundle to check", result.Stderr.Trim());
+    }
+
+    [Fact]
+    public void A_bundle_that_declares_another_version_is_not_noted_without_an_okf_rule()
+    {
+        WriteBundle();
+        _workspace.Write("kb/index.md", "---\nokf_version: \"0.3\"\n---\n# KB\n");
+
+        var result = BrokenLinks();
+
+        Assert.Equal((0, ""), (result.ExitCode, result.Stderr));
     }
 }

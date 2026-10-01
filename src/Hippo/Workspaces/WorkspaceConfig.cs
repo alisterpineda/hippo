@@ -79,7 +79,7 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
           //   ]
           // },
           // "lint": {
-          //   "off": ["okf-footnote"]             // SHOULD rules to leave unchecked in OKF bundles
+          //   "off": ["okf-footnote"]             // rules to leave unchecked; OKF MUST rules are always checked
           // },
           // "search": {
           //   "tokenizer": "trigram"              // porter (whole words and their forms, the default) or trigram (any substring)
@@ -104,7 +104,7 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
 
     public LinkSettings Links { get; init; } = LinkSettings.Default;
 
-    /// <summary>The SHOULD rules <c>lint.off</c> turns off.</summary>
+    /// <summary>The rules <c>lint.off</c> turns off.</summary>
     public IReadOnlyList<string> LintOff { get; init; } = [];
 
     public SearchTokenizer SearchTokenizer { get; init; } = SearchTokenizer.Porter;
@@ -246,8 +246,8 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
         return fields;
     }
 
-    /// <summary>The rules <c>lint.off</c> names. Only a SHOULD rule can be turned off: with every MUST rule on, a run that
-    /// reports none of them means the bundle is conformant (§11).</summary>
+    /// <summary>The rules <c>lint.off</c> names. An OKF MUST rule cannot be turned off: with every MUST rule on, a run
+    /// that reports none of them means the bundle is conformant (§11).</summary>
     private static List<string> ParseLint(JsonElement element)
     {
         var off = new List<string>();
@@ -260,11 +260,11 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
             foreach (var item in value.EnumerateArray())
             {
                 var name = String(item) ?? throw Error("lint.off must be an array of rule names");
-                var rule = OkfRules.Find(name)
-                    ?? throw Error($"lint.off: unknown rule {name}; expected one of {string.Join(", ", OkfRules.Names)}");
-                if (rule.Level == RuleLevel.Must)
+                var rule = LintRules.Find(name)
+                    ?? throw Error($"lint.off: unknown rule {name}; expected one of {string.Join(", ", LintRules.Names)}");
+                if (!rule.CanTurnOff)
                 {
-                    throw Error($"lint.off: {name} is a MUST rule, which cannot be turned off");
+                    throw Error($"lint.off: {name} cannot be turned off; it is a MUST rule in OKF v{OkfBundle.SpecVersion}");
                 }
                 off.Add(name);
             }

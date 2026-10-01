@@ -111,15 +111,6 @@ public sealed class SmokeTests : IDisposable
     }
 
     [Fact]
-    public async Task Broken()
-    {
-        var link = Assert.Single((await Json(1, "broken")).EnumerateArray());
-
-        Assert.Equal(("wiki/topics/topic.md", "missing.md", "wiki/topics/missing.md"),
-            (link.GetProperty("source").GetString(), link.GetProperty("raw").GetString(), link.GetProperty("target").GetString()));
-    }
-
-    [Fact]
     public async Task Find_files_with_no_links()
     {
         Assert.Equal(["raw/lonely.md"], Strings(await Json(0, "find", "--no-refs", "--no-backrefs", "--kind", "markdown"), "path"));
@@ -134,13 +125,16 @@ public sealed class SmokeTests : IDisposable
 
         var findings = (await Json(1, "lint")).EnumerateArray().ToList();
 
-        Assert.Equal(2, findings.Count);
+        Assert.Equal(3, findings.Count);
         Assert.Equal(("okf-index", "wiki/draft.md", JsonValueKind.Null, "wiki/index.md"),
             (findings[0].GetProperty("rule").GetString(), findings[0].GetProperty("path").GetString(), findings[0].GetProperty("line").ValueKind,
                 findings[0].GetProperty("related")[0].GetString()));
         Assert.Equal(("okf-status", "wiki/draft.md", 3, 0),
             (findings[1].GetProperty("rule").GetString(), findings[1].GetProperty("path").GetString(), findings[1].GetProperty("line").GetInt32(),
                 findings[1].GetProperty("related").GetArrayLength()));
+        Assert.Equal(("broken-link", "wiki/topics/topic.md", 8, "missing.md -> wiki/topics/missing.md", "wiki/topics/missing.md"),
+            (findings[2].GetProperty("rule").GetString(), findings[2].GetProperty("path").GetString(), findings[2].GetProperty("line").GetInt32(),
+                findings[2].GetProperty("message").GetString(), findings[2].GetProperty("related")[0].GetString()));
     }
 
     [Fact]

@@ -141,19 +141,6 @@ public class OutputJsonTests
         """, [new TransitiveBackrefOutput("a.md")], OutputJson.Default.ListTransitiveBackrefOutput);
 
     [Fact]
-    public void Broken() => AssertJson("""
-        [
-          {
-            "source": "a.md",
-            "line": 3,
-            "kind": "body",
-            "raw": "../x.md",
-            "target": null
-          }
-        ]
-        """, [new BrokenOutput("a.md", 3, "body", "../x.md", null)], OutputJson.Default.ListBrokenOutput);
-
-    [Fact]
     public void Lint() => AssertJson("""
         [
           {

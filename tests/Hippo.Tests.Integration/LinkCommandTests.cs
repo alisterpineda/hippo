@@ -165,57 +165,6 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
-    public void Broken_lists_links_to_missing_files_and_exits_1()
-    {
-        WriteNotes();
-
-        var result = _workspace.Run("broken");
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Equal(["wiki/topics/topic.md:7  frontmatter  ../raw/journal/gone.md -> raw/journal/gone.md"], Lines(result.Stdout));
-    }
-
-    [Fact]
-    public void Broken_json_lists_the_same_links()
-    {
-        WriteNotes();
-        _workspace.Write("wiki/escape.md", "[out](../../outside.md)\n");
-
-        var json = Json(_workspace.Run("broken", "--json"), exitCode: 1);
-
-        Assert.Equal(
-            ["wiki/escape.md 1 body ../../outside.md null", "wiki/topics/topic.md 7 frontmatter ../raw/journal/gone.md raw/journal/gone.md"],
-            json.EnumerateArray().Select(l =>
-                $"{l.GetProperty("source").GetString()} {l.GetProperty("line").GetInt32()} {l.GetProperty("kind").GetString()} {l.GetProperty("raw").GetString()} {l.GetProperty("target").GetString() ?? "null"}"));
-    }
-
-    [Fact]
-    public void Creating_a_missing_target_fixes_its_links_on_the_next_command()
-    {
-        WriteNotes();
-        _workspace.Run("index");
-
-        _workspace.Write("raw/journal/gone.md", "# Back\n");
-        var result = _workspace.Run("broken");
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Empty(result.Stdout);
-    }
-
-    [Fact]
-    public void Deleting_a_target_breaks_its_links_on_the_next_command()
-    {
-        WriteNotes();
-        _workspace.Run("index");
-
-        File.Delete(_workspace.Combine("raw/journal/2026-09-01.md"));
-        var result = _workspace.Run("broken");
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Contains("wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md -> raw/journal/2026-09-01.md", Lines(result.Stdout));
-    }
-
-    [Fact]
     public void An_edit_to_a_pages_links_shows_up_on_the_next_command()
     {
         var path = _workspace.Write("a.md", "[b](b.md)\n");
@@ -239,62 +188,6 @@ public sealed class LinkCommandTests : IDisposable
         var result = _workspace.Run("refs", "wiki/a.md");
 
         Assert.Equal(["1  body         file       wiki/b.md"], Lines(result.Stdout));
-    }
-
-    [Fact]
-    public void A_clean_workspace_exits_0_from_broken()
-    {
-        _workspace.Write(".hippo/config.json", "");
-        _workspace.Write("index.md", "[a](a.md)\n");
-        _workspace.Write("a.md", "[index](index.md)\n");
-
-        var broken = _workspace.Run("broken");
-
-        Assert.Equal((0, ""), (broken.ExitCode, broken.Stdout));
-    }
-
-    [Fact]
-    public void A_link_into_the_roots_hippo_folder_is_broken()
-    {
-        _workspace.Write(".hippo/config.json", "");
-        _workspace.Write("index.md", "[config](.hippo/config.json)\n");
-
-        var broken = _workspace.Run("broken");
-
-        Assert.Equal(["index.md:1  body         .hippo/config.json -> .hippo/config.json"], Lines(broken.Stdout));
-    }
-
-    [Fact]
-    public void A_link_to_a_folder_holding_an_indexed_file_is_a_directory_and_not_broken()
-    {
-        _workspace.Write(".hippo/config.json", "");
-        _workspace.Write("wiki/index.md", "[home](../) [2021](../raw/2021/) [2021](../raw/2021) [empty](../raw/empty/)\n");
-        _workspace.Write("raw/2021/day.md", "# Day\n");
-        Directory.CreateDirectory(_workspace.Combine("raw/empty"));
-
-        var refs = _workspace.Run("refs", "wiki/index.md");
-        var broken = _workspace.Run("broken");
-
-        Assert.Equal(
-            ["1  body         directory  ../", "1  body         directory  raw/2021", "1  body         directory  raw/2021", "1  body         missing    raw/empty"],
-            Lines(refs.Stdout));
-        Assert.Equal(1, broken.ExitCode);
-        Assert.Equal(["wiki/index.md:1  body         ../raw/empty/ -> raw/empty"], Lines(broken.Stdout));
-    }
-
-    [Fact]
-    public void A_folder_link_breaks_once_the_last_indexed_file_under_it_is_gone()
-    {
-        _workspace.Write(".hippo/config.json", "");
-        _workspace.Write("index.md", "[2021](raw/2021/)\n");
-        _workspace.Write("raw/2021/01/day.md", "# Day\n");
-        _workspace.Run("index");
-
-        File.Delete(_workspace.Combine("raw/2021/01/day.md"));
-        var result = _workspace.Run("broken");
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Equal(["index.md:1  body         raw/2021/ -> raw/2021"], Lines(result.Stdout));
     }
 
     [Fact]
@@ -336,23 +229,11 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
-    public void Broken_names_a_link_that_leaves_the_workspace_as_such()
-    {
-        _workspace.Write(".hippo/config.json", "");
-        _workspace.Write("index.md", "[out](../outside.md)\n");
-
-        var result = _workspace.Run("broken");
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Equal(["index.md:1  body         ../outside.md -> outside the workspace"], Lines(result.Stdout));
-    }
-
-    [Fact]
     public void A_malformed_link_setting_is_an_error()
     {
         _workspace.Write(".hippo/config.json", """{ "links": { "frontmatter": [{ "field": "a", "resolve": "folder" }] } }""");
 
-        var result = _workspace.Run("broken");
+        var result = _workspace.Run("find");
 
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("links.frontmatter[].resolve", result.Stderr);
@@ -364,7 +245,7 @@ public sealed class LinkCommandTests : IDisposable
         WriteNotes();
         var before = Snapshot();
 
-        foreach (var args in new[] { ["refs", "wiki/index.md"], ["backrefs", "wiki/index.md", "--transitive"], new[] { "broken" }, ["find", "--no-refs", "--no-backrefs"] })
+        foreach (var args in new[] { ["refs", "wiki/index.md"], ["backrefs", "wiki/index.md", "--transitive"], new[] { "lint", "--rule", "broken-link" }, ["find", "--no-refs", "--no-backrefs"] })
         {
             _workspace.Run(args);
         }
