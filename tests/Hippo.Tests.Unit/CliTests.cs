@@ -18,7 +18,7 @@ public class CliTests
     public void The_commands_are_listed_in_order()
     {
         Assert.Equal(
-            ["init", "index", "status", "find", "show", "refs", "backrefs", "broken", "orphans", "lint", "cache"],
+            ["init", "index", "status", "find", "show", "refs", "backrefs", "broken", "lint", "cache"],
             Cli.Build().Subcommands.Select(c => c.Name));
     }
 

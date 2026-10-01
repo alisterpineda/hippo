@@ -90,14 +90,20 @@ internal static class LinkQueries
             ORDER BY source.path, l.line, l.id
             """).ToList();
 
-    /// <summary>Indexed files with no link to or from another indexed file. A page's links to itself, and its links
-    /// that are folders, URLs, anchors or missing, do not count.</summary>
-    public static List<string> Orphans(SqliteConnection db) =>
+    /// <summary>Indexed files that no link from another file targets. A page's links to itself do not count.</summary>
+    public static HashSet<string> WithoutBackrefs(SqliteConnection db, SqliteTransaction? transaction) =>
         db.Query<string>("""
             SELECT f.path
             FROM files f
             WHERE NOT EXISTS (SELECT 1 FROM links l WHERE l.target = f.path AND l.source_id != f.id)
-              AND NOT EXISTS (SELECT 1 FROM links l JOIN files t ON t.path = l.target WHERE l.source_id = f.id AND t.id != f.id)
-            ORDER BY f.path
-            """).ToList();
+            """, transaction: transaction).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>Indexed files with no link to another indexed file. A page's links to itself, and its links that are
+    /// folders, URLs, anchors or missing, do not count.</summary>
+    public static HashSet<string> WithoutRefs(SqliteConnection db, SqliteTransaction? transaction) =>
+        db.Query<string>("""
+            SELECT f.path
+            FROM files f
+            WHERE NOT EXISTS (SELECT 1 FROM links l JOIN files t ON t.path = l.target WHERE l.source_id = f.id AND t.id != f.id)
+            """, transaction: transaction).ToHashSet(StringComparer.Ordinal);
 }

@@ -29,8 +29,6 @@ internal sealed record TransitiveBackrefOutput(string Source);
 
 internal sealed record BrokenOutput(string Source, long Line, string Kind, string Raw, string? Target);
 
-internal sealed record OrphanOutput(string Path);
-
 internal sealed record FindingOutput(string Rule, string Path, long? Line, string Message, List<string> Related);
 
 internal sealed record CacheIndexOutput(string Database, string? Root, string State, long Size);
@@ -49,7 +47,6 @@ internal sealed record CacheIndexOutput(string Database, string? Root, string St
 [JsonSerializable(typeof(List<BackrefOutput>))]
 [JsonSerializable(typeof(List<TransitiveBackrefOutput>))]
 [JsonSerializable(typeof(List<BrokenOutput>))]
-[JsonSerializable(typeof(List<OrphanOutput>))]
 [JsonSerializable(typeof(List<FindingOutput>))]
 [JsonSerializable(typeof(List<CacheIndexOutput>))]
 internal sealed partial class OutputJson : JsonSerializerContext;

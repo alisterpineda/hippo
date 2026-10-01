@@ -4,8 +4,9 @@ using Microsoft.Data.Sqlite;
 
 namespace Hippo.Tests.Unit;
 
-/// <summary>Runs every query in <see cref="LinkQueries"/> against a database built from the migration scripts, over a
-/// small graph with a cycle: index → a → b ⇢ c → a (⇢ is a frontmatter link).</summary>
+/// <summary>Runs the queries in <see cref="LinkQueries"/> against a database built from the migration scripts, over a
+/// small graph with a cycle: index → a → b ⇢ c → a (⇢ is a frontmatter link). <see cref="LinkQueries.WithoutRefs"/> and
+/// <see cref="LinkQueries.WithoutBackrefs"/> are tested through <c>find</c>, in <c>FindCommandTests</c>.</summary>
 public sealed class LinkQueriesTests : IDisposable
 {
     private readonly TestDatabase _database = new();
@@ -132,27 +133,5 @@ public sealed class LinkQueriesTests : IDisposable
         Assert.Equal(["directory", "directory", "missing", "missing", "missing"], LinkQueries.Refs(_db, "wiki/folders.md").Select(l => l.Type));
         Assert.Equal(["wiki/a", "ra", "wik"], LinkQueries.Broken(_db).Where(l => l.Source == "wiki/folders.md").Select(l => l.Target));
         Assert.Equal([new LinkIn("wiki/folders.md", 2, "body", "../raw/")], LinkQueries.Backrefs(_db, "raw", null));
-        Assert.Contains("wiki/folders.md", LinkQueries.Orphans(_db));
-    }
-
-    [Fact]
-    public void Orphans_are_files_with_no_link_to_or_from_another_file()
-    {
-        AddFile("wiki/loose.md", "markdown");
-        Link("wiki/loose.md", 1, "body", "url", "https://example.com", null);
-        Link("wiki/loose.md", 2, "body", "anchor", "#top", null);
-        Link("wiki/loose.md", 3, "body", "path", "gone.md", "wiki/gone.md");
-        AddFile("wiki/gallery.md", "markdown");
-        Link("wiki/gallery.md", 1, "body", "path", "../img.png", "img.png");
-
-        // wiki/index.md is linked to by nothing, but links out; wiki/gallery.md links only to img.png, a file that is not
-        // a page, and that one link keeps both from being orphans.
-        Assert.Equal(["raw/x.md", "wiki/loose.md", "wiki/self.md"], LinkQueries.Orphans(_db));
-    }
-
-    [Fact]
-    public void A_file_that_is_not_a_page_is_an_orphan_when_nothing_links_to_it()
-    {
-        Assert.Contains("img.png", LinkQueries.Orphans(_db));
     }
 }

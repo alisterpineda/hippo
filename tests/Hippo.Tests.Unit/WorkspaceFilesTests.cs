@@ -99,4 +99,28 @@ public sealed class WorkspaceFilesTests : IDisposable
 
         Assert.Equal(["wiki/b.md", "wiki/deep/c.md"], matched.Order(StringComparer.Ordinal));
     }
+
+    [Fact]
+    public void A_key_any_of_several_globs_matches_is_matched()
+    {
+        var matched = Open().Glob(["wiki/*.md", "*.txt"], ["a.md", "b.txt", "wiki/c.md", "wiki/d.txt"]);
+
+        Assert.Equal(["b.txt", "wiki/c.md"], matched.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void A_glob_starting_with_an_exclamation_mark_leaves_out_what_it_matches()
+    {
+        var matched = Open().Glob(["wiki/**", "!wiki/drafts/**"], ["a.md", "wiki/b.md", "wiki/drafts/c.md"]);
+
+        Assert.Equal(["wiki/b.md"], matched.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void Globs_that_all_exclude_leave_out_what_they_match_from_every_key()
+    {
+        var matched = Open().Glob(["!archive/**", "!*.png"], ["a.md", "b.png", "archive/c.md", "wiki/d.md", "wiki/e.png"]);
+
+        Assert.Equal(["a.md", "wiki/d.md", "wiki/e.png"], matched.Order(StringComparer.Ordinal));
+    }
 }

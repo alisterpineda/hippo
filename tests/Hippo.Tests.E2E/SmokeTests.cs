@@ -120,9 +120,10 @@ public sealed class SmokeTests : IDisposable
     }
 
     [Fact]
-    public async Task Orphans()
+    public async Task Find_files_with_no_links()
     {
-        Assert.Equal(["raw/lonely.md"], Strings(await Json(1, "orphans"), "path"));
+        Assert.Equal(["raw/lonely.md"], Strings(await Json(0, "find", "--no-refs", "--no-backrefs", "--kind", "markdown"), "path"));
+        Assert.Equal(["raw/lonely.md"], Strings(await Json(0, "find", "lonely", "--no-refs", "--no-backrefs", "--glob", "!wiki/**"), "path"));
     }
 
     [Fact]

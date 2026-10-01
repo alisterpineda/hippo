@@ -25,7 +25,6 @@ public static class Cli
         root.Subcommands.Add(RefsCommand.Build(environment));
         root.Subcommands.Add(BackrefsCommand.Build(environment));
         root.Subcommands.Add(BrokenCommand.Build(environment));
-        root.Subcommands.Add(OrphansCommand.Build(environment));
         root.Subcommands.Add(LintCommand.Build(environment));
         root.Subcommands.Add(CacheCommand.Build(environment));
         return root;

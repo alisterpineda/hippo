@@ -521,6 +521,263 @@ public sealed class FindCommandTests : IDisposable
     }
 
     [Fact]
+    public void Glob_can_be_given_more_than_once_and_keeps_what_any_pattern_matches()
+    {
+        _workspace.Write("wiki/a.md", "# A\n");
+        _workspace.Write("raw/b.md", "# B\n");
+        _workspace.Write("drafts/c.md", "# C\n");
+
+        Assert.Equal(["raw/b.md", "wiki/a.md"], Paths("--glob", "wiki/**", "--glob", "raw/**"));
+    }
+
+    [Fact]
+    public void A_glob_starting_with_an_exclamation_mark_leaves_out_what_it_matches()
+    {
+        _workspace.Write("wiki/a.md", "# A\n");
+        _workspace.Write("wiki/drafts/b.md", "# B\n");
+        _workspace.Write("raw/c.md", "# C\n");
+
+        Assert.Equal(["wiki/a.md"], Paths("--glob", "wiki/**", "--glob", "!wiki/drafts/**"));
+    }
+
+    [Fact]
+    public void Globs_that_all_exclude_leave_out_what_they_match_from_every_file()
+    {
+        _workspace.Write("wiki/a.md", "# A\n");
+        _workspace.Write("archive/b.md", "# B\n");
+        _workspace.Write("c.png", "png");
+
+        Assert.Equal(["wiki/a.md"], Paths("--glob", "!archive/**", "--glob", "!*.png"));
+    }
+
+    [Fact]
+    public void With_a_query_a_glob_starting_with_an_exclamation_mark_leaves_out_what_it_matches()
+    {
+        _workspace.Write("wiki/a.md", "kestrel\n");
+        _workspace.Write("archive/b.md", "kestrel\n");
+
+        Assert.Equal(["wiki/a.md"], Paths("kestrel", "--glob", "!archive/**"));
+    }
+
+    [Fact]
+    public void Kind_keeps_only_files_of_that_kind()
+    {
+        _workspace.Write("a.md", "# A\n");
+        _workspace.Write("b.png", "png");
+        _workspace.Write("c.txt", "c");
+
+        Assert.Equal(["a.md"], Paths("--kind", "markdown"));
+        Assert.Equal(["b.png", "c.txt"], Paths("--kind", "other"));
+    }
+
+    [Fact]
+    public void With_a_query_kind_other_finds_nothing_since_only_markdown_is_searched()
+    {
+        _workspace.Write("a.md", "kestrel\n");
+
+        Assert.Equal(["a.md"], Paths("kestrel", "--kind", "markdown"));
+        Assert.Empty(Paths("kestrel", "--kind", "other"));
+    }
+
+    [Fact]
+    public void A_kind_other_than_markdown_or_other_is_an_error()
+    {
+        var result = _workspace.Run("find", "--kind", "page");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("page", result.Stderr);
+    }
+
+    /// <summary>A small graph with a cycle, index → a → b ⇢ c → a (⇢ is a frontmatter link), and pages around it that
+    /// link only to themselves, to a file that is not a page, or to nothing indexed.</summary>
+    private void WriteGraph()
+    {
+        _workspace.Write(".hippo/config.json", """{ "links": { "frontmatter": [{ "field": "related" }] } }""");
+        _workspace.Write("wiki/a.md", "[b](b.md)\n[gone](../raw/gone.md)\n[web](https://example.com)\n[top](#top)\n[out](../../x.md)\n");
+        _workspace.Write("wiki/b.md", "---\nrelated: c.md\n---\n# B\n");
+        _workspace.Write("wiki/c.md", "[a](a.md)\n");
+        _workspace.Write("wiki/index.md", "[a](a.md)\n");
+        _workspace.Write("wiki/self.md", "[self](self.md)\n");
+        _workspace.Write("wiki/loose.md", "[web](https://example.com) [top](#top) [gone](gone.md)\n");
+        _workspace.Write("wiki/gallery.md", "![img](../img.png)\n");
+        _workspace.Write("raw/x.md", "# X\n");
+        _workspace.Write("img.png", "png");
+    }
+
+    [Fact]
+    public void No_backrefs_keeps_files_no_other_file_links_to()
+    {
+        WriteGraph();
+
+        // A page's link to itself does not count, so wiki/self.md is kept.
+        Assert.Equal(["raw/x.md", "wiki/gallery.md", "wiki/index.md", "wiki/loose.md", "wiki/self.md"], Paths("--no-backrefs"));
+    }
+
+    [Fact]
+    public void No_refs_keeps_files_with_no_link_to_another_indexed_file()
+    {
+        WriteGraph();
+
+        // Links to the page itself, URLs, anchors, missing files and paths outside the workspace do not count.
+        Assert.Equal(["img.png", "raw/x.md", "wiki/loose.md", "wiki/self.md"], Paths("--no-refs"));
+    }
+
+    [Fact]
+    public void No_refs_and_no_backrefs_together_keep_files_with_no_link_in_or_out()
+    {
+        WriteGraph();
+
+        // wiki/index.md links out though nothing links to it, and wiki/gallery.md links only to img.png, a file that is
+        // not a page; that one link keeps both from the list.
+        Assert.Equal(["raw/x.md", "wiki/loose.md", "wiki/self.md"], Paths("--no-refs", "--no-backrefs"));
+    }
+
+    [Fact]
+    public void With_a_query_no_refs_and_no_backrefs_each_keep_only_the_matching_pages_they_match()
+    {
+        _workspace.Write("index.md", "kestrel [a](a.md)\n");
+        _workspace.Write("a.md", "kestrel\n");
+        _workspace.Write("loose.md", "kestrel\n");
+
+        Assert.Equal(["a.md", "loose.md"], Paths("kestrel", "--no-refs").Order(StringComparer.Ordinal));
+        Assert.Equal(["index.md", "loose.md"], Paths("kestrel", "--no-backrefs").Order(StringComparer.Ordinal));
+        Assert.Equal(["loose.md"], Paths("kestrel", "--no-refs", "--no-backrefs"));
+    }
+
+    [Fact]
+    public void No_refs_and_no_backrefs_list_files_with_no_link_in_or_out_and_exit_0()
+    {
+        _workspace.Write(".hippo/config.json", """
+            {
+              "links": {
+                "bundles": ["wiki"],
+                "frontmatter": [{ "field": "sources[].resource", "resolve": "bundle" }]
+              }
+            }
+            """);
+        _workspace.Write("wiki/index.md", "# Index\n\n- [Topic](topics/topic.md)\n");
+        _workspace.Write("wiki/topics/topic.md", """
+            ---
+            title: Topic
+            sources:
+              - id: j-2026-09-01
+                resource: ../raw/journal/2026-09-01.md
+              - id: j-gone
+                resource: ../raw/journal/gone.md
+            ---
+            # Topic
+
+            See [the index](/index.md), [[Wikilink]] and [the web](https://example.com).
+            """);
+        _workspace.Write("raw/journal/2026-09-01.md", "# Day\n\n![photo](img/photo%201.png)\n");
+        _workspace.Write("raw/journal/img/photo 1.png", "png");
+        _workspace.Write("raw/journal/lonely.md", "# Nobody cites me\n");
+
+        var result = _workspace.Run("find", "--no-refs", "--no-backrefs");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["raw/journal/lonely.md"], Lines(result.Stdout));
+        Assert.Equal(["raw/journal/lonely.md"], Paths("--no-refs", "--no-backrefs"));
+    }
+
+    [Fact]
+    public void No_refs_and_no_backrefs_list_nothing_in_a_workspace_where_every_file_is_linked()
+    {
+        _workspace.Write("index.md", "[a](a.md)\n");
+        _workspace.Write("a.md", "[index](index.md)\n");
+
+        var result = _workspace.Run("find", "--no-refs", "--no-backrefs");
+
+        Assert.Equal((0, ""), (result.ExitCode, result.Stdout));
+    }
+
+    [Fact]
+    public void A_page_that_only_links_out_has_refs_but_one_linking_only_outside_the_index_does_not()
+    {
+        _workspace.Write("index.md", "[a](a.md)\n");
+        _workspace.Write("a.md", "# A\n");
+        _workspace.Write("web.md", "[web](https://example.com) and [gone](gone.md)\n");
+
+        Assert.Equal(["web.md"], Paths("--no-refs", "--no-backrefs"));
+    }
+
+    [Fact]
+    public void A_file_that_is_not_a_page_has_no_backrefs_when_nothing_links_to_it()
+    {
+        _workspace.Write("index.md", "![used](used.png)\n");
+        _workspace.Write("used.png", "png");
+        _workspace.Write("unused.png", "png");
+
+        Assert.Equal(["unused.png"], Paths("--no-refs", "--no-backrefs"));
+    }
+
+    [Fact]
+    public void A_page_linking_only_to_a_folder_has_no_refs()
+    {
+        _workspace.Write("index.md", "[a](a.md)\n");
+        _workspace.Write("a.md", "[index](index.md)\n");
+        _workspace.Write("folders.md", "[here](./)\n");
+
+        Assert.Equal(["folders.md"], Paths("--no-refs", "--no-backrefs"));
+    }
+
+    [Fact]
+    public void A_page_linking_only_into_the_roots_hippo_folder_has_no_refs()
+    {
+        _workspace.Write("index.md", "[config](.hippo/config.json)\n");
+
+        Assert.Equal(["index.md"], Paths("--no-refs", "--no-backrefs"));
+    }
+
+    [Fact]
+    public void An_exclusion_glob_hides_each_pattern_given_from_files_with_no_links()
+    {
+        _workspace.Write("README.md", "# Readme\n");
+        _workspace.Write("archive/2020/old.md", "# Old\n");
+        _workspace.Write("loose.md", "# Loose\n");
+
+        var one = _workspace.Run("find", "--no-refs", "--no-backrefs", "--glob", "!archive/**");
+        var both = Paths("--no-refs", "--no-backrefs", "--glob", "!archive/**", "--glob", "!*.md");
+
+        Assert.Equal(0, one.ExitCode);
+        Assert.Equal(["README.md", "loose.md"], Lines(one.Stdout));
+        Assert.Empty(both);
+    }
+
+    [Fact]
+    public void An_exclusion_glob_is_workspace_relative_from_a_subfolder()
+    {
+        _workspace.Write("archive/old.md", "# Old\n");
+        _workspace.Write("notes/loose.md", "# Loose\n");
+
+        var result = _workspace.RunIn(_workspace.Combine("notes"), "find", "--no-refs", "--no-backrefs", "--glob", "!archive/**");
+
+        Assert.Equal(["notes/loose.md"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void A_file_the_glob_leaves_out_still_has_its_links_count()
+    {
+        _workspace.Write("archive/old.md", "[note](../note.md)\n");
+        _workspace.Write("note.md", "# Note\n");
+
+        var result = _workspace.Run("find", "--no-refs", "--no-backrefs", "--glob", "!archive/**");
+
+        Assert.Equal((0, ""), (result.ExitCode, result.Stdout));
+    }
+
+    [Fact]
+    public void A_link_to_a_file_the_glob_leaves_out_still_counts_as_a_ref()
+    {
+        _workspace.Write("note.md", "[old](archive/old.md)\n");
+        _workspace.Write("archive/old.md", "# Old\n");
+
+        var result = _workspace.Run("find", "--no-refs", "--glob", "!archive/**");
+
+        Assert.Equal((0, ""), (result.ExitCode, result.Stdout));
+    }
+
+    [Fact]
     public void An_edit_is_searchable_on_the_next_command()
     {
         var path = _workspace.Write("a.md", "heron\n");

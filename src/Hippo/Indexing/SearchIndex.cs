@@ -6,7 +6,7 @@ namespace Hippo.Indexing;
 
 /// <summary>A page that matches a search, by rank, with its row in <c>files</c>. <see cref="Id"/> is its row in the search
 /// table, valid only within the transaction it was read in.</summary>
-internal sealed record SearchMatch(long Id, string Path, string Kind, long Size, long Mtime, string? ParseError);
+internal sealed record SearchMatch(long Id, string Path, string Kind, long Size, long Mtime, string? ParseError) : IFileRow;
 
 /// <summary>A matching page's title, null when it has none, and the stretch of its body around the match.</summary>
 internal sealed record SearchText(string? Title, string Snippet);

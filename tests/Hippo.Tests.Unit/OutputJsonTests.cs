@@ -154,15 +154,6 @@ public class OutputJsonTests
         """, [new BrokenOutput("a.md", 3, "body", "../x.md", null)], OutputJson.Default.ListBrokenOutput);
 
     [Fact]
-    public void Orphans() => AssertJson("""
-        [
-          {
-            "path": "a.md"
-          }
-        ]
-        """, [new OrphanOutput("a.md")], OutputJson.Default.ListOrphanOutput);
-
-    [Fact]
     public void Lint() => AssertJson("""
         [
           {

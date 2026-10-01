@@ -34,9 +34,18 @@ internal sealed record FrontmatterFilter(string Field, string Value)
         """;
 }
 
+/// <summary>The fields of a <c>files</c> row that a listing and a search match both carry, for code that filters
+/// either.</summary>
+internal interface IFileRow
+{
+    string Path { get; }
+    string Kind { get; }
+    string? ParseError { get; }
+}
+
 /// <summary>An indexed file. <see cref="Title"/> is its page's title, null when it is not a page, the page has none,
 /// or the listing was read without titles.</summary>
-internal sealed record FileListing(string Path, string Kind, long Size, long Mtime, string? ParseError, string? Title);
+internal sealed record FileListing(string Path, string Kind, long Size, long Mtime, string? ParseError, string? Title) : IFileRow;
 
 internal sealed record FileDetail(string Path, string Kind, long Size, long Mtime, string Hash, string? Frontmatter, string? ParseError);
 
@@ -67,13 +76,13 @@ internal static class FileQueries
 
     /// <summary>Every indexed file in path order, less those whose frontmatter fails <paramref name="where"/>, each with
     /// its title when <paramref name="titles"/> is set.</summary>
-    public static List<FileListing> List(SqliteConnection db, FrontmatterFilter? where, bool titles = true) =>
+    public static List<FileListing> List(SqliteConnection db, FrontmatterFilter? where, bool titles = true, SqliteTransaction? transaction = null) =>
         (where, titles) switch
         {
-            (null, true) => db.Query<FileListing>(TitledListSql + OrderSql).ToList(),
-            (null, false) => db.Query<FileListing>(UntitledListSql + OrderSql).ToList(),
-            ({ } filter, true) => db.Query<FileListing>(TitledListSql + WhereSql + OrderSql, new { filter.JsonPath, filter.Value }).ToList(),
-            ({ } filter, false) => db.Query<FileListing>(UntitledListSql + WhereSql + OrderSql, new { filter.JsonPath, filter.Value }).ToList(),
+            (null, true) => db.Query<FileListing>(TitledListSql + OrderSql, transaction: transaction).ToList(),
+            (null, false) => db.Query<FileListing>(UntitledListSql + OrderSql, transaction: transaction).ToList(),
+            ({ } filter, true) => db.Query<FileListing>(TitledListSql + WhereSql + OrderSql, new { filter.JsonPath, filter.Value }, transaction).ToList(),
+            ({ } filter, false) => db.Query<FileListing>(UntitledListSql + WhereSql + OrderSql, new { filter.JsonPath, filter.Value }, transaction).ToList(),
         };
 
     public static FileDetail? Get(SqliteConnection db, string path) =>

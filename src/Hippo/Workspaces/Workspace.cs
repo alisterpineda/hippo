@@ -65,11 +65,28 @@ internal sealed record Workspace(string Root, WorkspaceConfig Config)
         matcher.Match(Root, fullPaths).Files.Select(match => Key(match.Path)).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>The keys among <paramref name="keys"/> that any of the globs <paramref name="patterns"/>, taken relative
-    /// to the root, matches.</summary>
+    /// to the root, matches, less those a glob starting with <c>!</c> matches. When every glob starts with <c>!</c>, they
+    /// leave out what they match from every key.</summary>
     public HashSet<string> Glob(IEnumerable<string> patterns, IEnumerable<string> keys)
     {
         var matcher = new Matcher(StringComparison.Ordinal);
-        matcher.AddIncludePatterns(patterns);
+        var included = false;
+        foreach (var pattern in patterns)
+        {
+            if (pattern.StartsWith('!'))
+            {
+                matcher.AddExclude(pattern[1..]);
+            }
+            else
+            {
+                matcher.AddInclude(pattern);
+                included = true;
+            }
+        }
+        if (!included)
+        {
+            matcher.AddInclude("**");
+        }
         return Match(matcher, keys.Select(FullPath));
     }
 

@@ -6,25 +6,26 @@ Status: phase 5 (full-text search). hippo indexes every file in the workspace, t
 
 ## Commands
 
-`hippo init` makes the current folder a workspace by writing a starter `.hippo/config.json`; it will not overwrite one, and warns when the folder is already inside another workspace. `hippo cache` runs from anywhere and works on every index in the cache. Every other command runs from anywhere inside a workspace: hippo walks up to the first folder with a `.hippo/config.json`. Each brings the index up to date first, prints text by default and JSON with `--json`, and exits 0 when clean, 1 when it reports findings (`broken`, `orphans`, `lint`), and 2 on error.
+`hippo init` makes the current folder a workspace by writing a starter `.hippo/config.json`; it will not overwrite one, and warns when the folder is already inside another workspace. `hippo cache` runs from anywhere and works on every index in the cache. Every other command runs from anywhere inside a workspace: hippo walks up to the first folder with a `.hippo/config.json`. Each brings the index up to date first, prints text by default and JSON with `--json`, and exits 0 when clean, 1 when it reports findings (`broken`, `lint`), and 2 on error.
 
 ```
 hippo init                   write a starter .hippo/config.json in the current folder
 hippo index [--rebuild]      bring the index up to date; --rebuild re-reads every file
 hippo status                 workspace root, database path, file counts, last sweep
-hippo find ["<query>"] [--glob <pattern>] [--where <field>=<value>] [--errors] [--limit n]
+hippo find ["<query>"] [--glob <pattern>…] [--kind markdown|other] [--where <field>=<value>]
+           [--errors] [--no-refs] [--no-backrefs] [--limit n]
                              every indexed file in path order, or with a query, the pages holding every
-                             word of it, best match first, each with its title and a snippet; --glob and
-                             --where filter by path or frontmatter value; --errors keeps only files whose
-                             frontmatter failed to parse, with the error; --limit caps the results
-                             (20 by default with a query, none without)
+                             word of it, best match first, each with its title and a snippet; --glob,
+                             --kind and --where filter by path, kind or frontmatter value, and a --glob
+                             starting with ! leaves out what it matches; --errors keeps only files whose
+                             frontmatter failed to parse, with the error; --no-refs keeps files with no
+                             link to another file, and --no-backrefs those no other file links to;
+                             --limit caps the results (20 by default with a query, none without)
 hippo show <path>            what the index holds for one file
 hippo refs <path>            the links out of a file: line, kind, and file, directory, missing, url or anchor
 hippo backrefs <path> [--kind body|frontmatter] [--transitive]
                              the links into a path; --transitive lists every file that reaches it
 hippo broken                 links whose target is not an indexed file or folder
-hippo orphans [--exclude <pattern>…]
-                             files with no link to or from another file
 hippo lint [--rule <name>…]  where OKF bundles depart from OKF v0.2; --rule lists only the rules named,
                              even one lint.off turns off
 hippo cache list             every index in the cache: its state, size and workspace root
@@ -63,7 +64,7 @@ hippo cache prune [--dry-run] [--include-unreachable]
 
 The workspace root's `.hippo` folder is never indexed, whatever `include` says: it is hippo's, not the workspace's, so a link into it is broken. A nested workspace's `.hippo` folder is indexed like any other.
 
-A bundle is a folder whose pages treat it as their root: a leading `/` in a link resolves against the deepest bundle holding the page, or against the workspace root for a page in none. Other body links resolve from the page's folder; `[[x]]` is plain text, not a link. An orphan is a file, markdown or not, with no link to or from another indexed file; links to itself, to folders, URLs, anchors and missing targets do not count. `--exclude`, which can be given more than once, only hides the orphans matching a glob: an excluded file's links still count, and the exit code follows what is left.
+A bundle is a folder whose pages treat it as their root: a leading `/` in a link resolves against the deepest bundle holding the page, or against the workspace root for a page in none. Other body links resolve from the page's folder; `[[x]]` is plain text, not a link.
 
 Body links are CommonMark links, images, reference links and autolinks; their destinations are URLs, so percent-encoding is decoded and a query or fragment dropped. Frontmatter values are literal paths: nothing is decoded and a `?` is part of the path, but a `#` still starts a fragment that is dropped, so a frontmatter value cannot name a file with `#` in its name. A link with a scheme is a URL, one starting with `#` is anchor-only, and any other is a file when it resolves to an indexed file, a directory when it resolves to a folder holding an indexed file, and missing otherwise. A trailing `/` makes no difference, and the workspace root is a directory. A folder holding no indexed file, because it is empty or everything in it is excluded, is missing. `backrefs` of a folder lists the links to the folder itself, and `backrefs .` from the root lists those to the root.
 
@@ -93,9 +94,11 @@ Every rule is on for every OKF bundle. `lint.off` turns off SHOULD rules; naming
 
 ### Find
 
-Without a query, `hippo find` lists every indexed file in path order, one path per line, and under `--errors` each path followed by its frontmatter error. With `--json`, each file has its path, kind, size, modified time, title (null for a file that is not a page, or a page with none), parse error and snippet (null without a query). `--glob`, `--where` and `--errors` keep only the files they match, and `--limit` counts what is left; without a query there is no limit unless one is given.
+Without a query, `hippo find` lists every indexed file in path order, one path per line, and under `--errors` each path followed by its frontmatter error. With `--json`, each file has its path, kind, size, modified time, title (null for a file that is not a page, or a page with none), parse error and snippet (null without a query). The filters keep only the files they match, and `--limit` counts what is left; without a query there is no limit unless one is given.
 
-With a query, `hippo find` looks through every markdown file's title, path and body: the body is the text after the frontmatter, as written, and the title is the frontmatter `title`, or the first level-1 heading when there is none. A page matches when it holds every word of the query. Each word is matched as text, so punctuation in it is never query syntax: `foo-bar` finds the words `foo` and `bar` side by side, and `"`, `*`, `:`, `AND` and `OR` mean nothing special. Results rank by BM25, with a match in the title counting for more than one in the path, and one in the path for more than one in the body. Each result shows a snippet of the body around the match, on one line, with the matched words marked `**` as in markdown bold; a page that matches only in its title or path shows the start of its body, with nothing marked. `--glob`, `--where` and `--errors` keep only the pages they match, as without a query, and `--limit` counts what is left, 20 unless another is given. Finding nothing is not an error, so `find` exits 0 either way.
+`--glob` takes a glob relative to the workspace root, and can be given more than once: a file is kept when any glob matches it, less those a glob starting with `!` matches. When every glob starts with `!`, they leave out what they match from every file, so `--glob '!archive/**'` keeps everything outside `archive`. `--kind` keeps only `markdown` files, those whose names end in `.md`, or only `other` files. `--no-backrefs` keeps the files, markdown or not, that no other file links to, and `--no-refs` those with no link to another indexed file; a file's links to itself, and links to folders, URLs, anchors and missing targets, count for neither. Together, `--no-refs --no-backrefs` list the files with no link in or out. The link filters read every link in the index, so a file `--glob` leaves out still has its links count.
+
+With a query, `hippo find` looks through every markdown file's title, path and body: the body is the text after the frontmatter, as written, and the title is the frontmatter `title`, or the first level-1 heading when there is none. A page matches when it holds every word of the query. Each word is matched as text, so punctuation in it is never query syntax: `foo-bar` finds the words `foo` and `bar` side by side, and `"`, `*`, `:`, `AND` and `OR` mean nothing special. Results rank by BM25, with a match in the title counting for more than one in the path, and one in the path for more than one in the body. Each result shows a snippet of the body around the match, on one line, with the matched words marked `**` as in markdown bold; a page that matches only in its title or path shows the start of its body, with nothing marked. The filters keep only the pages they match, as without a query, and `--limit` counts what is left, 20 unless another is given. Finding nothing is not an error, so `find` exits 0 either way.
 
 The `porter` tokenizer, the default, matches whole words and other forms of them, so `running` finds `runs`. The `trigram` tokenizer matches any run of three or more characters, inside words too, so `dex` finds `index`, but a word shorter than three characters finds nothing. Changing `search.tokenizer` rebuilds the search index on the next command, without reading the files again.
 

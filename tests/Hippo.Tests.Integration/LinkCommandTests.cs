@@ -242,97 +242,15 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
-    public void Orphans_lists_files_with_no_link_in_or_out_and_exits_1()
-    {
-        WriteNotes();
-
-        var result = _workspace.Run("orphans");
-        var json = Json(_workspace.Run("orphans", "--json"), exitCode: 1);
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Equal(["raw/journal/lonely.md"], Lines(result.Stdout));
-        Assert.Equal(["raw/journal/lonely.md"], json.EnumerateArray().Select(o => o.GetProperty("path").GetString()));
-    }
-
-    [Fact]
-    public void Clean_workspaces_exit_0_from_broken_and_orphans()
+    public void A_clean_workspace_exits_0_from_broken()
     {
         _workspace.Write(".hippo/config.json", "");
         _workspace.Write("index.md", "[a](a.md)\n");
         _workspace.Write("a.md", "[index](index.md)\n");
 
         var broken = _workspace.Run("broken");
-        var orphans = _workspace.Run("orphans", "--json");
 
         Assert.Equal((0, ""), (broken.ExitCode, broken.Stdout));
-        Assert.Equal(0, orphans.ExitCode);
-        Assert.Equal(0, Json(orphans).GetArrayLength());
-    }
-
-    [Fact]
-    public void A_page_that_only_links_out_is_not_an_orphan_but_one_linking_only_outside_the_index_is()
-    {
-        _workspace.Write(".hippo/config.json", "");
-        _workspace.Write("index.md", "[a](a.md)\n");
-        _workspace.Write("a.md", "# A\n");
-        _workspace.Write("web.md", "[web](https://example.com) and [gone](gone.md)\n");
-
-        var orphans = _workspace.Run("orphans");
-
-        Assert.Equal(["web.md"], Lines(orphans.Stdout));
-    }
-
-    [Fact]
-    public void A_file_that_is_not_a_page_is_an_orphan_when_nothing_links_to_it()
-    {
-        _workspace.Write(".hippo/config.json", "");
-        _workspace.Write("index.md", "![used](used.png)\n");
-        _workspace.Write("used.png", "png");
-        _workspace.Write("unused.png", "png");
-
-        var orphans = _workspace.Run("orphans");
-
-        Assert.Equal(["unused.png"], Lines(orphans.Stdout));
-    }
-
-    [Fact]
-    public void Orphans_exclude_hides_each_pattern_given_and_exits_0_when_none_are_left()
-    {
-        _workspace.Write(".hippo/config.json", "");
-        _workspace.Write("README.md", "# Readme\n");
-        _workspace.Write("archive/2020/old.md", "# Old\n");
-        _workspace.Write("loose.md", "# Loose\n");
-
-        var one = _workspace.Run("orphans", "--exclude", "archive/**");
-        var both = Json(_workspace.Run("orphans", "--exclude", "archive/**", "--exclude", "*.md", "--json"));
-
-        Assert.Equal(1, one.ExitCode);
-        Assert.Equal(["README.md", "loose.md"], Lines(one.Stdout));
-        Assert.Equal(0, both.GetArrayLength());
-    }
-
-    [Fact]
-    public void Orphans_exclude_patterns_are_workspace_relative_from_a_subfolder()
-    {
-        _workspace.Write(".hippo/config.json", "");
-        _workspace.Write("archive/old.md", "# Old\n");
-        _workspace.Write("notes/loose.md", "# Loose\n");
-
-        var result = _workspace.RunIn(_workspace.Combine("notes"), "orphans", "--exclude", "archive/**");
-
-        Assert.Equal(["notes/loose.md"], Lines(result.Stdout));
-    }
-
-    [Fact]
-    public void An_excluded_files_links_still_keep_what_they_link_to_from_being_orphans()
-    {
-        _workspace.Write(".hippo/config.json", "");
-        _workspace.Write("archive/old.md", "[note](../note.md)\n");
-        _workspace.Write("note.md", "# Note\n");
-
-        var result = _workspace.Run("orphans", "--exclude", "archive/**");
-
-        Assert.Equal((0, ""), (result.ExitCode, result.Stdout));
     }
 
     [Fact]
@@ -342,10 +260,8 @@ public sealed class LinkCommandTests : IDisposable
         _workspace.Write("index.md", "[config](.hippo/config.json)\n");
 
         var broken = _workspace.Run("broken");
-        var orphans = _workspace.Run("orphans");
 
         Assert.Equal(["index.md:1  body         .hippo/config.json -> .hippo/config.json"], Lines(broken.Stdout));
-        Assert.Equal(["index.md"], Lines(orphans.Stdout));
     }
 
     [Fact]
@@ -420,19 +336,6 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
-    public void A_page_linking_only_to_a_folder_is_an_orphan()
-    {
-        _workspace.Write(".hippo/config.json", "");
-        _workspace.Write("index.md", "[a](a.md)\n");
-        _workspace.Write("a.md", "[index](index.md)\n");
-        _workspace.Write("folders.md", "[here](./)\n");
-
-        var orphans = _workspace.Run("orphans");
-
-        Assert.Equal(["folders.md"], Lines(orphans.Stdout));
-    }
-
-    [Fact]
     public void Broken_names_a_link_that_leaves_the_workspace_as_such()
     {
         _workspace.Write(".hippo/config.json", "");
@@ -461,7 +364,7 @@ public sealed class LinkCommandTests : IDisposable
         WriteNotes();
         var before = Snapshot();
 
-        foreach (var args in new[] { ["refs", "wiki/index.md"], ["backrefs", "wiki/index.md", "--transitive"], ["broken"], new[] { "orphans" } })
+        foreach (var args in new[] { ["refs", "wiki/index.md"], ["backrefs", "wiki/index.md", "--transitive"], new[] { "broken" }, ["find", "--no-refs", "--no-backrefs"] })
         {
             _workspace.Run(args);
         }
