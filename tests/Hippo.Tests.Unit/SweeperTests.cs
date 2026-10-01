@@ -116,6 +116,7 @@ public sealed class SweeperTests : IDisposable
     [InlineData(typeof(Sweeper.SourceRow))]
     [InlineData(typeof(Sweeper.LinkRow))]
     [InlineData(typeof(Sweeper.EntryRow))]
+    [InlineData(typeof(Sweeper.SearchRow))]
     public void Every_string_of_a_row_written_in_batches_is_unsized(Type row)
     {
         var strings = row.GetProperties().Where(p => p.PropertyType == typeof(string));
@@ -384,6 +385,7 @@ public sealed class SweeperTests : IDisposable
             var result = Sweep(rebuild);
 
             Assert.Equal("""{"title":"Locked"}""", Row("locked.md").Frontmatter);
+            Assert.Equal(["locked.md"], SearchRows().Select(r => r.File));
             Assert.Equal(0, result.Removed);
             Assert.Contains(result.Warnings, w => w.Contains("locked.md"));
         }
@@ -401,6 +403,7 @@ public sealed class SweeperTests : IDisposable
 
         var added = Sweep();
         Assert.Equal((count, count), (added.Added, Rows().Count));
+        Assert.Equal(count, SearchRows().Count(r => r.File is not null));
 
         foreach (var path in paths)
         {
@@ -409,6 +412,8 @@ public sealed class SweeperTests : IDisposable
         }
         var updated = Sweep();
         Assert.Equal(count, updated.Updated);
+        Assert.Equal(count, SearchRows().Count(r => r.File is not null));
+        Assert.Equal(count, SearchRows().Count);
         Assert.Equal(count, Rows().Count(r => r.Frontmatter?.StartsWith("""{"m":""", StringComparison.Ordinal) == true));
 
         foreach (var path in paths)
@@ -426,6 +431,28 @@ public sealed class SweeperTests : IDisposable
         var removed = Sweep();
         Assert.Equal(count, removed.Removed);
         Assert.Empty(Rows());
+        // Not SearchRows: FTS5 columns have no declared type, so with no row to read Dapper cannot type them.
+        Assert.Equal(0, _db.ExecuteScalar<long>("SELECT count(*) FROM search"));
+    }
+
+    [Fact]
+    public void A_rebuild_of_more_pages_than_one_batch_rewrites_them_all_in_place()
+    {
+        const int count = 450;
+        for (var i = 0; i < count; i++)
+        {
+            _workspace.Write($"n/{i:d3}.md", $"# Page {i}\n");
+        }
+        Sweep();
+        var ids = _db.Query<(string, long)>("SELECT path, id FROM files ORDER BY path").AsList();
+
+        var result = Sweep(rebuild: true);
+
+        Assert.True(result.Rebuilt);
+        Assert.Equal(count, result.Hashed);
+        Assert.Equal(ids, _db.Query<(string, long)>("SELECT path, id FROM files ORDER BY path").AsList());
+        Assert.Equal(count, SearchRows().Count(r => r.File is not null && r.Title == $"Page {int.Parse(r.Path[2..5], System.Globalization.CultureInfo.InvariantCulture)}"));
+        Assert.Equal(count, _db.ExecuteScalar<long>("SELECT count(*) FROM search"));
     }
 
     [Fact]
@@ -677,6 +704,128 @@ public sealed class SweeperTests : IDisposable
         _workspace.Write(".hippo/config.json", """{ "files": { "exclude": ["inbox/**"] } }""");
 
         Assert.False(Sweep().Rebuilt);
+    }
+
+    /// <summary>A row of the search table. <see cref="File"/> is the path of the file whose id is its rowid, or null
+    /// when no file has that id.</summary>
+    public sealed record StoredSearchRow(string? File, string Title, string Path, string Body);
+
+    private List<StoredSearchRow> SearchRows() =>
+        _db.Query<StoredSearchRow>("""
+            SELECT f.path AS File, s.title, s.path, s.body
+            FROM search s LEFT JOIN files f ON f.id = s.rowid
+            ORDER BY s.path, s.rowid
+            """).AsList();
+
+    [Fact]
+    public void A_sweep_stores_each_pages_title_path_and_body_for_search()
+    {
+        _workspace.Write("wiki/a.md", "---\ntitle: Alpha\n---\n# Heading\n\nThe body.\n");
+        _workspace.Write("b.md", "# Beta\n");
+        _workspace.Write("raw/c.txt", "not a page");
+
+        Sweep();
+
+        Assert.Equal(
+            [new StoredSearchRow("b.md", "Beta", "b.md", "# Beta\n"), new StoredSearchRow("wiki/a.md", "Alpha", "wiki/a.md", "# Heading\n\nThe body.\n")],
+            SearchRows());
+    }
+
+    [Fact]
+    public void Editing_a_page_replaces_its_search_row()
+    {
+        var path = _workspace.Write("a.md", "# Old\n\nold words\n");
+        Sweep();
+        File.WriteAllText(path, "# New\n\nnew words\n");
+
+        Sweep();
+
+        Assert.Equal([new StoredSearchRow("a.md", "New", "a.md", "# New\n\nnew words\n")], SearchRows());
+    }
+
+    [Fact]
+    public void Deleting_a_page_drops_its_search_row()
+    {
+        var path = _workspace.Write("a.md", "# A\n");
+        _workspace.Write("b.md", "# B\n");
+        Sweep();
+        File.Delete(path);
+
+        Sweep();
+
+        Assert.Equal(["b.md"], SearchRows().Select(r => r.File));
+    }
+
+    [Fact]
+    public void A_rebuild_and_a_relink_keep_one_search_row_per_page()
+    {
+        _workspace.Write("a.md", "# A\n");
+        _workspace.Write("b.md", "# B\n");
+        Sweep();
+
+        Sweep(rebuild: true);
+        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["wiki"] } }""");
+        Assert.True(Sweep().Rebuilt);
+
+        Assert.Equal(["a.md", "b.md"], SearchRows().Select(r => r.File));
+    }
+
+    [Fact]
+    public void A_relink_leaves_the_search_row_of_an_unchanged_page_as_it_was()
+    {
+        _workspace.Write("a.md", "# A\n");
+        var edited = _workspace.Write("b.md", "# B\n");
+        Sweep();
+        // A marker no sweep would write, so a rewritten row shows.
+        _db.Execute("UPDATE search SET body = 'kept' WHERE path = 'a.md'");
+        File.WriteAllText(edited, "# B2\n");
+
+        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["wiki"] } }""");
+        Assert.True(Sweep().Rebuilt);
+
+        Assert.Equal(
+            [new StoredSearchRow("a.md", "A", "a.md", "kept"), new StoredSearchRow("b.md", "B2", "b.md", "# B2\n")],
+            SearchRows());
+    }
+
+    private string SearchTableSql() => _db.ExecuteScalar<string>("SELECT sql FROM sqlite_schema WHERE name = 'search'")!;
+
+    private List<string> Matches(string query) =>
+        _db.Query<string>("SELECT path FROM search WHERE search MATCH @query ORDER BY path", new { query }).AsList();
+
+    [Fact]
+    public void The_search_table_uses_the_porter_tokenizer_by_default()
+    {
+        _workspace.Write("a.md", "He runs every morning.\n");
+
+        Sweep();
+
+        Assert.Contains("porter unicode61", SearchTableSql());
+        Assert.Equal(["a.md"], Matches("running"));
+    }
+
+    [Fact]
+    public void Changing_the_tokenizer_rebuilds_the_search_table_keeping_its_rows()
+    {
+        _workspace.Write("a.md", "# A\n\nThe index of everything.\n");
+        _workspace.Write("b.md", "# B\n\nNothing here.\n");
+        Sweep();
+        var before = SearchRows();
+        Assert.Empty(Matches("\"dex\""));
+
+        _workspace.Write(".hippo/config.json", """{ "search": { "tokenizer": "trigram" } }""");
+        Sweep();
+
+        Assert.Contains("trigram", SearchTableSql());
+        Assert.Equal(before, SearchRows());
+        Assert.Equal(["a.md"], Matches("\"dex\""));
+
+        _workspace.Write(".hippo/config.json", "{}");
+        Sweep();
+
+        Assert.Contains("porter unicode61", SearchTableSql());
+        Assert.Equal(before, SearchRows());
+        Assert.Empty(Matches("\"dex\""));
     }
 
     private string Snapshot() => string.Join('\n', Directory

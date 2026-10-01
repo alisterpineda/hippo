@@ -2,7 +2,7 @@
 
 A standalone CLI that indexes a markdown workspace into a local SQLite cache and answers structural questions about it: what links where, what is broken, where a bundle departs from the standard it follows, and where a phrase appears.
 
-Status: phase 3 (OKF bundles). hippo indexes every file in the workspace, the frontmatter of every markdown file, and every link out of a markdown file, and checks [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md) bundles against the format.
+Status: phase 5 (full-text search). hippo indexes every file in the workspace, the frontmatter of every markdown file, every link out of a markdown file, and the text of every markdown file; it checks [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md) bundles against the format, and finds pages by what they say.
 
 ## Commands
 
@@ -24,6 +24,9 @@ hippo orphans [--exclude <pattern>…]
                              files with no link to or from another file
 hippo lint [--rule <name>…]  where OKF bundles depart from OKF v0.2; --rule lists only the rules named,
                              even one lint.off turns off
+hippo search "<query>" [--glob <pattern>] [--where <field>=<value>] [--limit n]
+                             pages holding every word of the query, best match first, each with its title
+                             and a snippet; --limit caps the results (20 by default)
 hippo cache list             every index in the cache: its state, size and workspace root
 hippo cache prune [--dry-run] [--include-unreachable]
                              remove the indexes of workspaces that were deleted, moved or renamed
@@ -49,6 +52,9 @@ hippo cache prune [--dry-run] [--include-unreachable]
   },
   "lint": {
     "off": ["okf-footnote"]             // SHOULD rules to leave unchecked in OKF bundles
+  },
+  "search": {
+    "tokenizer": "porter"               // porter (whole words and their forms, the default) or trigram (any substring)
   }
 }
 ```
@@ -84,6 +90,12 @@ In an OKF bundle, OKF's path fields are frontmatter links with no `links.frontma
 Every rule is on for every OKF bundle. `lint.off` turns off SHOULD rules; naming a MUST rule there is a config error, so a run with no MUST findings means the bundle is conformant. A concept whose frontmatter fails to parse is reported by `okf-type` alone among the rules that read frontmatter, since the rest cannot be checked without it; `okf-index` still checks that an index lists it. Findings are made when a page is indexed and kept in the index, so `lint` costs no more than a query.
 
 `okf-index` reads an entry as a list item that opens with a link, `* [Title](url) - description`. The description is the text after the link and its separator (a hyphen, dash or colon) as written, with each run of whitespace read as one space, and it must equal the page's `description`, read the same way. An entry for a folder, an `index.md` or `log.md`, a file that is not markdown, or a page whose frontmatter fails to parse has no description to compare. An `index.md` covers the pages in its own folder and every folder below it, up to its bundle's root, and a page is listed when any `index.md` covering it links to it, in an entry or anywhere else. Every OKF bundle has a root `index.md`, so every page in it must be linked from one; a bundle that keeps no listing can turn the rule off. Each `okf-index` finding concerns an index and a page that can change apart, so it is worked out when `lint` runs, from what the index holds.
+
+### Search
+
+`hippo search` looks through every markdown file's title, path and body: the body is the text after the frontmatter, as written, and the title is the frontmatter `title`, or the first level-1 heading when there is none. A page matches when it holds every word of the query. Each word is matched as text, so punctuation in it is never query syntax: `foo-bar` finds the words `foo` and `bar` side by side, and `"`, `*`, `:`, `AND` and `OR` mean nothing special. Results rank by BM25, with a match in the title counting for more than one in the path, and one in the path for more than one in the body. Each result shows a snippet of the body around the match, on one line, with the matched words marked `**` as in markdown bold; a page that matches only in its title or path shows the start of its body, with nothing marked. `--glob` and `--where` keep only the pages they match, as for `files`, and `--limit` counts what is left. Finding nothing is not an error, so `search` exits 0 either way.
+
+The `porter` tokenizer, the default, matches whole words and other forms of them, so `running` finds `runs`. The `trigram` tokenizer matches any run of three or more characters, inside words too, so `dex` finds `index`, but a word shorter than three characters finds nothing. Changing `search.tokenizer` rebuilds the search index on the next command, without reading the files again.
 
 The index lives in `<user cache>/hippo/<hash of workspace root>/index.db`; set `HIPPO_CACHE_DIR` to an absolute path to replace `<user cache>/hippo`. The hash is the SHA-256 of the root's path. On Windows that is the path the OS resolves the folder to, so a different letter case, an 8.3 short name, a junction or a `subst` drive still finds the same index. Each index records its root, which `hippo cache list` checks: `live` when the root still has a `.hippo/config.json`; `orphaned` when it does not but the root or the folder above it exists, as after the workspace was deleted, moved or renamed; `unreachable` when the drive the root was on is not mounted, or when neither the root nor the folder above it exists or they cannot be checked, as for an offline share; and `unknown` when the index records no root or cannot be read. `hippo cache prune` removes the orphaned indexes, and with `--include-unreachable` the unreachable ones too; nothing else removes an index. A moved workspace is indexed afresh at its new path, and its old index stays until pruned.
 
@@ -139,6 +151,7 @@ A migration keeps the data in the index:
 - A new `NOT NULL` column needs a value for the rows already there. Choose it on purpose and declare it in the model with `HasDefaultValue`; `SchemaTests` fails until the model and the scripts build the same schema. hippo re-reads every file after a migration and rewrites each row in place, keeping its id, so a column derived from the file is filled then.
 - `MigrationRunnerTests` migrates a populated index from the first schema through every script and fails when a row, or a value in a column the first schema had, is gone. It does not seed or check columns a later migration adds. A migration meant to discard data changes that test in the same commit.
 - A shipped script is never edited; fixes go forward in a new migration.
+- EF cannot model an FTS5 table. The `search` table is created by `migrationBuilder.Sql` in its migration, the model leaves it out, and `SchemaTests` compares only ordinary tables; a change to it is SQL written by hand in a new migration, and `SearchIndex.Create`, which recreates the table when the tokenizer changes, must write the same SQL: `SchemaTests` checks that the two agree.
 
 ## Distribution
 

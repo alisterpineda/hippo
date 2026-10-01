@@ -14,7 +14,7 @@ internal sealed record SweepResult(
     DateTimeOffset FinishedAt, TimeSpan Elapsed, IReadOnlyList<string> Warnings, IReadOnlyList<OkfBundle> OkfBundles);
 
 /// <summary>
-/// Brings the <c>files</c>, <c>links</c>, <c>findings</c> and <c>index_entries</c> tables in line with the workspace on disk: enumerate, stat,
+/// Brings the <c>files</c>, <c>links</c>, <c>findings</c>, <c>index_entries</c> and <c>search</c> tables in line with the workspace on disk: enumerate, stat,
 /// re-hash only when mtime or size changed or the row is racy, re-parse only when the hash changed, and drop rows for
 /// files that are gone. A change to the settings that shape links and findings, such as a bundle becoming an OKF bundle,
 /// re-parses every page. Every write is idempotent, so several processes may sweep the same workspace at once.
@@ -86,7 +86,15 @@ internal static class Sweeper
         [property: DbValue(Size = Unsized)] string Target,
         [property: DbValue(Size = Unsized)] string? Description);
 
-    private sealed record ParsedFile(FileRow Row, List<LinkRow> Links, List<FindingRow> Findings, List<EntryRow> Entries);
+    internal sealed record SearchRow(
+        [property: DbValue(Size = Unsized)] string Path,
+        [property: DbValue(Size = Unsized)] string Hash,
+        [property: DbValue(Size = Unsized)] string Title,
+        [property: DbValue(Size = Unsized)] string Body);
+
+    /// <summary>A parsed file; <see cref="Search"/> is null for a file that is not markdown, and for a page whose search
+    /// row is kept as it is.</summary>
+    private sealed record ParsedFile(FileRow Row, List<LinkRow> Links, List<FindingRow> Findings, List<EntryRow> Entries, SearchRow? Search);
 
     public static SweepResult Run(Workspace workspace, SqliteConnection db, bool rebuild, TimeProvider clock)
     {
@@ -95,6 +103,7 @@ internal static class Sweeper
         // row look racy more often, never less.
         var hashedAt = Ticks(clock.GetUtcNow());
         var warnings = new List<string>();
+        SearchIndex.UseTokenizer(db, workspace.Config.SearchTokenizer);
         var listed = workspace.ListFiles(warnings);
         var okfBundles = OkfBundle.Find(workspace, listed.Select(f => f.Path).ToHashSet(StringComparer.Ordinal));
         // Links extracted and findings made under other settings would differ now, so every page is parsed again. Only
@@ -105,10 +114,22 @@ internal static class Sweeper
         // A page that cannot be read keeps its old links, so the new settings are recorded only once every page was
         // read under them; until then each sweep parses the pages again.
         var unreadPage = false;
-        var known = db.Query<KnownFile>("SELECT path, mtime, size, hash, hashed_at AS HashedAt FROM files").ToDictionary(k => k.Path, StringComparer.Ordinal);
+
+        // Parsed files are written a batch at a time as they come, so a sweep holds no more than one batch of page
+        // bodies however large the workspace. A rebuild or relink writes them all in one transaction, so a reader never
+        // sees a half-built index; it takes the write lock before reading the first file, and other writers wait for it
+        // while the files are read. Readers do not: under WAL they go on seeing the index as it was.
+        var bulk = rebuild || relink;
+        using var transaction = bulk ? db.BeginTransaction(deferred: false) : null;
+        var rows = transaction is null
+            ? new Batches<ParsedFile>(BatchSize, batch => InTransaction(db, t => Write(db, batch, overwrite: false, t)))
+            // Each re-read row (every file on a rebuild, the pages and changed files on a relink) is rewritten in
+            // place, so it keeps its id and whatever references it.
+            : new Batches<ParsedFile>(BatchSize, batch => Write(db, batch, overwrite: true, transaction));
+        var known = db.Query<KnownFile>("SELECT path, mtime, size, hash, hashed_at AS HashedAt FROM files", transaction: transaction)
+            .ToDictionary(k => k.Path, StringComparer.Ordinal);
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        var rows = new List<ParsedFile>();
         var stats = new List<StatRow>();
         int added = 0, updated = 0, hashed = 0;
         foreach (var file in listed.Select(f => new DiskFile(f.Path, f.FullPath, f.Size, Ticks(f.Modified))))
@@ -173,6 +194,11 @@ internal static class Sweeper
                 updated++;
             }
             var parsed = Parse(settings, file, hash, hashedAt, content, out var bodyError);
+            if (!rebuild && previous is not null && previous.Hash == hash)
+            {
+                // A page re-read for a relink has the title, path and body it had, so its search row stays as it is.
+                parsed = parsed with { Search = null };
+            }
             if (parsed.Row.ParseError is not null)
             {
                 warnings.Add($"cannot read the frontmatter in {file.Path}: {parsed.Row.ParseError}");
@@ -184,16 +210,13 @@ internal static class Sweeper
             rows.Add(parsed);
         }
 
+        rows.Flush();
+
         var removed = known.Keys.Where(path => !seen.Contains(path)).Select(path => new PathRow(path)).ToList();
-        if (rebuild || relink)
+        if (transaction is not null)
         {
-            // One transaction, so a reader never sees a half-built index.
-            // Rows of files that could not be read are kept, as an ordinary sweep keeps them. Each re-read row (every
-            // file on a rebuild, the pages and changed files on a relink) is rewritten in place, so it keeps its id and
-            // whatever references it.
-            using var transaction = db.BeginTransaction(deferred: false);
-            db.Execute("DELETE FROM files WHERE path = @Path", removed, transaction);
-            Write(db, rows, overwrite: true, transaction);
+            // Rows of files that could not be read are kept, as an ordinary sweep keeps them.
+            Remove(db, removed, transaction);
             db.Execute("UPDATE files SET mtime = @Mtime, size = @Size, hashed_at = @HashedAt WHERE path = @Path AND hash = @Hash", stats, transaction);
             // With a page unread, a value no settings have is recorded, not the old one: the settings can change back
             // to the old ones, as when a bundle's root index.md cannot be read for one sweep, and the pages this sweep
@@ -204,13 +227,12 @@ internal static class Sweeper
         else
         {
             // Each call names its row type, which Dapper.AOT needs to generate the binding.
-            InBatches(db, rows, (batch, transaction) => Write(db, batch, overwrite: false, transaction));
-            InBatches(db, stats, (batch, transaction) =>
-                db.Execute("UPDATE files SET mtime = @Mtime, size = @Size, hashed_at = @HashedAt WHERE path = @Path AND hash = @Hash", batch, transaction));
-            InBatches(db, removed, (batch, transaction) => db.Execute("DELETE FROM files WHERE path = @Path", batch, transaction));
+            InBatches(db, stats, (batch, t) =>
+                db.Execute("UPDATE files SET mtime = @Mtime, size = @Size, hashed_at = @HashedAt WHERE path = @Path AND hash = @Hash", batch, t));
+            InBatches(db, removed, (batch, t) => Remove(db, batch, t));
         }
 
-        return new SweepResult(seen.Count, added, updated, removed.Count, hashed, rebuild || relink, clock.GetUtcNow(), stopwatch.Elapsed, warnings, okfBundles);
+        return new SweepResult(seen.Count, added, updated, removed.Count, hashed, bulk, clock.GetUtcNow(), stopwatch.Elapsed, warnings, okfBundles);
     }
 
     /// <summary>Writes each row whatever it held, keeping the id of a row that was there: a rebuild rewrites what a new
@@ -229,8 +251,8 @@ internal static class Sweeper
         WHERE excluded.hash != files.hash
         """;
 
-    /// <summary>Writes parsed files and replaces each page's links, findings and index entries, in the caller's transaction so a reader
-    /// never sees a page without them. <paramref name="overwrite"/> rewrites rows whose content is unchanged.</summary>
+    /// <summary>Writes parsed files and replaces each page's links, findings, index entries and search row (when it has
+    /// a <see cref="ParsedFile.Search"/>), in the caller's transaction so a reader never sees a page without them. <paramref name="overwrite"/> rewrites rows whose content is unchanged.</summary>
     private static void Write(SqliteConnection db, List<ParsedFile> files, bool overwrite, SqliteTransaction transaction)
     {
         var rows = files.Select(f => f.Row).ToList();
@@ -246,6 +268,8 @@ internal static class Sweeper
         db.Execute("DELETE FROM links WHERE source_id = (SELECT id FROM files WHERE path = @Path AND hash = @Hash)", pages, transaction);
         db.Execute("DELETE FROM findings WHERE file_id = (SELECT id FROM files WHERE path = @Path AND hash = @Hash)", pages, transaction);
         db.Execute("DELETE FROM index_entries WHERE file_id = (SELECT id FROM files WHERE path = @Path AND hash = @Hash)", pages, transaction);
+        var searched = files.Select(f => f.Search).OfType<SearchRow>().Select(s => new SourceRow(s.Path, s.Hash)).ToList();
+        db.Execute("DELETE FROM search WHERE rowid = (SELECT id FROM files WHERE path = @Path AND hash = @Hash)", searched, transaction);
         db.Execute("""
             INSERT INTO links (source_id, line, kind, type, raw, target)
             SELECT id, @Line, @Kind, @Type, @Raw, @Target FROM files WHERE path = @Path AND hash = @Hash
@@ -259,6 +283,23 @@ internal static class Sweeper
             INSERT INTO index_entries (file_id, line, target, description)
             SELECT id, @Line, @Target, @Description FROM files WHERE path = @Path AND hash = @Hash
             """, files.SelectMany(f => f.Entries).ToList(), transaction);
+        // The values follow SearchIndex.Columns.
+        db.Execute($"""
+            INSERT INTO search (rowid, {SearchIndex.Columns})
+            SELECT id, @Title, @Path, @Body FROM files WHERE path = @Path AND hash = @Hash
+            """, files.Select(f => f.Search).OfType<SearchRow>().ToList(), transaction);
+    }
+
+    /// <summary>Drops the rows of files that are gone. Their links, findings and index entries go with them by cascade;
+    /// their search rows, which no foreign key ties to them, by rowid first, while the files' ids can still be read.</summary>
+    private static void Remove(SqliteConnection db, List<PathRow> removed, SqliteTransaction transaction)
+    {
+        if (removed.Count == 0)
+        {
+            return;
+        }
+        db.Execute("DELETE FROM search WHERE rowid = (SELECT id FROM files WHERE path = @Path)", removed, transaction);
+        db.Execute("DELETE FROM files WHERE path = @Path", removed, transaction);
     }
 
     /// <summary>Whether the row still describes the file: same mtime and size, and not racy.</summary>
@@ -277,10 +318,15 @@ internal static class Sweeper
     {
         for (var start = 0; start < items.Count; start += BatchSize)
         {
-            using var transaction = db.BeginTransaction(deferred: false);
-            write(items.GetRange(start, Math.Min(BatchSize, items.Count - start)), transaction);
-            transaction.Commit();
+            InTransaction(db, transaction => write(items.GetRange(start, Math.Min(BatchSize, items.Count - start)), transaction));
         }
+    }
+
+    private static void InTransaction(SqliteConnection db, Action<SqliteTransaction> write)
+    {
+        using var transaction = db.BeginTransaction(deferred: false);
+        write(transaction);
+        transaction.Commit();
     }
 
     private static ParsedFile Parse(PageSettings settings, DiskFile file, string hash, long hashedAt, byte[]? content, out string? bodyError)
@@ -288,7 +334,7 @@ internal static class Sweeper
         bodyError = null;
         if (!Workspace.IsMarkdown(file.Path))
         {
-            return new ParsedFile(new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "other", null, null), [], [], []);
+            return new ParsedFile(new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "other", null, null), [], [], [], null);
         }
         var page = Page.Parse(file.Path, content!, settings);
         bodyError = page.BodyError;
@@ -296,6 +342,7 @@ internal static class Sweeper
             new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "markdown", page.Frontmatter.Json, page.Frontmatter.Error),
             page.Links.Select(l => new LinkRow(file.Path, hash, l.Line, l.Kind, l.Type, l.Raw, l.Target)).ToList(),
             page.Findings.Select(f => new FindingRow(file.Path, hash, f.Rule, f.Line, f.Message)).ToList(),
-            page.Entries.Select(e => new EntryRow(file.Path, hash, e.Line, e.Target, e.Description)).ToList());
+            page.Entries.Select(e => new EntryRow(file.Path, hash, e.Line, e.Target, e.Description)).ToList(),
+            new SearchRow(file.Path, hash, page.Title, page.Body));
     }
 }

@@ -30,6 +30,10 @@ internal sealed record OrphanOutput(string Path);
 
 internal sealed record FindingOutput(string Rule, string Path, long? Line, string Message, List<string> Related);
 
+/// <summary>A page a search found. <see cref="Title"/> is null when the page has none; <see cref="Snippet"/> marks each
+/// matched term <c>**</c>.</summary>
+internal sealed record SearchOutput(string Path, string? Title, string Snippet);
+
 internal sealed record CacheIndexOutput(string Database, string? Root, string State, long Size);
 
 /// <summary>
@@ -48,6 +52,7 @@ internal sealed record CacheIndexOutput(string Database, string? Root, string St
 [JsonSerializable(typeof(List<BrokenOutput>))]
 [JsonSerializable(typeof(List<OrphanOutput>))]
 [JsonSerializable(typeof(List<FindingOutput>))]
+[JsonSerializable(typeof(List<SearchOutput>))]
 [JsonSerializable(typeof(List<CacheIndexOutput>))]
 internal sealed partial class OutputJson : JsonSerializerContext;
 

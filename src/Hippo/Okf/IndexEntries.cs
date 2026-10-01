@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Hippo.Workspaces;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 
@@ -31,10 +32,7 @@ internal static partial class IndexEntries
 
     /// <summary>Collapses each run of whitespace to one space and trims the ends, so an entry that wraps across lines
     /// reads as one line.</summary>
-    public static string Normalize(string text) => Whitespace().Replace(text, " ").Trim();
-
-    [GeneratedRegex(@"\s+")]
-    private static partial Regex Whitespace();
+    public static string Normalize(string text) => PlainText.Collapse(text);
 
     /// <summary>The separator between an entry's link and its description: a hyphen as §8 writes it, or a dash or
     /// colon.</summary>

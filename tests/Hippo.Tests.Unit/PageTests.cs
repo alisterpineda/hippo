@@ -212,6 +212,16 @@ public class PageTests
     }
 
     [Fact]
+    public void A_body_markdig_cannot_parse_keeps_the_frontmatter_title()
+    {
+        var page = Page.Parse("a.md", $"---\ntitle: Deep\n---\n{new string('>', 200)} x\n", Notes);
+
+        Assert.NotNull(page.BodyError);
+        Assert.Equal("Deep", page.Title);
+        Assert.Equal($"{new string('>', 200)} x\n", page.Body);
+    }
+
+    [Fact]
     public void Malformed_frontmatter_has_no_links_but_the_body_still_does()
     {
         var page = Page.Parse("a.md", "---\nsources: [\n---\n[b](b.md)\n", Notes);
@@ -234,5 +244,61 @@ public class PageTests
         var page = Page.Parse("a.md", "---\ntitle: A\n---\n", Notes);
 
         Assert.Equal("""{"title":"A"}""", page.Frontmatter.Json);
+    }
+
+    [Fact]
+    public void The_title_is_the_frontmatter_title()
+    {
+        var page = Page.Parse("a.md", "---\ntitle: Frontmatter title\n---\n# Heading title\n", Notes);
+
+        Assert.Equal("Frontmatter title", page.Title);
+    }
+
+    [Fact]
+    public void Without_a_frontmatter_title_the_title_is_the_first_level_1_heading()
+    {
+        var page = Page.Parse("a.md", "---\ntype: Topic\n---\n## Not this\n\n# The *first* `one`\n\n# Not this either\n", Notes);
+
+        Assert.Equal("The first one", page.Title);
+    }
+
+    [Theory]
+    [InlineData("---\ntitle: \"\"\n---\n# Heading\n")]
+    [InlineData("---\ntitle: ~\n---\n# Heading\n")]
+    [InlineData("---\ntitle: [a, b]\n---\n# Heading\n")]
+    [InlineData("---\ntitle: [\n---\n# Heading\n")]
+    public void A_title_that_is_empty_not_text_or_unreadable_falls_back_to_the_heading(string text)
+    {
+        Assert.Equal("Heading", Page.Parse("a.md", text, Notes).Title);
+    }
+
+    [Theory]
+    [InlineData("Herons\nand egrets\n===\n", "Herons and egrets")]
+    [InlineData("# Fish &amp; Chips\n", "Fish & Chips")]
+    [InlineData("# See <https://example.com/a>\n", "See https://example.com/a")]
+    [InlineData("---\ntitle: |\n  Herons\n  and   egrets\n---\n", "Herons and egrets")]
+    public void A_title_is_its_text_on_one_line(string text, string title)
+    {
+        Assert.Equal(title, Page.Parse("a.md", text, Notes).Title);
+    }
+
+    [Fact]
+    public void A_page_with_no_title_or_level_1_heading_has_an_empty_title()
+    {
+        Assert.Equal("", Page.Parse("a.md", "## Section\n\nText.\n", Notes).Title);
+    }
+
+    [Fact]
+    public void The_body_is_the_text_after_the_frontmatter()
+    {
+        var page = Page.Parse("a.md", "---\ntitle: A\n---\n# A\n\nSome [text](b.md).\n", Notes);
+
+        Assert.Equal("# A\n\nSome [text](b.md).\n", page.Body);
+    }
+
+    [Fact]
+    public void A_page_without_frontmatter_is_all_body()
+    {
+        Assert.Equal("Just text.\n", Page.Parse("a.md", "Just text.\n", Notes).Body);
     }
 }

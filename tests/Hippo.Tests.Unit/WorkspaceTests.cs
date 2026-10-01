@@ -65,6 +65,7 @@ public class WorkspaceTests
         Assert.True(config.Gitignore);
         Assert.Equal(new PageSettings(WorkspaceConfig.Default.Links, []).Fingerprint, new PageSettings(config.Links, []).Fingerprint);
         Assert.Empty(config.LintOff);
+        Assert.Equal(SearchTokenizer.Porter, config.SearchTokenizer);
     }
 
     [Fact]
@@ -78,6 +79,7 @@ public class WorkspaceTests
         Assert.Equal(["wiki"], config.Links.Bundles);
         Assert.Equal([("related[]", LinkBase.Page)], config.Links.Frontmatter.Select(f => (f.Field, f.Resolve)));
         Assert.Equal(["okf-footnote"], config.LintOff);
+        Assert.Equal(SearchTokenizer.Trigram, config.SearchTokenizer);
     }
 
     [Fact]
@@ -149,7 +151,8 @@ public class WorkspaceTests
     }
 
     [Theory]
-    [InlineData("""{ "fils": {} }""", "unknown key fils; expected files or links or lint")]
+    [InlineData("""{ "fils": {} }""", "unknown key fils; expected files or links or lint or search")]
+    [InlineData("""{ "search": { "tokeniser": "porter" } }""", "unknown key search.tokeniser; expected tokenizer")]
     [InlineData("""{ "lint": { "of": [] } }""", "unknown key lint.of; expected off")]
     [InlineData("""{ "files": { "exlcude": [] } }""", "unknown key files.exlcude; expected include or exclude or gitignore")]
     [InlineData("""{ "links": { "roots": [] } }""", "unknown key links.roots; expected bundles or frontmatter")]
@@ -324,6 +327,28 @@ public class WorkspaceTests
     public void A_config_that_is_not_an_object_is_an_error()
     {
         Assert.Throws<HippoException>(() => WorkspaceConfig.Parse("""["a", "b"]"""));
+    }
+
+    [Theory]
+    [InlineData("""{ "search": { "tokenizer": "porter" } }""", false)]
+    [InlineData("""{ "search": { "tokenizer": "trigram" } }""", true)]
+    [InlineData("""{ "search": {} }""", false)]
+    [InlineData("""{}""", false)]
+    public void Search_tokenizer_is_porter_unless_set_to_trigram(string json, bool trigram)
+    {
+        Assert.Equal(trigram ? SearchTokenizer.Trigram : SearchTokenizer.Porter, WorkspaceConfig.Parse(json).SearchTokenizer);
+    }
+
+    [Theory]
+    [InlineData("""{ "search": { "tokenizer": "unicode61" } }""")]
+    [InlineData("""{ "search": { "tokenizer": "porter unicode61" } }""")]
+    [InlineData("""{ "search": { "tokenizer": 1 } }""")]
+    [InlineData("""{ "search": [] }""")]
+    public void A_search_tokenizer_other_than_porter_or_trigram_is_an_error(string json)
+    {
+        var ex = Assert.Throws<HippoException>(() => WorkspaceConfig.Parse(json));
+
+        Assert.Contains("search", ex.Message);
     }
 
     [Theory]

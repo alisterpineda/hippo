@@ -6,8 +6,9 @@ namespace Hippo.Indexing;
 /// <summary>
 /// Brings a database up to the binary's schema by running the embedded <c>Migrations/NNNN_&lt;name&gt;.sql</c> scripts
 /// whose number is above its schema version. Each is exported from an EF migration in Hippo.Migrations, and
-/// <c>&lt;name&gt;</c> is the migration's id. Safe for several processes at once: the version is read under the write
-/// lock, so a second process waits and then finds nothing to do.
+/// <c>&lt;name&gt;</c> is the migration's id. Safe for several processes at once: an index that is up to date is left
+/// without taking the write lock, so opening it never waits on another process's writes; otherwise the version is read
+/// again under the write lock, so a second process waits and then finds nothing to do.
 /// </summary>
 internal static class MigrationRunner
 {
@@ -27,12 +28,17 @@ internal static class MigrationRunner
         // SQLite ignores this pragma inside a transaction, and a table rebuild needs it off.
         Execute(connection, null, "PRAGMA foreign_keys = OFF");
 
+        // The version alone needs no lock, and under WAL reading it never waits on a writer.
+        if (Version(connection, null) == LatestVersion)
+        {
+            Execute(connection, null, "PRAGMA foreign_keys = ON");
+            return 0;
+        }
+
         var applied = 0;
         using (var transaction = connection.BeginTransaction(deferred: false))
         {
-            // The schema version lives in SQLite's user_version header field, which SQLite reserves for the application
-            // and never touches.
-            var version = Convert.ToInt32(Scalar(connection, transaction, "PRAGMA user_version"), CultureInfo.InvariantCulture);
+            var version = Version(connection, transaction);
             if (version > LatestVersion)
             {
                 throw new HippoException(
@@ -56,6 +62,11 @@ internal static class MigrationRunner
         Execute(connection, null, "PRAGMA foreign_keys = ON");
         return applied;
     }
+
+    /// <summary>The schema version, which lives in SQLite's user_version header field, which SQLite reserves for the
+    /// application and never touches.</summary>
+    private static int Version(SqliteConnection connection, SqliteTransaction? transaction) =>
+        Convert.ToInt32(Scalar(connection, transaction, "PRAGMA user_version"), CultureInfo.InvariantCulture);
 
     private static void Execute(SqliteConnection connection, SqliteTransaction? transaction, string sql)
     {

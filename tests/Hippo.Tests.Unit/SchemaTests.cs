@@ -116,8 +116,35 @@ public class SchemaTests
         Assert.Equal(0, connection.ExecuteScalar<long>("SELECT count(*) FROM index_entries"));
     }
 
+    [Fact]
+    public void The_scripts_create_a_search_table_that_matches_title_path_and_body_but_not_rowid()
+    {
+        using var database = new TestDatabase();
+        using var connection = database.Open();
+        connection.Execute("INSERT INTO search (rowid, title, path, body) VALUES (12345, 'heron', 'birds/kestrel.md', 'owl')");
+
+        string[] found = ["heron", "kestrel", "owl"];
+        Assert.All(found, word => Assert.Equal(1, connection.ExecuteScalar<long>("SELECT count(*) FROM search WHERE search MATCH @word", new { word })));
+        Assert.Equal(0, connection.ExecuteScalar<long>("SELECT count(*) FROM search WHERE search MATCH '12345'"));
+    }
+
+    /// <summary>The scripts create the search table and the sweep recreates it when the tokenizer changes, so both must
+    /// write it alike, or the first tokenizer change drops what a later migration added.</summary>
+    [Fact]
+    public void The_scripts_create_the_search_table_the_sweep_recreates()
+    {
+        using var database = new TestDatabase();
+        using var connection = database.Open();
+
+        Assert.Equal(
+            SearchIndex.Create(Hippo.Workspaces.SearchTokenizer.Porter),
+            connection.ExecuteScalar<string>("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'search'"));
+    }
+
+    /// <summary>The ordinary tables. EF cannot model an FTS5 table, so the search table and the shadow tables FTS5 keeps
+    /// for it are left to the scripts alone.</summary>
     private static List<string> Tables(SqliteConnection connection) => connection.Query<string>(
-        "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").AsList();
+        "SELECT name FROM pragma_table_list WHERE schema = 'main' AND type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").AsList();
 
     /// <summary>Columns, indexes, foreign keys and CHECK constraints, as SQLite reports them, in a form that compares
     /// as text. Columns are listed by name: <c>ALTER TABLE ADD COLUMN</c> appends and EF's table rebuilds sort, and

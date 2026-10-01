@@ -142,6 +142,27 @@ public sealed class SmokeTests : IDisposable
     }
 
     [Fact]
+    public async Task Search()
+    {
+        var porter = await Json(0, "search", "topics", "--where", "type=Topic", "--glob", "wiki/**", "--limit", "5");
+
+        var result = Assert.Single(porter.EnumerateArray());
+        Assert.Equal(("wiki/topics/topic.md", "Topic"), (result.GetProperty("path").GetString(), result.GetProperty("title").GetString()));
+        Assert.Contains("**", result.GetProperty("snippet").GetString());
+
+        _workspace.Write(".hippo/config.json", """
+            {
+              "links": {
+                "bundles": ["wiki"],
+                "frontmatter": [{ "field": "sources[].resource", "resolve": "bundle" }]
+              },
+              "search": { "tokenizer": "trigram" }
+            }
+            """);
+        Assert.Equal(["wiki/topics/topic.md"], Strings(await Json(0, "search", "gap"), "path"));
+    }
+
+    [Fact]
     public async Task Cache_list()
     {
         var database = (await Json(0, "status")).GetProperty("database").GetString();

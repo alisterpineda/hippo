@@ -74,10 +74,13 @@ internal sealed record Finding(string Rule, int? Line, string Message);
 internal sealed record IndexEntry(int Line, string Target, string? Description);
 
 /// <summary>A parsed page. <see cref="BodyError"/> says why the body could not be parsed, in which case
-/// <see cref="Links"/> holds only its frontmatter links, <see cref="Findings"/> only what its frontmatter shows, and
-/// <see cref="Entries"/> nothing. Only an <c>index.md</c> in an OKF bundle has entries.</summary>
+/// <see cref="Links"/> holds only its frontmatter links, <see cref="Findings"/> only what its frontmatter shows,
+/// <see cref="Entries"/> nothing, and <see cref="Title"/> comes from the frontmatter alone. Only an <c>index.md</c> in an
+/// OKF bundle has entries. <see cref="Body"/> is the text after the frontmatter, as written; <see cref="Title"/> is the
+/// frontmatter <c>title</c>, else the first level-1 heading, else <c>""</c>.</summary>
 internal sealed record ParsedPage(
-    FrontmatterResult Frontmatter, List<Link> Links, List<Finding> Findings, List<IndexEntry> Entries, string? BodyError = null);
+    FrontmatterResult Frontmatter, List<Link> Links, List<Finding> Findings, List<IndexEntry> Entries, string Title, string Body,
+    string? BodyError = null);
 
 /// <summary>Parses a markdown page: its frontmatter, and its links from the body (through Markdig), resolved from the
 /// page's folder (or its bundle root when they start with <c>/</c>), and from the frontmatter fields the config names,
@@ -134,7 +137,8 @@ internal static partial class Page
         {
             // Markdig throws on some inputs, such as blocks nested past its depth limit; one such page must not stop
             // the rest of the workspace from indexing.
-            return new ParsedPage(block.Result, links.OrderBy(link => link.Line).ToList(), Check(okf, path, bundle, block, null), [], ex.Message);
+            return new ParsedPage(block.Result, links.OrderBy(link => link.Line).ToList(), Check(okf, path, bundle, block, null), [],
+                Title(block, null), block.Body, ex.Message);
         }
 
         foreach (var node in document.Descendants())
@@ -167,7 +171,22 @@ internal static partial class Page
             }
         }
 
-        return new ParsedPage(block.Result, links.OrderBy(link => link.Line).ToList(), Check(okf, path, bundle, block, document), entries);
+        return new ParsedPage(block.Result, links.OrderBy(link => link.Line).ToList(), Check(okf, path, bundle, block, document), entries,
+            Title(block, document), block.Body);
+    }
+
+    /// <summary>The frontmatter <c>title</c> when it is a scalar with text, else the text of the first level-1 heading in
+    /// <paramref name="document"/>, else <c>""</c>.</summary>
+    private static string Title(FrontmatterBlock block, MarkdownDocument? document)
+    {
+        if (block.Root is { } root && Frontmatter.Field(root, "title") is { Value: YamlScalarNode scalar }
+            && !Frontmatter.IsNull(scalar) && PlainText.Collapse(scalar.Value ?? "") is { Length: > 0 } title)
+        {
+            return title;
+        }
+        return document?.Descendants<HeadingBlock>().FirstOrDefault(h => h.Level == 1) is { Inline: { } inline }
+            ? PlainText.Collapse(PlainText.Of(inline))
+            : "";
     }
 
     private static List<Finding> Check(bool okf, string path, string bundle, FrontmatterBlock block, MarkdownDocument? document) =>

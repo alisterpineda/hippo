@@ -36,6 +36,15 @@ internal sealed record LinkSettings(IReadOnlyList<string> Bundles, IReadOnlyList
     public static LinkSettings Default { get; } = new([], []);
 }
 
+/// <summary>How the search table splits text into terms: <see cref="Porter"/>, FTS5's <c>porter unicode61</c>, matches
+/// whole words and their other forms; <see cref="Trigram"/> matches any run of three or more characters, inside words
+/// too.</summary>
+internal enum SearchTokenizer
+{
+    Porter,
+    Trigram,
+}
+
 /// <summary>
 /// <c>.hippo/config.json</c>. A key it does not know is an error, so a misspelt one is caught rather than silently
 /// left at its default. Comments and trailing commas are allowed. <see cref="Gitignore"/> leaves out the files git
@@ -71,6 +80,9 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
           // },
           // "lint": {
           //   "off": ["okf-footnote"]             // SHOULD rules to leave unchecked in OKF bundles
+          // },
+          // "search": {
+          //   "tokenizer": "trigram"              // porter (whole words and their forms, the default) or trigram (any substring)
           // }
         }
 
@@ -94,6 +106,8 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
 
     /// <summary>The SHOULD rules <c>lint.off</c> turns off.</summary>
     public IReadOnlyList<string> LintOff { get; init; } = [];
+
+    public SearchTokenizer SearchTokenizer { get; init; } = SearchTokenizer.Porter;
 
     /// <summary>The config's full path in the workspace at <paramref name="root"/>.</summary>
     public static string PathIn(string root) => Path.Combine(root, Folder, FileName);
@@ -129,13 +143,14 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
             }
 
             var config = Default;
-            foreach (var (key, value) in Properties(null, document.RootElement, "files", "links", "lint"))
+            foreach (var (key, value) in Properties(null, document.RootElement, "files", "links", "lint", "search"))
             {
                 config = key switch
                 {
                     "files" => ParseFiles(config, value),
                     "links" => config with { Links = ParseLinks(value) },
                     "lint" => config with { LintOff = ParseLint(value) },
+                    "search" => config with { SearchTokenizer = ParseSearch(value) },
                     _ => throw new UnreachableException(key),
                 };
             }
@@ -255,6 +270,21 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
             }
         }
         return off;
+    }
+
+    private static SearchTokenizer ParseSearch(JsonElement element)
+    {
+        var tokenizer = SearchTokenizer.Porter;
+        foreach (var (_, value) in Object("search", element, "tokenizer"))
+        {
+            tokenizer = String(value) switch
+            {
+                "porter" => SearchTokenizer.Porter,
+                "trigram" => SearchTokenizer.Trigram,
+                _ => throw Error("search.tokenizer must be porter or trigram"),
+            };
+        }
+        return tokenizer;
     }
 
     private static LinkBase Resolve(string key, JsonElement element) => String(element) switch

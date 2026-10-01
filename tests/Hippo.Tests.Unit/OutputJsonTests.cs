@@ -192,4 +192,22 @@ public class OutputJsonTests
         """,
         [new CacheIndexOutput("/c/ab/index.db", "/w", "orphaned", 4096), new CacheIndexOutput("/c/cd/index.db", null, "unknown", 0)],
         OutputJson.Default.ListCacheIndexOutput);
+
+    [Fact]
+    public void Search() => AssertJson("""
+        [
+          {
+            "path": "wiki/heron.md",
+            "title": "Herons",
+            "snippet": "The grey **heron** waits..."
+          },
+          {
+            "path": "raw/day.md",
+            "title": null,
+            "snippet": "...saw a **heron** today"
+          }
+        ]
+        """,
+        [new SearchOutput("wiki/heron.md", "Herons", "The grey **heron** waits..."), new SearchOutput("raw/day.md", null, "...saw a **heron** today")],
+        OutputJson.Default.ListSearchOutput);
 }

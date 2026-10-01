@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text;
 using System.Text.RegularExpressions;
 using Hippo.Workspaces;
 using Markdig;
@@ -72,7 +71,7 @@ internal static partial class OkfChecks
     {
         foreach (var heading in document.OfType<HeadingBlock>().Where(heading => heading.Level == 2))
         {
-            var text = Text(heading.Inline).Trim();
+            var text = PlainText.Of(heading.Inline).Trim();
             if (!IsDate(text))
             {
                 findings.Add(new(OkfRules.LogDate, heading.Line + bodyLine, $"date heading '{text}' is not a YYYY-MM-DD date"));
@@ -302,28 +301,6 @@ internal static partial class OkfChecks
 
     private static bool IsDate(string text) =>
         Date().IsMatch(text) && DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
-
-    /// <summary>The text of a heading as it reads, without its markup.</summary>
-    private static string Text(ContainerInline? inline)
-    {
-        var text = new StringBuilder();
-        foreach (var node in inline?.Descendants() ?? [])
-        {
-            switch (node)
-            {
-                case LiteralInline literal:
-                    text.Append(literal.Content.AsSpan());
-                    break;
-                case CodeInline code:
-                    text.Append(code.Content);
-                    break;
-                case LineBreakInline:
-                    text.Append(' ');
-                    break;
-            }
-        }
-        return text.ToString();
-    }
 
     private static int Line(YamlNode node) => Frontmatter.FileLine(node.Start);
 
