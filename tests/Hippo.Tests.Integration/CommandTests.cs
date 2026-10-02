@@ -246,7 +246,7 @@ public sealed class CommandTests : IDisposable
     [Fact]
     public void Show_emits_frontmatter_nested_as_deeply_as_the_index_keeps()
     {
-        _workspace.Write("deep.md", $"---\na: {new string('[', 62)}{new string(']', 62)}\n---\n");
+        _workspace.Write("deep.md", $"---\na: {new string('[', 60)}{new string(']', 60)}\n---\n");
 
         var result = _workspace.Run("show", "deep.md", "--json");
         var json = Json(result);

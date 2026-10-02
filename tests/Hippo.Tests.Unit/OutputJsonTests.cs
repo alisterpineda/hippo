@@ -81,6 +81,48 @@ public class OutputJsonTests
         OutputJson.Default.ListFindOutput);
 
     [Fact]
+    public void Find_with_fields() => AssertJson("""
+        [
+          {
+            "path": "wiki/x.md",
+            "kind": "markdown",
+            "size": 40,
+            "modified": "2026-09-01T12:30:00+00:00",
+            "title": null,
+            "parseError": null,
+            "snippet": null,
+            "fields": {
+              "as_of": "2026-04-01",
+              "verified.at": null,
+              "tags": [
+                "a"
+              ]
+            }
+          },
+          {
+            "path": "raw/day.md",
+            "kind": "markdown",
+            "size": 4,
+            "modified": "2026-09-01T12:30:00+00:00",
+            "title": null,
+            "parseError": "line 1: bad",
+            "snippet": null,
+            "fields": {}
+          }
+        ]
+        """,
+        [
+            new FindOutput("wiki/x.md", "markdown", 40, Time, null, null, null, new()
+            {
+                ["as_of"] = JsonDocument.Parse("\"2026-04-01\"").RootElement,
+                ["verified.at"] = JsonDocument.Parse("null").RootElement,
+                ["tags"] = JsonDocument.Parse("""["a"]""").RootElement,
+            }),
+            new FindOutput("raw/day.md", "markdown", 4, Time, null, "line 1: bad", null, []),
+        ],
+        OutputJson.Default.ListFindOutput);
+
+    [Fact]
     public void Show() => AssertJson("""
         {
           "path": "a.md",

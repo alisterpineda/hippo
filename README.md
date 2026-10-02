@@ -12,12 +12,15 @@ Status: phase 5 (full-text search). hippo indexes every file in the workspace, t
 hippo init                   write a starter .hippo/config.json in the current folder
 hippo index [--rebuild]      bring the index up to date; --rebuild re-reads every file
 hippo status                 workspace root, database path, file counts, last sweep
-hippo find ["<query>"] [--glob <pattern>…] [--kind markdown|other] [--where <field>=<value>]
-           [--errors] [--no-refs] [--no-backrefs] [--limit n]
+hippo find ["<query>"] [--glob <pattern>…] [--kind markdown|other] [--where <condition>…]
+           [--field <path>[,<path>…]…] [--errors] [--no-refs] [--no-backrefs] [--limit n]
                              every indexed file in path order, or with a query, the pages holding every
                              word of it, best match first, each with its title and a snippet; --glob,
-                             --kind and --where filter by path, kind or frontmatter value, and a --glob
-                             starting with ! leaves out what it matches; --errors keeps only files whose
+                             --kind and --where filter by path, kind or frontmatter field, and a --glob
+                             starting with ! leaves out what it matches; --where takes field=value,
+                             field!=value, field<value, field<=value, field>value, field>=value, field or
+                             !field, quoted for the shell ('as_of<2026-04-01'); --field shows those
+                             frontmatter fields of each file; --errors keeps only files whose
                              frontmatter failed to parse, with the error; --no-refs keeps files with no
                              link to another file, and --no-backrefs those no other file links to;
                              --limit caps the results (20 by default with a query, none without)
@@ -116,9 +119,35 @@ Every OKF rule is on for every OKF bundle. `lint.off` turns off the rules marked
 
 ### Find
 
-Without a query, `hippo find` lists every indexed file in path order, one path per line, and under `--errors` each path followed by its frontmatter error. With `--json`, each file has its path, kind, size, modified time, title (null for a file that is not a page, or a page with none), parse error and snippet (null without a query). The filters keep only the files they match, and `--limit` counts what is left; without a query there is no limit unless one is given.
+Without a query, `hippo find` lists every indexed file in path order, one path per line, and under `--errors` each path followed by its frontmatter error. With `--json`, each file has its path, kind, size, modified time, title (null for a file that is not a page, or a page with none), parse error and snippet (null without a query), and under `--field`, its fields. The filters keep only the files they match, and `--limit` counts what is left; without a query there is no limit unless one is given.
 
 `--glob` takes a glob relative to the workspace root, and can be given more than once: a file is kept when any glob matches it, less those a glob starting with `!` matches. When every glob starts with `!`, they leave out what they match from every file, so `--glob '!archive/**'` keeps everything outside `archive`. `--kind` keeps only `markdown` files, those whose names end in `.md`, or only `other` files. `--no-backrefs` keeps the files, markdown or not, that no other file links to, and `--no-refs` those with no link to another indexed file; a file's links to itself, and links to folders, URLs, anchors and missing targets, count for neither. Together, `--no-refs --no-backrefs` list the files with no link in or out. The link filters read every link in the index, so a file `--glob` leaves out still has its links count.
+
+`--where` keeps the files whose frontmatter meets a condition, and can be given more than once: a file must meet every one. A field is a dotted path into nested mappings, such as `verified.at`. It has no `[]`, so it cannot hold `[` or `]`, and it cannot hold `=`, `<`, `>` or `!`, since the first of them starts the operator.
+
+| Condition | Keeps the files where |
+|---|---|
+| `field=value` | the field equals the value |
+| `field!=value` | it does not: `tags!=draft` keeps the pages with no `draft` tag, including those with no `tags` |
+| `field<value`, `field<=value`, `field>value`, `field>=value` | the field is below or above the value |
+| `field` | the field is there and not null; `as_of:` with no value counts as missing |
+| `!field` | the field is missing or null |
+
+A stored number is compared as a number when the value is one too, and anything else as text, character by character, so write dates as ISO 8601 (`2026-04-01`), which sort as text in date order. YAML dates are stored as text, so `as_of: 2026-04-01` is the string `"2026-04-01"`. A list matches when any element does. A range never matches a missing field, a boolean, a null or a mapping. A file whose frontmatter failed to parse meets no condition, not even `!=` or `!field`, since nothing is known of it; `--errors` lists those. `<` and `>` redirect in every shell, so quote each condition: `--where 'as_of<2026-04-01'`.
+
+`--field` shows the frontmatter fields it names, each a dotted path as `--where` takes, and can be given more than once, or with several paths separated by commas: `--field as_of,tracking --field verified.at`. A path naming a list or a mapping shows it whole, and a key holding `.`, `,`, `[` or `]` cannot be reached. With `--json`, each file gets a `fields` map keyed by the path as given, leaving out a field the file does not have, giving a field set to YAML null as `null`, and empty for a file whose frontmatter failed to parse. In text, each field ends the file's line as `key=value`, a list or mapping as compact JSON, and with a query on the title line, above the snippet:
+
+```
+wiki/x.md  as_of=2026-04-01  tracking=open
+```
+
+So a check over a bundle's frontmatter takes one call:
+
+```sh
+hippo find --glob 'wiki/**' --where tracking=open --where 'as_of<2026-04-01' --json
+hippo find --glob 'wiki/**' --where tracking --where '!as_of' --json
+hippo find --glob 'wiki/**' --field as_of,tracking,verified.at --json
+```
 
 With a query, `hippo find` looks through every markdown file's title, path and body: the body is the text after the frontmatter, as written but with each run of whitespace read as one space, and the title is the frontmatter `title`, or the first level-1 heading when there is none. In the query, the text between a pair of `"` is a phrase, and every other word stands alone; a page matches when it holds every phrase and every word, so `'"integration test" ranking'` needs both the phrase and the word. Every `"` is syntax: an odd number of them is an error, an empty phrase `""` is ignored, and a `"` cannot be searched for. Each word and phrase is matched as text, so punctuation in it is never query syntax: `foo-bar` finds the words `foo` and `bar` side by side, and `*`, `:`, `-`, `AND`, `OR` and `NEAR` mean nothing special. Results rank by BM25, with a match in the title counting for more than one in the path, and one in the path for more than one in the body. Each result shows a snippet of the body around the match, on one line, with the matched words marked `**` as in markdown bold; a page that matches only in its title or path shows the start of its body, with nothing marked. The filters keep only the pages they match, as without a query, and `--limit` counts what is left, 20 unless another is given. Finding nothing is not an error, so `find` exits 0 either way.
 

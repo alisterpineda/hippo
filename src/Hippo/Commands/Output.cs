@@ -14,9 +14,11 @@ internal sealed record CountsOutput(long Total, long Markdown, long Other, long 
 internal sealed record SweepOutput(DateTimeOffset FinishedAt, long ElapsedMs, int Added, int Updated, int Removed);
 
 /// <summary>A file <c>find</c> lists. <see cref="Title"/> is null when the file is not a page or the page has none;
-/// <see cref="Snippet"/> is null without a query, and with one marks each matched term <c>**</c>.</summary>
+/// <see cref="Snippet"/> is null without a query, and with one marks each matched term <c>**</c>. <see cref="Fields"/>
+/// holds the frontmatter fields <c>--field</c> asks for, keyed as asked, and is left out without it.</summary>
 internal sealed record FindOutput(
-    string Path, string Kind, long Size, DateTimeOffset Modified, string? Title, string? ParseError, string? Snippet);
+    string Path, string Kind, long Size, DateTimeOffset Modified, string? Title, string? ParseError, string? Snippet,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, JsonElement>? Fields = null);
 
 internal sealed record ShowOutput(
     string Path, string Kind, long Size, DateTimeOffset Modified, string Hash, JsonElement? Frontmatter, string? ParseError);
@@ -101,11 +103,22 @@ internal static class Format
     public static string Indented(JsonElement json)
     {
         var text = new StringBuilder();
-        WriteIndented(text, json, 0);
+        WriteJson(text, json, 0);
         return text.ToString();
     }
 
-    private static void WriteIndented(StringBuilder text, JsonElement json, int depth)
+    /// <summary>Writes <paramref name="json"/> on one line with no spaces, its strings as <see cref="Indented"/> writes
+    /// them.</summary>
+    public static string Compact(JsonElement json)
+    {
+        var text = new StringBuilder();
+        WriteJson(text, json, null);
+        return text.ToString();
+    }
+
+    /// <summary>Writes <paramref name="json"/> indented as at <paramref name="depth"/>, or compact when it is
+    /// null.</summary>
+    private static void WriteJson(StringBuilder text, JsonElement json, int? depth)
     {
         switch (json.ValueKind)
         {
@@ -125,24 +138,28 @@ internal static class Format
     }
 
     private static void WriteItems(
-        StringBuilder text, char open, char close, IEnumerable<(string? Name, JsonElement Value)> items, int depth)
+        StringBuilder text, char open, char close, IEnumerable<(string? Name, JsonElement Value)> items, int? depth)
     {
         text.Append(open);
         var any = false;
         foreach (var (name, value) in items)
         {
-            text.Append(any ? "," : "").Append(Environment.NewLine).Append(' ', 2 * (depth + 1));
+            text.Append(any ? "," : "");
+            if (depth is { } indent)
+            {
+                text.Append(Environment.NewLine).Append(' ', 2 * (indent + 1));
+            }
             if (name is not null)
             {
                 WriteString(text, name);
-                text.Append(": ");
+                text.Append(depth is null ? ":" : ": ");
             }
-            WriteIndented(text, value, depth + 1);
+            WriteJson(text, value, depth + 1);
             any = true;
         }
-        if (any)
+        if (any && depth is { } outer)
         {
-            text.Append(Environment.NewLine).Append(' ', 2 * depth);
+            text.Append(Environment.NewLine).Append(' ', 2 * outer);
         }
         text.Append(close);
     }

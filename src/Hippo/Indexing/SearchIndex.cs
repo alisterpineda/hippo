@@ -6,7 +6,8 @@ namespace Hippo.Indexing;
 
 /// <summary>A page that matches a search, by rank, with its row in <c>files</c>. <see cref="Id"/> is its row in the search
 /// table, valid only within the transaction it was read in.</summary>
-internal sealed record SearchMatch(long Id, string Path, string Kind, long Size, long Mtime, string? ParseError) : IFileRow;
+internal sealed record SearchMatch(long Id, string Path, string Kind, long Size, long Mtime, string? ParseError, string? Frontmatter)
+    : IFileRow;
 
 /// <summary>A matching page's title, null when it has none, and the stretch of its body around the match.</summary>
 internal sealed record SearchText(string? Title, string Snippet);
@@ -131,14 +132,10 @@ internal static class SearchIndex
         ORDER BY bm25(search, {Weights}), files.path
         """;
 
-    /// <summary>Every page matching <paramref name="query"/>, best first, less those whose frontmatter fails
-    /// <paramref name="where"/>.</summary>
-    public static List<SearchMatch> Matches(SqliteConnection db, SqliteTransaction transaction, SearchQuery query, FrontmatterFilter? where) =>
-        !query.CanMatch ? []
-        : where is null
-            ? db.Query<SearchMatch>(MatchSql + RankSql, new { query.Match }, transaction).ToList()
-            : db.Query<SearchMatch>(MatchSql + "\n  AND " + FrontmatterFilter.Sql + RankSql,
-                new { query.Match, where.JsonPath, where.Value }, transaction).ToList();
+    /// <summary>Every page matching <paramref name="query"/>, best first, each with its frontmatter when
+    /// <paramref name="frontmatter"/> is set.</summary>
+    public static List<SearchMatch> Matches(SqliteConnection db, SqliteTransaction transaction, SearchQuery query, bool frontmatter) =>
+        query.CanMatch ? db.Query<SearchMatch>(MatchSql + RankSql, new { query.Match, frontmatter }, transaction).ToList() : [];
 
     /// <summary>What <see cref="Text"/> has <c>snippet()</c> put where it cuts the body, so a cut is told apart from
     /// <c>...</c> the page itself holds. A control character no page has reason to hold.</summary>

@@ -24,9 +24,10 @@ internal sealed record FrontmatterBlock(FrontmatterResult Result, YamlMappingNod
 /// </summary>
 internal static partial class Frontmatter
 {
-    // Levels below the root mapping. show reads the stored JSON back and nests it one level into its own output, and
-    // System.Text.Json allows 64 levels by default: the root, 62 below it, and show's wrapper.
-    private const int MaxDepth = 62;
+    // Levels below the root mapping. System.Text.Json allows 64 levels by default, and the output must fit them. The
+    // deepest is find --field --json: the result list, the file and its fields map stand where the root does, so 3 levels
+    // and 60 below them make 63.
+    private const int MaxDepth = 60;
     private const int MaxNodes = 100_000;
 
     public static FrontmatterResult Parse(ReadOnlySpan<byte> utf8) => Parse(Encoding.UTF8.GetString(utf8));

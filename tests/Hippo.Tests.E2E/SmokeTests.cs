@@ -74,6 +74,11 @@ public sealed class SmokeTests : IDisposable
         Assert.Equal(["raw/day.md", "raw/lonely.md", "wiki/index.md", "wiki/topics/topic.md"], Strings(all, "path"));
         Assert.Equal(["Day", "Lonely", "Index", "Topic"], Strings(all, "title"));
         Assert.Equal(["wiki/topics/topic.md"], Strings(await Json(0, "find", "--where", "type=Topic", "--limit", "5"), "path"));
+
+        var fielded = Assert.Single((await Json(0, "find", "--field", "type,sources", "--where", "type", "--where", "type>A")).EnumerateArray());
+        var fields = fielded.GetProperty("fields");
+        Assert.Equal(("Topic", "../raw/day.md"),
+            (fields.GetProperty("type").GetString(), fields.GetProperty("sources")[0].GetProperty("resource").GetString()));
     }
 
     [Fact]

@@ -157,10 +157,10 @@ public class FrontmatterTests
     }
 
     [Fact]
-    public void Nesting_is_kept_to_62_levels_below_the_root()
+    public void Nesting_is_kept_to_60_levels_below_the_root()
     {
-        var kept = Frontmatter.Parse($"---\na: {new string('[', 62)}{new string(']', 62)}\n---\n");
-        var cut = Frontmatter.Parse($"---\na: {new string('[', 63)}{new string(']', 63)}\n---\n");
+        var kept = Frontmatter.Parse($"---\na: {new string('[', 60)}{new string(']', 60)}\n---\n");
+        var cut = Frontmatter.Parse($"---\na: {new string('[', 61)}{new string(']', 61)}\n---\n");
 
         Assert.Null(kept.Error);
         Assert.Contains("nested too deeply", cut.Error);

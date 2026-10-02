@@ -33,13 +33,10 @@ public sealed class FileQueriesTests : IDisposable
             "INSERT INTO files (path, mtime, size, hash, hashed_at, kind, frontmatter, parse_error) VALUES (@path, 0, 1, 'h', 0, @kind, @frontmatter, @parseError)",
             new { path, kind, frontmatter, parseError });
 
-    private List<string> Where(string field, string value) =>
-        FileQueries.List(_db, new FrontmatterFilter(field, value)).Select(f => f.Path).ToList();
-
     [Fact]
     public void List_returns_every_file_in_path_order()
     {
-        Assert.Equal(["raw/bad.md", "raw/c.png", "wiki/a.md", "wiki/b.md"], FileQueries.List(_db, null).Select(f => f.Path));
+        Assert.Equal(["raw/bad.md", "raw/c.png", "wiki/a.md", "wiki/b.md"], FileQueries.List(_db).Select(f => f.Path));
     }
 
     [Fact]
@@ -48,7 +45,7 @@ public sealed class FileQueriesTests : IDisposable
         _db.Execute("INSERT INTO search (rowid, title, path, body) SELECT id, 'Alpha', path, '' FROM files WHERE path = 'wiki/a.md'");
         _db.Execute("INSERT INTO search (rowid, title, path, body) SELECT id, '', path, '' FROM files WHERE path = 'wiki/b.md'");
 
-        Assert.Equal([null, null, "Alpha", null], FileQueries.List(_db, null).Select(f => f.Title));
+        Assert.Equal([null, null, "Alpha", null], FileQueries.List(_db).Select(f => f.Title));
     }
 
     [Fact]
@@ -56,48 +53,29 @@ public sealed class FileQueriesTests : IDisposable
     {
         _db.Execute("INSERT INTO search (rowid, title, path, body) SELECT id, 'Alpha', path, '' FROM files WHERE path = 'wiki/a.md'");
 
-        var files = FileQueries.List(_db, null, titles: false);
+        var files = FileQueries.List(_db, titles: false);
 
         Assert.Equal(["raw/bad.md", "raw/c.png", "wiki/a.md", "wiki/b.md"], files.Select(f => f.Path));
         Assert.All(files, f => Assert.Null(f.Title));
     }
 
     [Fact]
-    public void Where_matches_a_string_field()
+    public void List_carries_each_file_frontmatter_and_parse_error()
     {
-        Assert.Equal(["wiki/a.md"], Where("type", "Topic"));
+        var files = FileQueries.List(_db).ToDictionary(f => f.Path);
+
+        Assert.Equal("""{"type":"Person","title":"B","tags":"x"}""", files["wiki/b.md"].Frontmatter);
+        Assert.Equal((null, "line 2: bad"), (files["raw/bad.md"].Frontmatter, files["raw/bad.md"].ParseError));
+        Assert.Null(files["raw/c.png"].Frontmatter);
     }
 
     [Fact]
-    public void Where_matches_numbers_and_booleans_by_their_text()
+    public void List_without_frontmatter_leaves_every_frontmatter_null_and_keeps_parse_errors()
     {
-        Assert.Equal(["wiki/a.md"], Where("count", "3"));
-        Assert.Equal(["wiki/a.md"], Where("draft", "true"));
-    }
+        var files = FileQueries.List(_db, frontmatter: false).ToDictionary(f => f.Path);
 
-    [Fact]
-    public void Where_matches_an_element_of_a_list()
-    {
-        Assert.Equal(["wiki/a.md", "wiki/b.md"], Where("tags", "x"));
-        Assert.Equal(["wiki/a.md"], Where("tags", "y"));
-    }
-
-    [Fact]
-    public void Where_follows_dotted_fields_into_nested_mappings()
-    {
-        Assert.Equal(["wiki/a.md"], Where("generated.at", "2026-09-01"));
-    }
-
-    [Fact]
-    public void Where_on_a_mapping_field_matches_nothing()
-    {
-        Assert.Empty(Where("generated", "2026-09-01"));
-    }
-
-    [Fact]
-    public void Where_on_a_missing_field_matches_nothing()
-    {
-        Assert.Empty(Where("status", "draft"));
+        Assert.All(files.Values, f => Assert.Null(f.Frontmatter));
+        Assert.Equal("line 2: bad", files["raw/bad.md"].ParseError);
     }
 
     [Fact]
@@ -119,23 +97,5 @@ public sealed class FileQueriesTests : IDisposable
     public void Count_totals_files_by_kind_and_parse_errors()
     {
         Assert.Equal(new FileCounts(4, 3, 1, 1), FileQueries.Count(_db));
-    }
-
-    [Theory]
-    [InlineData("type=Topic", "type", "Topic")]
-    [InlineData("title=a=b", "title", "a=b")]
-    [InlineData("status=", "status", "")]
-    public void A_where_filter_splits_at_the_first_equals_sign(string text, string field, string value)
-    {
-        Assert.Equal(new FrontmatterFilter(field, value), FrontmatterFilter.Parse(text));
-    }
-
-    [Theory]
-    [InlineData("type")]
-    [InlineData("=Topic")]
-    [InlineData("a..b=c")]
-    public void A_where_filter_without_a_field_is_an_error(string text)
-    {
-        Assert.Throws<HippoException>(() => FrontmatterFilter.Parse(text));
     }
 }

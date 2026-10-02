@@ -44,6 +44,22 @@ public class FormatTests
     }
 
     [Fact]
+    public void Compact_writes_json_on_one_line_with_no_spaces()
+    {
+        using var document = JsonDocument.Parse("""{ "a" : [1, "x y", {"b": null}], "c": {}, "d": [] }""");
+
+        Assert.Equal("""{"a":[1,"x y",{"b":null}],"c":{},"d":[]}""", Format.Compact(document.RootElement));
+    }
+
+    [Fact]
+    public void Compact_escapes_strings_as_indented_does()
+    {
+        using var document = JsonDocument.Parse("""["café \"q\" \n"]""");
+
+        Assert.Equal("""["café \"q\" \n"]""", Format.Compact(document.RootElement));
+    }
+
+    [Fact]
     public void Indented_escapes_quotes_backslashes_and_control_characters_but_not_other_text()
     {
         using var document = JsonDocument.Parse(

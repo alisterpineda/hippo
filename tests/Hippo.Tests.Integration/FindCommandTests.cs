@@ -597,7 +597,7 @@ public sealed class FindCommandTests : IDisposable
     [Fact]
     public void A_malformed_where_is_an_error()
     {
-        var result = _workspace.Run("find", "kestrel", "--where", "type");
+        var result = _workspace.Run("find", "kestrel", "--where", "=Topic");
 
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("--where", result.Stderr);
@@ -606,11 +606,202 @@ public sealed class FindCommandTests : IDisposable
     [Fact]
     public void Without_a_query_a_malformed_where_is_an_error()
     {
-        var result = _workspace.Run("find", "--where", "type");
+        var result = _workspace.Run("find", "--where", "=Topic");
 
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("--where", result.Stderr);
     }
+
+    [Fact]
+    public void Every_where_must_hold()
+    {
+        _workspace.Write("wiki/old.md", "---\ntracking: open\nas_of: 2026-01-15\n---\n");
+        _workspace.Write("wiki/new.md", "---\ntracking: open\nas_of: 2026-06-01\n---\n");
+        _workspace.Write("wiki/closed.md", "---\ntracking: closed\nas_of: 2026-01-15\n---\n");
+
+        Assert.Equal(["wiki/old.md"], Paths("--glob", "wiki/**", "--where", "tracking=open", "--where", "as_of<2026-04-01"));
+    }
+
+    [Fact]
+    public void Where_present_and_missing_find_tracked_pages_with_no_date()
+    {
+        _workspace.Write("wiki/dated.md", "---\ntracking: open\nas_of: 2026-01-15\n---\n");
+        _workspace.Write("wiki/undated.md", "---\ntracking: open\n---\n");
+        _workspace.Write("wiki/blank.md", "---\ntracking: open\nas_of:\n---\n");
+        _workspace.Write("wiki/untracked.md", "---\ntitle: U\n---\n");
+
+        Assert.Equal(["wiki/blank.md", "wiki/undated.md"], Paths("--glob", "wiki/**", "--where", "tracking", "--where", "!as_of"));
+    }
+
+    [Fact]
+    public void Where_not_equal_keeps_pages_without_the_field_but_not_those_whose_frontmatter_failed_to_parse()
+    {
+        _workspace.Write("draft.md", "---\ntags: [draft, x]\n---\n");
+        _workspace.Write("final.md", "---\ntags: [x]\n---\n");
+        _workspace.Write("untagged.md", "---\ntitle: U\n---\n");
+        _workspace.Write("bad.md", "---\ntags: [unclosed\n---\n");
+
+        Assert.Equal(["final.md", "untagged.md"], Paths("--kind", "markdown", "--where", "tags!=draft"));
+    }
+
+    [Fact]
+    public void Where_compares_numbers_as_numbers()
+    {
+        _workspace.Write("two.md", "---\nrank: 2\n---\n");
+        _workspace.Write("ten.md", "---\nrank: 10\n---\n");
+
+        Assert.Equal(["ten.md"], Paths("--where", "rank>5"));
+    }
+
+    [Fact]
+    public void With_a_query_every_where_must_hold()
+    {
+        _workspace.Write("a.md", "---\ntype: Topic\nrank: 3\n---\nkestrel\n");
+        _workspace.Write("b.md", "---\ntype: Topic\nrank: 1\n---\nkestrel\n");
+        _workspace.Write("c.md", "---\ntype: Topic\nrank: 3\n---\nheron\n");
+
+        Assert.Equal(["a.md"], Paths("kestrel", "--where", "type=Topic", "--where", "rank>=2"));
+    }
+
+    [Theory]
+    [InlineData("a!b")]
+    [InlineData("!a=b")]
+    [InlineData("a..b<3")]
+    public void A_where_with_a_malformed_operator_or_field_is_an_error(string condition)
+    {
+        var result = _workspace.Run("find", "--where", condition);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("--where", result.Stderr);
+    }
+
+    [Fact]
+    public void Where_help_shows_the_condition_quoted_for_the_shell()
+    {
+        var result = _workspace.Run("find", "--help");
+
+        Assert.Contains("'as_of<2026-04-01'", Words(result.Stdout));
+    }
+
+    [Fact]
+    public void Field_json_gives_each_file_the_fields_asked_for_keyed_as_asked()
+    {
+        _workspace.Write("wiki/x.md", "---\nas_of: 2026-04-01\ntracking: open\nverified:\n  at: 2026-09-01\n  by: me\n---\n");
+
+        var file = Assert.Single(Json(_workspace.Run("find", "--field", "as_of,tracking", "--field", "verified.at", "--json")).EnumerateArray());
+
+        Assert.Equal("""{"as_of":"2026-04-01","tracking":"open","verified.at":"2026-09-01"}""", Compact(file.GetProperty("fields")));
+    }
+
+    [Fact]
+    public void Field_json_leaves_out_a_missing_field_keeps_a_null_one_and_returns_a_list_whole()
+    {
+        _workspace.Write("x.md", "---\nas_of:\nsources:\n  - id: a\n  - id: b\n---\n");
+
+        var file = Assert.Single(Json(_workspace.Run("find", "--field", "as_of,tracking,sources", "--json")).EnumerateArray());
+
+        Assert.Equal("""{"as_of":null,"sources":[{"id":"a"},{"id":"b"}]}""", Compact(file.GetProperty("fields")));
+    }
+
+    [Fact]
+    public void Field_json_gives_a_page_whose_frontmatter_failed_to_parse_an_empty_map_and_its_error()
+    {
+        _workspace.Write("bad.md", "---\nas_of: [unclosed\n---\n");
+
+        var file = Assert.Single(Json(_workspace.Run("find", "--field", "as_of", "--json")).EnumerateArray());
+
+        Assert.Equal("{}", Compact(file.GetProperty("fields")));
+        Assert.NotEqual(JsonValueKind.Null, file.GetProperty("parseError").ValueKind);
+    }
+
+    [Fact]
+    public void With_a_query_field_json_gives_each_page_its_fields()
+    {
+        _workspace.Write("a.md", "---\nas_of: 2026-04-01\n---\nkestrel\n");
+
+        var file = Assert.Single(Json(_workspace.Run("find", "kestrel", "--field", "as_of", "--json")).EnumerateArray());
+
+        Assert.Equal("""{"as_of":"2026-04-01"}""", Compact(file.GetProperty("fields")));
+    }
+
+    [Fact]
+    public void Without_field_json_has_no_fields()
+    {
+        _workspace.Write("a.md", "---\nas_of: 2026-04-01\n---\nkestrel\n");
+
+        Assert.False(Assert.Single(Json(_workspace.Run("find", "--json")).EnumerateArray()).TryGetProperty("fields", out _));
+        Assert.False(Assert.Single(Json(_workspace.Run("find", "kestrel", "--json")).EnumerateArray()).TryGetProperty("fields", out _));
+    }
+
+    [Fact]
+    public void Field_text_puts_each_field_on_the_line_lists_and_mappings_as_compact_json()
+    {
+        _workspace.Write("wiki/x.md", "---\nas_of: 2026-04-01\ntracking: open\ntags: [a, b]\nverified:\n  at: 2026-09-01\n---\n");
+        _workspace.Write("wiki/y.md", "---\ntitle: Y\n---\n");
+
+        var result = _workspace.Run("find", "--field", "as_of,tracking,tags,verified");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["wiki/x.md  as_of=2026-04-01  tracking=open  tags=[\"a\",\"b\"]  verified={\"at\":\"2026-09-01\"}", "wiki/y.md"],
+            Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void With_a_query_field_text_goes_on_the_title_line_and_the_snippet_stays_below()
+    {
+        _workspace.Write("a.md", "---\ntitle: Alpha\nas_of: 2026-04-01\ncount: 3\ndraft: false\n---\nkestrel\n");
+
+        var result = _workspace.Run("find", "kestrel", "--field", "as_of,count,draft");
+
+        Assert.Equal(["a.md  Alpha  as_of=2026-04-01  count=3  draft=false", "**kestrel**"], Lines(result.Stdout));
+    }
+
+    [Theory]
+    [InlineData("as_of,")]
+    [InlineData("a..b")]
+    public void A_malformed_field_is_an_error(string field)
+    {
+        var result = _workspace.Run("find", "--field", field);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("--field", result.Stderr);
+    }
+
+    [Fact]
+    public void Field_help_says_which_keys_cannot_be_reached()
+    {
+        var result = _workspace.Run("find", "--help");
+
+        Assert.Contains("keys holding ., ,, [ or ] cannot be reached", Words(result.Stdout));
+    }
+
+    [Fact]
+    public void Field_text_escapes_control_characters_and_stays_on_one_line()
+    {
+        _workspace.Write("a.md", "---\nsummary: \"one\\ntwo\"\nnote: \"\\e]0;T\\a\"\n---\n");
+
+        var result = _workspace.Run("find", "--field", "summary,note");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["a.md  summary=one\\x0atwo  note=\\x1b]0;T\\x07"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void Field_json_emits_a_field_nested_as_deeply_as_the_index_keeps()
+    {
+        _workspace.Write("deep.md", $"---\na: {new string('[', 60)}{new string(']', 60)}\n---\n");
+
+        var result = _workspace.Run("find", "--field", "a", "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        var json = JsonDocument.Parse(result.Stdout).RootElement;
+        Assert.Equal(JsonValueKind.Array, json[0].GetProperty("fields").GetProperty("a").ValueKind);
+    }
+
+    private static string Compact(JsonElement json) => JsonSerializer.Serialize(json);
+
+    /// <summary>Help text with each run of whitespace read as one space, so where it wraps does not matter.</summary>
+    private static string Words(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     [Fact]
     public void Limit_keeps_the_best_ranked_results()
