@@ -107,12 +107,14 @@ public sealed class SmokeTests : IDisposable
     {
         var direct = await Json(0, "backrefs", "raw/day.md");
         var transitive = await Json(0, "backrefs", "raw/day.md", "--transitive");
+        var filtered = await Json(0, "backrefs", "raw/day.md", "--transitive", "--from", "wiki/topics/**", "--link-kind", "frontmatter");
 
         var link = Assert.Single(direct.EnumerateArray());
         Assert.Equal(("wiki/topics/topic.md", 4, "frontmatter", "../raw/day.md"),
             (link.GetProperty("source").GetString(), link.GetProperty("line").GetInt32(), link.GetProperty("kind").GetString(),
                 link.GetProperty("raw").GetString()));
         Assert.Equal(["wiki/index.md", "wiki/topics/topic.md"], Strings(transitive, "source"));
+        Assert.Equal(["wiki/topics/topic.md"], Strings(filtered, "source"));
     }
 
     [Fact]
@@ -120,6 +122,8 @@ public sealed class SmokeTests : IDisposable
     {
         Assert.Equal(["raw/lonely.md"], Strings(await Json(0, "find", "--no-refs", "--no-backrefs", "--kind", "markdown"), "path"));
         Assert.Equal(["raw/lonely.md"], Strings(await Json(0, "find", "lonely", "--no-refs", "--no-backrefs", "--glob", "!wiki/**"), "path"));
+        Assert.Equal(["raw/day.md", "raw/lonely.md"],
+            Strings(await Json(0, "find", "--glob", "raw/**", "--no-backrefs", "--from", "wiki/**", "--link-kind", "body"), "path"));
     }
 
     [Fact]

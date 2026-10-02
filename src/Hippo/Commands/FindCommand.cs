@@ -43,6 +43,13 @@ internal static class FindCommand
         var errors = new Option<bool>("--errors") { Description = "Only files whose frontmatter failed to parse, with the error" };
         var noRefs = new Option<bool>("--no-refs") { Description = "Only files with no link to another indexed file" };
         var noBackrefs = new Option<bool>("--no-backrefs") { Description = "Only files no other file links to" };
+        var from = new Option<string[]>("--from")
+        {
+            Description = "With --no-backrefs, count only links from files matching this workspace-relative glob, or with a "
+                + "leading !, not matching it; repeatable",
+            HelpName = "pattern",
+        };
+        var linkKind = WorkspaceSession.LinkKindOption("With --no-refs or --no-backrefs, count only links of this kind");
         var limit = new Option<int?>("--limit")
         {
             Description = $"At most this many results ({QueryLimit} by default with a query)",
@@ -67,9 +74,24 @@ internal static class FindCommand
             errors,
             noRefs,
             noBackrefs,
+            from,
+            linkKind,
             limit,
             WorkspaceSession.JsonOption,
         };
+        // An option with nothing to narrow would silently do nothing, so it is an error instead.
+        command.Validators.Add(result =>
+        {
+            // Whether an option was given is read from its result, not its value, which throws when the value is invalid.
+            if (result.GetResult(from) is not null && !result.GetValue(noBackrefs))
+            {
+                result.AddError("--from needs --no-backrefs");
+            }
+            if (result.GetResult(linkKind) is not null && !result.GetValue(noRefs) && !result.GetValue(noBackrefs))
+            {
+                result.AddError("--link-kind needs --no-refs or --no-backrefs");
+            }
+        });
         command.SetAction(result => WorkspaceSession.Run(result, environment, rebuild: false, session =>
         {
             var filters = (result.GetValue(where) ?? []).Select(FrontmatterFilter.Parse).ToList();
@@ -79,7 +101,8 @@ internal static class FindCommand
             var readFrontmatter = filters.Count > 0 || fields is not null;
 
             // The filters keep the same rows whether they came from the listing or the search. A file the glob leaves out
-            // still has its links count toward --no-refs and --no-backrefs, since those are read from the whole index.
+            // still has its links count toward --no-refs and --no-backrefs, since those are read from the whole index;
+            // only --from and --link-kind narrow which links count.
             List<T> Keep<T>(List<T> rows, SqliteTransaction transaction) where T : IFileRow
             {
                 if (result.GetValue(glob) is { Length: > 0 } patterns)
@@ -97,12 +120,15 @@ internal static class FindCommand
                 }
                 if (result.GetValue(noRefs))
                 {
-                    var unlinked = LinkQueries.WithoutRefs(session.Db, transaction);
+                    var unlinked = LinkQueries.WithoutRefs(session.Db, transaction, result.GetValue(linkKind));
                     rows = rows.Where(row => unlinked.Contains(row.Path)).ToList();
                 }
                 if (result.GetValue(noBackrefs))
                 {
-                    var unlinked = LinkQueries.WithoutBackrefs(session.Db, transaction);
+                    var sources = result.GetValue(from) is { Length: > 0 } sourcePatterns
+                        ? session.Workspace.Glob(sourcePatterns, LinkQueries.Sources(session.Db, transaction))
+                        : null;
+                    var unlinked = LinkQueries.WithoutBackrefs(session.Db, transaction, result.GetValue(linkKind), sources);
                     rows = rows.Where(row => unlinked.Contains(row.Path)).ToList();
                 }
                 return errorsOnly ? rows.Where(row => row.ParseError is not null).ToList() : rows;

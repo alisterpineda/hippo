@@ -949,6 +949,127 @@ public sealed class FindCommandTests : IDisposable
     }
 
     [Fact]
+    public void No_backrefs_from_counts_only_links_whose_source_matches()
+    {
+        WriteGraph();
+
+        // wiki/a.md is linked from wiki/c.md and wiki/index.md, so leaving both out of --from leaves it unlinked.
+        Assert.Equal(["img.png", "raw/x.md", "wiki/a.md", "wiki/b.md", "wiki/c.md", "wiki/gallery.md", "wiki/index.md", "wiki/loose.md", "wiki/self.md"],
+            Paths("--no-backrefs", "--from", "raw/**"));
+        Assert.Equal(["raw/x.md", "wiki/a.md", "wiki/gallery.md", "wiki/index.md", "wiki/loose.md", "wiki/self.md"],
+            Paths("--no-backrefs", "--from", "wiki/a.md", "--from", "wiki/b.md", "--from", "wiki/gallery.md"));
+    }
+
+    [Fact]
+    public void No_backrefs_from_with_only_exclusions_counts_links_from_every_other_file()
+    {
+        WriteGraph();
+
+        Assert.Equal(["raw/x.md", "wiki/a.md", "wiki/gallery.md", "wiki/index.md", "wiki/loose.md", "wiki/self.md"],
+            Paths("--no-backrefs", "--from", "!wiki/c.md", "--from", "!wiki/index.md"));
+        Assert.Equal(["raw/x.md", "wiki/gallery.md", "wiki/index.md", "wiki/loose.md", "wiki/self.md"],
+            Paths("--no-backrefs", "--from", "wiki/**", "--from", "!wiki/index.md"));
+    }
+
+    [Fact]
+    public void No_backrefs_from_is_workspace_relative_from_a_subfolder()
+    {
+        _workspace.Write("wiki/topic.md", "[a](../raw/a.md)\n");
+        _workspace.Write("raw/day.md", "[b](b.md)\n");
+        _workspace.Write("raw/a.md", "# A\n");
+        _workspace.Write("raw/b.md", "# B\n");
+
+        var result = _workspace.RunIn(_workspace.Combine("raw"), "find", "--glob", "raw/*.md", "--no-backrefs", "--from", "wiki/**");
+
+        Assert.Equal(["raw/b.md", "raw/day.md"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void No_backrefs_from_still_never_counts_a_files_links_to_itself()
+    {
+        WriteGraph();
+
+        Assert.Contains("wiki/self.md", Paths("--no-backrefs", "--from", "wiki/self.md"));
+    }
+
+    [Fact]
+    public void No_backrefs_link_kind_counts_only_links_of_that_kind()
+    {
+        WriteGraph();
+
+        // wiki/c.md is linked only from wiki/b.md's frontmatter.
+        Assert.Contains("wiki/c.md", Paths("--no-backrefs", "--link-kind", "body"));
+        Assert.Equal(["img.png", "raw/x.md", "wiki/a.md", "wiki/b.md", "wiki/gallery.md", "wiki/index.md", "wiki/loose.md", "wiki/self.md"],
+            Paths("--no-backrefs", "--link-kind", "frontmatter"));
+    }
+
+    [Fact]
+    public void No_refs_link_kind_counts_only_links_of_that_kind()
+    {
+        WriteGraph();
+
+        // wiki/b.md links out only from its frontmatter; wiki/a.md, wiki/c.md, wiki/index.md and wiki/gallery.md only from their bodies.
+        Assert.Equal(["img.png", "raw/x.md", "wiki/b.md", "wiki/loose.md", "wiki/self.md"], Paths("--no-refs", "--link-kind", "body"));
+        Assert.Equal(["img.png", "raw/x.md", "wiki/a.md", "wiki/c.md", "wiki/gallery.md", "wiki/index.md", "wiki/loose.md", "wiki/self.md"],
+            Paths("--no-refs", "--link-kind", "frontmatter"));
+    }
+
+    [Fact]
+    public void Link_kind_other_than_body_or_frontmatter_is_an_error()
+    {
+        var result = _workspace.Run("find", "--no-refs", "--link-kind", "wikilink");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("wikilink", result.Stderr);
+    }
+
+    [Fact]
+    public void From_without_no_backrefs_is_an_error()
+    {
+        _workspace.Write("a.md", "# A\n");
+
+        var alone = _workspace.Run("find", "--from", "wiki/**");
+        var withNoRefs = _workspace.Run("find", "--no-refs", "--from", "wiki/**");
+
+        Assert.Equal(2, alone.ExitCode);
+        Assert.Contains("--from needs --no-backrefs", alone.Stderr);
+        Assert.Equal(2, withNoRefs.ExitCode);
+        Assert.Contains("--from needs --no-backrefs", withNoRefs.Stderr);
+    }
+
+    [Fact]
+    public void Link_kind_without_no_refs_or_no_backrefs_is_an_error()
+    {
+        _workspace.Write("a.md", "# A\n");
+
+        var result = _workspace.Run("find", "--link-kind", "body");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("--link-kind needs --no-refs or --no-backrefs", result.Stderr);
+    }
+
+    [Fact]
+    public void Artifacts_no_wiki_page_cites_in_frontmatter_take_one_call()
+    {
+        _workspace.Write(".hippo/config.json", """
+            {
+              "bundles": ["wiki"],
+              "links": { "frontmatter": [{ "field": "sources[].resource", "resolve": "bundle" }] }
+            }
+            """);
+        _workspace.Write("wiki/topic.md", "---\nsources:\n  - id: a\n    resource: ../raw/artifacts/cited.pdf\n---\n[body](../raw/artifacts/body.pdf)\n");
+        _workspace.Write("raw/journal/2026-09-01.md", "[cited](../artifacts/cited.pdf) [day](../artifacts/day.pdf)\n");
+        _workspace.Write("raw/artifacts/cited.pdf", "pdf");
+        _workspace.Write("raw/artifacts/body.pdf", "pdf");
+        _workspace.Write("raw/artifacts/day.pdf", "pdf");
+
+        // Every artifact has some inbound link, so --no-backrefs alone finds none of them.
+        Assert.Empty(Paths("--glob", "raw/artifacts/**", "--no-backrefs"));
+        Assert.Equal(["raw/artifacts/body.pdf", "raw/artifacts/day.pdf"],
+            Paths("--glob", "raw/artifacts/**", "--no-backrefs", "--from", "wiki/**", "--link-kind", "frontmatter"));
+    }
+
+    [Fact]
     public void No_refs_keeps_files_with_no_link_to_another_indexed_file()
     {
         WriteGraph();

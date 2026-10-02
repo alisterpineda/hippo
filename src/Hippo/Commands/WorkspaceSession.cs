@@ -17,6 +17,14 @@ internal sealed record WorkspaceSession(
 {
     public static readonly Option<bool> JsonOption = new("--json") { Description = "Print JSON instead of text" };
 
+    /// <summary>The <c>--link-kind</c> option, which accepts the link kinds the index records.</summary>
+    public static Option<string> LinkKindOption(string description)
+    {
+        var option = new Option<string>("--link-kind") { Description = description, HelpName = "body|frontmatter" };
+        option.AcceptOnlyFromAmong("body", "frontmatter");
+        return option;
+    }
+
     /// <summary>Opens the session and runs <paramref name="command"/> under <see cref="Guard"/>.</summary>
     public static int Run(ParseResult result, CliEnvironment environment, bool rebuild, Func<WorkspaceSession, int> command)
     {

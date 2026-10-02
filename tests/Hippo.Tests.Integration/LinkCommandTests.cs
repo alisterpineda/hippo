@@ -130,24 +130,88 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
-    public void Backrefs_kind_filters_links_by_kind()
+    public void Backrefs_link_kind_filters_links_by_kind()
     {
         WriteNotes();
         _workspace.Write("wiki/other.md", "[day](../raw/journal/2026-09-01.md)\n");
 
-        var body = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--kind", "body");
-        var frontmatter = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--kind", "frontmatter");
+        var body = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--link-kind", "body");
+        var frontmatter = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--link-kind", "frontmatter");
 
         Assert.Equal(["wiki/other.md:1  body         ../raw/journal/2026-09-01.md"], Lines(body.Stdout));
         Assert.Equal(["wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md"], Lines(frontmatter.Stdout));
     }
 
     [Fact]
-    public void Backrefs_kind_other_than_body_or_frontmatter_is_a_usage_error()
+    public void Backrefs_link_kind_other_than_body_or_frontmatter_is_a_usage_error()
     {
-        var result = _workspace.Run("backrefs", "a.md", "--kind", "wikilink");
+        var result = _workspace.Run("backrefs", "a.md", "--link-kind", "wikilink");
 
         Assert.Equal(2, result.ExitCode);
+    }
+
+    [Fact]
+    public void Backrefs_rejects_kind_since_link_kind_filters_its_links()
+    {
+        WriteNotes();
+
+        var result = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--kind", "body");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("--kind", result.Stderr);
+    }
+
+    [Fact]
+    public void Backrefs_from_lists_only_links_whose_source_matches()
+    {
+        WriteNotes();
+        _workspace.Write("raw/journal/2026-09-02.md", "[yesterday](2026-09-01.md)\n");
+        _workspace.Write("wiki/other.md", "[day](../raw/journal/2026-09-01.md)\n");
+
+        var wiki = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--from", "wiki/**");
+        var notOther = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--from", "!wiki/other.md");
+        var both = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--from", "wiki/**", "--link-kind", "body");
+
+        Assert.Equal(["wiki/other.md:1  body         ../raw/journal/2026-09-01.md", "wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md"],
+            Lines(wiki.Stdout));
+        Assert.Equal(["raw/journal/2026-09-02.md:1  body         2026-09-01.md", "wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md"],
+            Lines(notOther.Stdout));
+        Assert.Equal(["wiki/other.md:1  body         ../raw/journal/2026-09-01.md"], Lines(both.Stdout));
+    }
+
+    [Fact]
+    public void Backrefs_from_is_workspace_relative_from_a_subfolder()
+    {
+        WriteNotes();
+
+        var result = _workspace.RunIn(_workspace.Combine("raw"), "backrefs", "journal/2026-09-01.md", "--from", "wiki/**");
+
+        Assert.Equal(["wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void Backrefs_transitive_from_passes_only_through_matching_files()
+    {
+        _workspace.Write("wiki/a.md", "[day](../raw/journal/d.md)\n");
+        _workspace.Write("raw/journal/d.md", "[pdf](../../x.pdf)\n");
+        _workspace.Write("x.pdf", "pdf");
+
+        var all = _workspace.Run("backrefs", "x.pdf", "--transitive");
+        var wiki = _workspace.Run("backrefs", "x.pdf", "--transitive", "--from", "wiki/**");
+
+        Assert.Equal(["raw/journal/d.md", "wiki/a.md"], Lines(all.Stdout));
+        Assert.Equal((0, ""), (wiki.ExitCode, wiki.Stdout));
+    }
+
+    [Fact]
+    public void Backrefs_transitive_link_kind_follows_only_links_of_that_kind()
+    {
+        WriteNotes();
+
+        // The photo ← the day entry (body) ⇠ the topic (frontmatter): body links alone stop at the day entry.
+        var result = _workspace.Run("backrefs", "raw/journal/img/photo 1.png", "--transitive", "--link-kind", "body");
+
+        Assert.Equal(["raw/journal/2026-09-01.md"], Lines(result.Stdout));
     }
 
     [Fact]

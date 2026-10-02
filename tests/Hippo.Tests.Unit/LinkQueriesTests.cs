@@ -72,34 +72,66 @@ public sealed class LinkQueriesTests : IDisposable
     {
         Assert.Equal(
             [new LinkIn("wiki/c.md", 1, "body", "a.md"), new LinkIn("wiki/index.md", 1, "body", "a.md")],
-            LinkQueries.Backrefs(_db, "wiki/a.md", null));
+            LinkQueries.Backrefs(_db, "wiki/a.md", null, null));
     }
 
     [Fact]
     public void Backrefs_can_be_limited_to_one_kind()
     {
-        Assert.Equal([new LinkIn("wiki/b.md", 2, "frontmatter", "c.md")], LinkQueries.Backrefs(_db, "wiki/c.md", "frontmatter"));
-        Assert.Empty(LinkQueries.Backrefs(_db, "wiki/c.md", "body"));
+        Assert.Equal([new LinkIn("wiki/b.md", 2, "frontmatter", "c.md")], LinkQueries.Backrefs(_db, "wiki/c.md", "frontmatter", null));
+        Assert.Empty(LinkQueries.Backrefs(_db, "wiki/c.md", "body", null));
+    }
+
+    [Fact]
+    public void Backrefs_can_be_limited_to_links_from_some_files()
+    {
+        Assert.Equal([new LinkIn("wiki/index.md", 1, "body", "a.md")], LinkQueries.Backrefs(_db, "wiki/a.md", null, ["wiki/index.md", "raw/x.md"]));
+        Assert.Empty(LinkQueries.Backrefs(_db, "wiki/a.md", null, []));
     }
 
     [Fact]
     public void Backrefs_of_a_missing_path_lists_the_links_that_break_on_it()
     {
-        Assert.Equal([new LinkIn("wiki/a.md", 4, "body", "../raw/gone.md")], LinkQueries.Backrefs(_db, "raw/gone.md", null));
+        Assert.Equal([new LinkIn("wiki/a.md", 4, "body", "../raw/gone.md")], LinkQueries.Backrefs(_db, "raw/gone.md", null, null));
     }
 
     [Fact]
     public void Transitive_backrefs_follow_chains_through_a_cycle_and_leave_out_the_path_itself()
     {
-        Assert.Equal(["wiki/a.md", "wiki/b.md", "wiki/index.md"], LinkQueries.TransitiveBackrefs(_db, "wiki/c.md", null));
-        Assert.Equal(["wiki/a.md", "wiki/b.md", "wiki/c.md", "wiki/index.md"], LinkQueries.TransitiveBackrefs(_db, "raw/gone.md", null));
+        Assert.Equal(["wiki/a.md", "wiki/b.md", "wiki/index.md"], LinkQueries.TransitiveBackrefs(_db, "wiki/c.md", null, null));
+        Assert.Equal(["wiki/a.md", "wiki/b.md", "wiki/c.md", "wiki/index.md"], LinkQueries.TransitiveBackrefs(_db, "raw/gone.md", null, null));
     }
 
     [Fact]
     public void Transitive_backrefs_follow_only_links_of_the_given_kind()
     {
-        Assert.Equal(["wiki/c.md", "wiki/index.md"], LinkQueries.TransitiveBackrefs(_db, "wiki/a.md", "body"));
-        Assert.Empty(LinkQueries.TransitiveBackrefs(_db, "wiki/c.md", "body"));
+        Assert.Equal(["wiki/c.md", "wiki/index.md"], LinkQueries.TransitiveBackrefs(_db, "wiki/a.md", "body", null));
+        Assert.Empty(LinkQueries.TransitiveBackrefs(_db, "wiki/c.md", "body", null));
+    }
+
+    [Fact]
+    public void Transitive_backrefs_pass_only_through_the_files_given()
+    {
+        // index → a → b ⇢ c: without index among the sources, the chain stops at a; without a, it stops at b.
+        Assert.Equal(["wiki/a.md", "wiki/b.md"], LinkQueries.TransitiveBackrefs(_db, "wiki/c.md", null, ["wiki/a.md", "wiki/b.md", "wiki/c.md"]));
+        Assert.Equal(["wiki/b.md"], LinkQueries.TransitiveBackrefs(_db, "wiki/c.md", null, ["wiki/b.md", "wiki/index.md"]));
+    }
+
+    [Fact]
+    public void Sources_whose_paths_need_json_escaping_still_match()
+    {
+        const string source = "wiki/café \"x\" \\ y.md";
+        AddFile(source, "markdown");
+        Link(source, 1, "body", "path", "a.md", "wiki/a.md");
+
+        Assert.Equal([new LinkIn(source, 1, "body", "a.md")], LinkQueries.Backrefs(_db, "wiki/a.md", null, [source]));
+        Assert.Equal([source], LinkQueries.TransitiveBackrefs(_db, "wiki/a.md", null, [source]));
+    }
+
+    [Fact]
+    public void Sources_lists_every_file_with_a_link_out()
+    {
+        Assert.Equal(["wiki/a.md", "wiki/b.md", "wiki/c.md", "wiki/index.md", "wiki/self.md"], LinkQueries.Sources(_db, null).Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -132,6 +164,6 @@ public sealed class LinkQueriesTests : IDisposable
         // wiki/a.md does not make wiki/a a folder, nor raw/x.md make ra or wik one: only a path under target/ counts.
         Assert.Equal(["directory", "directory", "missing", "missing", "missing"], LinkQueries.Refs(_db, "wiki/folders.md").Select(l => l.Type));
         Assert.Equal(["wiki/a", "ra", "wik"], LinkQueries.Broken(_db).Where(l => l.Source == "wiki/folders.md").Select(l => l.Target));
-        Assert.Equal([new LinkIn("wiki/folders.md", 2, "body", "../raw/")], LinkQueries.Backrefs(_db, "raw", null));
+        Assert.Equal([new LinkIn("wiki/folders.md", 2, "body", "../raw/")], LinkQueries.Backrefs(_db, "raw", null, null));
     }
 }

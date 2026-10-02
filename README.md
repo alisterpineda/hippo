@@ -13,7 +13,8 @@ hippo init                   write a starter .hippo/config.json in the current f
 hippo index [--rebuild]      bring the index up to date; --rebuild re-reads every file
 hippo status                 workspace root, database path, file counts, last sweep
 hippo find ["<query>"] [--glob <pattern>…] [--kind markdown|other] [--where <condition>…]
-           [--field <path>[,<path>…]…] [--errors] [--no-refs] [--no-backrefs] [--limit n]
+           [--field <path>[,<path>…]…] [--errors] [--no-refs] [--no-backrefs] [--from <pattern>…]
+           [--link-kind body|frontmatter] [--limit n]
                              every indexed file in path order, or with a query, the pages holding every
                              word of it, best match first, each with its title and a snippet; --glob,
                              --kind and --where filter by path, kind or frontmatter field, and a --glob
@@ -23,11 +24,15 @@ hippo find ["<query>"] [--glob <pattern>…] [--kind markdown|other] [--where <c
                              frontmatter fields of each file; --errors keeps only files whose
                              frontmatter failed to parse, with the error; --no-refs keeps files with no
                              link to another file, and --no-backrefs those no other file links to;
-                             --limit caps the results (20 by default with a query, none without)
+                             --from counts only links from files it matches toward --no-backrefs, and
+                             --link-kind only links of that kind toward either; --limit caps the
+                             results (20 by default with a query, none without)
 hippo show <path>            what the index holds for one file
 hippo refs <path>            the links out of a file: line, kind, and file, directory, missing, url or anchor
-hippo backrefs <path> [--kind body|frontmatter] [--transitive]
-                             the links into a path; --transitive lists every file that reaches it
+hippo backrefs <path> [--link-kind body|frontmatter] [--from <pattern>…] [--transitive]
+                             the links into a path; --link-kind and --from keep only links of that kind
+                             and from the files a glob matches; --transitive lists every file that
+                             reaches it, along only such links
 hippo lint [--rule <name>…]  where the workspace breaks a lint rule: links whose target is not an indexed
                              file or folder, frontmatter that fails to parse, and where OKF bundles depart
                              from OKF v0.2; --rule lists only the rules named, even one lint.off turns off
@@ -70,7 +75,7 @@ The workspace root's `.hippo` folder is never indexed, whatever `include` says: 
 
 A bundle is a folder listed in `bundles` whose pages treat it as their root: a leading `/` in a link resolves against the deepest bundle holding the page, or against the workspace root for a page in none. Other body links resolve from the page's folder; `[[x]]` is plain text, not a link.
 
-Body links are CommonMark links, images, reference links and autolinks; their destinations are URLs, so percent-encoding is decoded and a query or fragment dropped. Frontmatter values are literal paths: nothing is decoded and a `?` is part of the path, but a `#` still starts a fragment that is dropped, so a frontmatter value cannot name a file with `#` in its name. A link with a scheme is a URL, one starting with `#` is anchor-only, and any other is a file when it resolves to an indexed file, a directory when it resolves to a folder holding an indexed file, and missing otherwise. A trailing `/` makes no difference, and the workspace root is a directory. A folder holding no indexed file, because it is empty or everything in it is excluded, is missing. `backrefs` of a folder lists the links to the folder itself, and `backrefs .` from the root lists those to the root.
+Body links are CommonMark links, images, reference links and autolinks; their destinations are URLs, so percent-encoding is decoded and a query or fragment dropped. Frontmatter values are literal paths: nothing is decoded and a `?` is part of the path, but a `#` still starts a fragment that is dropped, so a frontmatter value cannot name a file with `#` in its name. A link with a scheme is a URL, one starting with `#` is anchor-only, and any other is a file when it resolves to an indexed file, a directory when it resolves to a folder holding an indexed file, and missing otherwise. A trailing `/` makes no difference, and the workspace root is a directory. A folder holding no indexed file, because it is empty or everything in it is excluded, is missing. `backrefs` of a folder lists the links to the folder itself, and `backrefs .` from the root lists those to the root. With `--transitive`, `--link-kind` and `--from` apply at every hop: a chain follows only links of that kind and passes only through files `--from` matches, so with `--from 'wiki/**'`, a wiki page that reaches a file only through a day entry is not listed.
 
 ### OKF bundles
 
@@ -122,6 +127,12 @@ Every OKF rule is on for every OKF bundle. `lint.off` turns off the rules marked
 Without a query, `hippo find` lists every indexed file in path order, one path per line, and under `--errors` each path followed by its frontmatter error. With `--json`, each file has its path, kind, size, modified time, title (null for a file that is not a page, or a page with none), parse error and snippet (null without a query), and under `--field`, its fields. The filters keep only the files they match, and `--limit` counts what is left; without a query there is no limit unless one is given.
 
 `--glob` takes a glob relative to the workspace root, and can be given more than once: a file is kept when any glob matches it, less those a glob starting with `!` matches. When every glob starts with `!`, they leave out what they match from every file, so `--glob '!archive/**'` keeps everything outside `archive`. `--kind` keeps only `markdown` files, those whose names end in `.md`, or only `other` files. `--no-backrefs` keeps the files, markdown or not, that no other file links to, and `--no-refs` those with no link to another indexed file; a file's links to itself, and links to folders, URLs, anchors and missing targets, count for neither. Together, `--no-refs --no-backrefs` list the files with no link in or out. The link filters read every link in the index, so a file `--glob` leaves out still has its links count.
+
+`--from` makes `--no-backrefs` count only the links whose source file matches it, and `--link-kind body` or `--link-kind frontmatter` makes `--no-refs` and `--no-backrefs` count only links of that kind. `--from` takes globs as `--glob` does: relative to the workspace root, repeatable, and a leading `!` leaves files out. A file's links to itself still never count. Each needs a filter to narrow, so `--from` without `--no-backrefs`, or `--link-kind` without `--no-refs` or `--no-backrefs`, is an error. To list the artifacts no wiki page cites in its frontmatter, however many day entries link them:
+
+```sh
+hippo find --glob 'raw/artifacts/**' --no-backrefs --from 'wiki/**' --link-kind frontmatter
+```
 
 `--where` keeps the files whose frontmatter meets a condition, and can be given more than once: a file must meet every one. A field is a dotted path into nested mappings, such as `verified.at`. It has no `[]`, so it cannot hold `[` or `]`, and it cannot hold `=`, `<`, `>` or `!`, since the first of them starts the operator.
 
