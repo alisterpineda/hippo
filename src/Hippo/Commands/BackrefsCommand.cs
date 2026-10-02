@@ -39,9 +39,9 @@ internal static class BackrefsCommand
             }
 
             var links = LinkQueries.Backrefs(session.Db, relative, kind, sourceFiles)
-                .Select(l => new BackrefOutput(l.Source, l.Line, l.Kind, l.Raw)).ToList();
+                .Select(l => new BackrefOutput(l.Source, l.Line, l.Kind, l.Raw, l.Text)).ToList();
             session.EmitList(links, OutputJson.Default.ListBackrefOutput, link =>
-                $"{Format.Safe(link.Source)}:{link.Line}  {link.Kind,-11}  {Format.Safe(link.Raw)}");
+                $"{Format.Safe(link.Source)}:{link.Line}  {link.Kind,-11}  {Format.Safe(link.Raw)}{Format.LinkText(link.Text)}");
             return ExitCode.Clean;
         }));
         return command;

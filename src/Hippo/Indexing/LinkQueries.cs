@@ -6,11 +6,11 @@ using Microsoft.Data.Sqlite;
 namespace Hippo.Indexing;
 
 /// <summary>A link out of a file. <see cref="Type"/> is <c>file</c>, <c>directory</c>, <c>missing</c>, <c>url</c> or
-/// <c>anchor</c>.</summary>
-internal sealed record LinkOut(long Line, string Kind, string Type, string Raw, string? Target);
+/// <c>anchor</c>. <see cref="Text"/> is null for a frontmatter link.</summary>
+internal sealed record LinkOut(long Line, string Kind, string Type, string Raw, string? Target, string? Text);
 
-/// <summary>A link into a path, from <see cref="Source"/>.</summary>
-internal sealed record LinkIn(string Source, long Line, string Kind, string Raw);
+/// <summary>A link into a path, from <see cref="Source"/>. <see cref="Text"/> is null for a frontmatter link.</summary>
+internal sealed record LinkIn(string Source, long Line, string Kind, string Raw, string? Text);
 
 /// <summary>A path link whose <see cref="Target"/> is neither an indexed file nor a folder holding one; null when it
 /// leaves the workspace.</summary>
@@ -49,7 +49,7 @@ internal static class LinkQueries
         db.Query<LinkOut>("""
             SELECT l.line, l.kind, (
             """ + TypeSql + """
-            ) AS Type, l.raw, l.target
+            ) AS Type, l.raw, l.target, l.text
             FROM links l
             JOIN files source ON source.id = l.source_id
             WHERE source.path = @path
@@ -68,7 +68,7 @@ internal static class LinkQueries
     /// those from <paramref name="sources"/> when they are.</summary>
     public static List<LinkIn> Backrefs(SqliteConnection db, string path, string? kind, IReadOnlyCollection<string>? sources) =>
         db.Query<LinkIn>("""
-            SELECT source.path AS Source, l.line, l.kind, l.raw
+            SELECT source.path AS Source, l.line, l.kind, l.raw, l.text
             FROM links l
             JOIN files source ON source.id = l.source_id
             WHERE l.target = @path AND (

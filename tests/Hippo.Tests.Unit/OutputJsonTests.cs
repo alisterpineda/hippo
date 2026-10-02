@@ -147,18 +147,20 @@ public class OutputJsonTests
             "kind": "body",
             "type": "missing",
             "raw": "b.md",
-            "target": "b.md"
+            "target": "b.md",
+            "text": "B"
           },
           {
             "line": 4,
-            "kind": "body",
+            "kind": "frontmatter",
             "type": "url",
             "raw": "https://example.com",
-            "target": null
+            "target": null,
+            "text": null
           }
         ]
         """,
-        [new RefOutput(3, "body", "missing", "b.md", "b.md"), new RefOutput(4, "body", "url", "https://example.com", null)],
+        [new RefOutput(3, "body", "missing", "b.md", "b.md", "B"), new RefOutput(4, "frontmatter", "url", "https://example.com", null, null)],
         OutputJson.Default.ListRefOutput);
 
     [Fact]
@@ -167,11 +169,20 @@ public class OutputJsonTests
           {
             "source": "a.md",
             "line": 3,
+            "kind": "body",
+            "raw": "b.md",
+            "text": ""
+          },
+          {
+            "source": "a.md",
+            "line": 4,
             "kind": "frontmatter",
-            "raw": "b.md"
+            "raw": "b.md",
+            "text": null
           }
         ]
-        """, [new BackrefOutput("a.md", 3, "frontmatter", "b.md")], OutputJson.Default.ListBackrefOutput);
+        """, [new BackrefOutput("a.md", 3, "body", "b.md", ""), new BackrefOutput("a.md", 4, "frontmatter", "b.md", null)],
+        OutputJson.Default.ListBackrefOutput);
 
     [Fact]
     public void Transitive_backrefs() => AssertJson("""

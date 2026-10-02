@@ -70,7 +70,8 @@ internal static class Sweeper
         [property: DbValue(Size = Unsized)] string Kind,
         [property: DbValue(Size = Unsized)] string Type,
         [property: DbValue(Size = Unsized)] string Raw,
-        [property: DbValue(Size = Unsized)] string? Target);
+        [property: DbValue(Size = Unsized)] string? Target,
+        [property: DbValue(Size = Unsized)] string? Text);
 
     internal sealed record FindingRow(
         [property: DbValue(Size = Unsized)] string Path,
@@ -275,8 +276,8 @@ internal static class Sweeper
         var searched = files.Select(f => f.Search).OfType<SearchRow>().Select(s => new SourceRow(s.Path, s.Hash)).ToList();
         db.Execute("DELETE FROM search WHERE rowid = (SELECT id FROM files WHERE path = @Path AND hash = @Hash)", searched, transaction);
         db.Execute("""
-            INSERT INTO links (source_id, line, kind, type, raw, target)
-            SELECT id, @Line, @Kind, @Type, @Raw, @Target FROM files WHERE path = @Path AND hash = @Hash
+            INSERT INTO links (source_id, line, kind, type, raw, target, text)
+            SELECT id, @Line, @Kind, @Type, @Raw, @Target, @Text FROM files WHERE path = @Path AND hash = @Hash
             """, files.SelectMany(f => f.Links).ToList(), transaction);
         // No rule yet reports other paths, so every finding's related list is empty.
         db.Execute("""
@@ -344,7 +345,7 @@ internal static class Sweeper
         bodyError = page.BodyError;
         return new ParsedFile(
             new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "markdown", page.Frontmatter.Json, page.Frontmatter.Error),
-            page.Links.Select(l => new LinkRow(file.Path, hash, l.Line, l.Kind, l.Type, l.Raw, l.Target)).ToList(),
+            page.Links.Select(l => new LinkRow(file.Path, hash, l.Line, l.Kind, l.Type, l.Raw, l.Target, l.Text)).ToList(),
             page.Findings.Select(f => new FindingRow(file.Path, hash, f.Rule, f.Line, f.Message)).ToList(),
             page.Entries.Select(e => new EntryRow(file.Path, hash, e.Line, e.Target, e.Description)).ToList(),
             new SearchRow(file.Path, hash, page.Title, PlainText.Collapse(page.Body)));

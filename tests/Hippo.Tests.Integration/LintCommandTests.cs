@@ -587,7 +587,10 @@ public sealed class LintCommandTests : IDisposable
         var broken = BrokenLinks();
 
         Assert.Equal(
-            ["1  body         directory  ../", "1  body         directory  raw/2021", "1  body         directory  raw/2021", "1  body         missing    raw/empty"],
+            [
+                "1  body         directory  ../  [home]", "1  body         directory  raw/2021  [2021]", "1  body         directory  raw/2021  [2021]",
+                "1  body         missing    raw/empty  [empty]",
+            ],
             Lines(refs.Stdout));
         Assert.Equal(1, broken.ExitCode);
         Assert.Equal(["wiki/index.md:1  broken-link  ../raw/empty/ -> raw/empty"], Lines(broken.Stdout));

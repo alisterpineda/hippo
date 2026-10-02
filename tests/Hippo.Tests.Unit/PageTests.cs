@@ -29,13 +29,13 @@ public class PageTests
     [Fact]
     public void An_inline_link_resolves_from_the_pages_folder()
     {
-        Assert.Equal(new Link(1, "body", "path", "b.md", "wiki/topics/b.md"), Only("wiki/topics/a.md", "See [B](b.md).\n"));
+        Assert.Equal(new Link(1, "body", "path", "b.md", "wiki/topics/b.md", "B"), Only("wiki/topics/a.md", "See [B](b.md).\n"));
     }
 
     [Fact]
     public void An_image_is_a_link()
     {
-        Assert.Equal(new Link(1, "body", "path", "img/x.png", "notes/img/x.png"), Only("notes/a.md", "![alt](img/x.png)\n"));
+        Assert.Equal(new Link(1, "body", "path", "img/x.png", "notes/img/x.png", "alt"), Only("notes/a.md", "![alt](img/x.png)\n"));
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public class PageTests
         var links = Links("a.md", "# A\n\n[full][r] and [r][] and [r].\n\n[r]: target.md\n");
 
         Assert.Equal(3, links.Count);
-        Assert.All(links, link => Assert.Equal(new Link(3, "body", "path", "target.md", "target.md"), link));
+        Assert.All(links, link => Assert.Equal((3, "body", "path", "target.md", "target.md"), (link.Line, link.Kind, link.Type, link.Raw, link.Target)));
     }
 
     [Fact]
@@ -79,18 +79,18 @@ public class PageTests
     [InlineData("[x]()", "")]
     public void A_link_within_the_page_is_anchor_only(string markdown, string raw)
     {
-        Assert.Equal(new Link(1, "body", "anchor", raw, null), Only("a.md", markdown));
+        Assert.Equal(new Link(1, "body", "anchor", raw, null, "x"), Only("a.md", markdown));
     }
 
     [Theory]
-    [InlineData("[x](https://example.com/a.md)", "https://example.com/a.md")]
-    [InlineData("[x](mailto:me@example.com)", "mailto:me@example.com")]
-    [InlineData("<https://example.com>", "https://example.com")]
-    [InlineData("<me@example.com>", "me@example.com")]
-    [InlineData("[x](//example.com/a)", "//example.com/a")]
-    public void A_link_with_a_scheme_is_a_url(string markdown, string raw)
+    [InlineData("[x](https://example.com/a.md)", "https://example.com/a.md", "x")]
+    [InlineData("[x](mailto:me@example.com)", "mailto:me@example.com", "x")]
+    [InlineData("<https://example.com>", "https://example.com", "https://example.com")]
+    [InlineData("<me@example.com>", "me@example.com", "me@example.com")]
+    [InlineData("[x](//example.com/a)", "//example.com/a", "x")]
+    public void A_link_with_a_scheme_is_a_url(string markdown, string raw, string text)
     {
-        Assert.Equal(new Link(1, "body", "url", raw, null), Only("a.md", markdown));
+        Assert.Equal(new Link(1, "body", "url", raw, null, text), Only("a.md", markdown));
     }
 
     [Fact]
@@ -102,7 +102,7 @@ public class PageTests
     [Fact]
     public void A_link_that_leaves_the_workspace_has_no_target()
     {
-        Assert.Equal(new Link(1, "body", "path", "../../x.md", null), Only("wiki/a.md", "[x](../../x.md)\n"));
+        Assert.Equal(new Link(1, "body", "path", "../../x.md", null, "x"), Only("wiki/a.md", "[x](../../x.md)\n"));
     }
 
     [Theory]
@@ -164,7 +164,7 @@ public class PageTests
             """);
 
         Assert.Equal(
-            [new Link(5, "frontmatter", "path", "../raw/j/1.md", "raw/j/1.md"), new Link(7, "frontmatter", "url", "https://example.com", null)],
+            [new Link(5, "frontmatter", "path", "../raw/j/1.md", "raw/j/1.md", null), new Link(7, "frontmatter", "url", "https://example.com", null, null)],
             links);
     }
 
@@ -173,7 +173,7 @@ public class PageTests
     {
         var link = Only("wiki/topics/a.md", "---\ngenerated:\n  at: 2026-09-01\n  from: b.md\n---\n");
 
-        Assert.Equal(new Link(4, "frontmatter", "path", "b.md", "wiki/topics/b.md"), link);
+        Assert.Equal(new Link(4, "frontmatter", "path", "b.md", "wiki/topics/b.md", null), link);
     }
 
     [Fact]
@@ -230,7 +230,7 @@ public class PageTests
         var page = Page.Parse("a.md", "---\nsources: [\n---\n[b](b.md)\n", Notes);
 
         Assert.NotNull(page.Frontmatter.Error);
-        Assert.Equal(new Link(4, "body", "path", "b.md", "b.md"), Assert.Single(page.Links));
+        Assert.Equal(new Link(4, "body", "path", "b.md", "b.md", "b"), Assert.Single(page.Links));
     }
 
     [Fact]
@@ -239,6 +239,40 @@ public class PageTests
         var link = Only("a.md", "---\ntitle: A\n[b](b.md)\n");
 
         Assert.Equal((3, "b.md"), (link.Line, link.Target));
+    }
+
+    [Theory]
+    [InlineData("[**Okf** bundles](x.md)", "Okf bundles")]
+    [InlineData("[the `--json` flag](x.md)", "the --json flag")]
+    [InlineData("[Fish &amp; Chips](x.md)", "Fish & Chips")]
+    [InlineData("[Herons\nand   egrets](x.md)", "Herons and egrets")]
+    [InlineData("![a diagram](d.png)", "a diagram")]
+    [InlineData("<https://x.org>", "https://x.org")]
+    [InlineData("<me@example.com>", "me@example.com")]
+    [InlineData("[](x.md)", "")]
+    public void A_body_links_text_is_what_a_reader_sees(string markdown, string text)
+    {
+        Assert.Equal(text, Only("a.md", markdown + "\n").Text);
+    }
+
+    [Fact]
+    public void A_link_around_an_image_has_the_images_alt_text_as_its_text()
+    {
+        Assert.Equal(["a badge", "a badge"], Links("a.md", "[![a badge](b.svg)](x.md)\n").Select(l => l.Text));
+    }
+
+    [Fact]
+    public void A_reference_links_text_is_its_label_not_the_reference_id()
+    {
+        var links = Links("a.md", "[full label][r] and [r][] and [r].\n\n[r]: target.md\n");
+
+        Assert.Equal(["full label", "r", "r"], links.Select(link => link.Text));
+    }
+
+    [Fact]
+    public void A_frontmatter_link_has_no_text()
+    {
+        Assert.Null(Only("wiki/topics/a.md", "---\ngenerated:\n  from: b.md\n---\n").Text);
     }
 
     [Fact]

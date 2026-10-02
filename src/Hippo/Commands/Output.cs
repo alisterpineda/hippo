@@ -23,9 +23,12 @@ internal sealed record FindOutput(
 internal sealed record ShowOutput(
     string Path, string Kind, long Size, DateTimeOffset Modified, string Hash, JsonElement? Frontmatter, string? ParseError);
 
-internal sealed record RefOutput(long Line, string Kind, string Type, string Raw, string? Target);
+/// <summary>A link out of a file. <see cref="Text"/> is what a reader sees as a body link, as plain text; null for a
+/// frontmatter link.</summary>
+internal sealed record RefOutput(long Line, string Kind, string Type, string Raw, string? Target, string? Text);
 
-internal sealed record BackrefOutput(string Source, long Line, string Kind, string Raw);
+/// <summary>A link into a path. <see cref="Text"/> is as for <see cref="RefOutput"/>.</summary>
+internal sealed record BackrefOutput(string Source, long Line, string Kind, string Raw, string? Text);
 
 internal sealed record TransitiveBackrefOutput(string Source);
 
@@ -93,6 +96,10 @@ internal static class Format
         string.Join(Environment.NewLine, text.Split(["\r\n", "\r", "\n"], StringSplitOptions.None).Select(Safe));
 
     private static bool IsUnsafe(char c) => char.IsControl(c) && c != '\t';
+
+    /// <summary>A link's text as it ends a line of <c>refs</c> or <c>backrefs</c>: in brackets, as markdown shows a
+    /// link's label, so an empty label reads <c>[]</c>; nothing for a frontmatter link, which has no text.</summary>
+    public static string LinkText(string? text) => text is null ? "" : $"  [{Safe(text)}]";
 
     /// <summary>
     /// Lays out <paramref name="json"/> as <c>--json</c> does, but with strings as written: only the quote, the

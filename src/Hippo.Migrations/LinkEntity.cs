@@ -25,4 +25,7 @@ public sealed class LinkEntity
     /// <summary>The workspace key a path link resolves to; null for a path that leaves the workspace, and for every
     /// other type.</summary>
     public string? Target { get; set; }
+
+    /// <summary>What a reader sees as a body link, as plain text; null for a frontmatter link, which has none.</summary>
+    public string? Text { get; set; }
 }

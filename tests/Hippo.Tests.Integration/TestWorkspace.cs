@@ -1,4 +1,6 @@
 using System.CommandLine;
+using System.Text.Json;
+using Microsoft.Data.Sqlite;
 
 namespace Hippo.Tests.Integration;
 
@@ -64,6 +66,34 @@ internal sealed class TestWorkspace : IDisposable
         {
             File.SetLastWriteTimeUtc(file, past);
         }
+    }
+
+    /// <summary>The undoing of each migration, by the schema version it brings the index to. A new migration adds its
+    /// own here, so <see cref="RollBackIndexTo"/> can make an index from before it.</summary>
+    private static readonly SortedDictionary<int, string> Undo = new()
+    {
+        [4] = "DROP TABLE search",
+        [5] = "ALTER TABLE links DROP COLUMN text",
+    };
+
+    /// <summary>Turns this workspace's index back into one at schema <paramref name="version"/>, as if made before every
+    /// later migration: undoes each of them, newest first, leaving the files table as it was.</summary>
+    public void RollBackIndexTo(int version)
+    {
+        if (version < Undo.Keys.Min() - 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(version), version, "No undoing is known for that far back.");
+        }
+
+        var status = Run("status", "--json");
+        Assert.Equal(0, status.ExitCode);
+        var database = JsonDocument.Parse(status.Stdout).RootElement.GetProperty("database").GetString()!;
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = database, Pooling = false }.ToString());
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = string.Join("; ", Undo.Where(u => u.Key > version).OrderByDescending(u => u.Key).Select(u => u.Value))
+            + $"; PRAGMA user_version = {version}";
+        command.ExecuteNonQuery();
     }
 
     public Result Run(params string[] args) => RunIn(Root, args);

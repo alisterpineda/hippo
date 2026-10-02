@@ -72,7 +72,68 @@ public sealed class LinkCommandTests : IDisposable
         var result = _workspace.Run("refs", "raw/journal/2026-09-01.md");
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Equal(["3  body         file       raw/journal/img/photo 1.png"], Lines(result.Stdout));
+        Assert.Equal(["3  body         file       raw/journal/img/photo 1.png  [photo]"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void Refs_json_gives_each_links_text_and_null_for_a_frontmatter_link()
+    {
+        WriteNotes();
+
+        var json = Json(_workspace.Run("refs", "wiki/topics/topic.md", "--json"));
+
+        Assert.Equal([null, null, "the index", "the web"], json.EnumerateArray().Select(l => l.GetProperty("text").GetString()));
+    }
+
+    [Fact]
+    public void Backrefs_json_gives_each_links_text_and_null_for_a_frontmatter_link()
+    {
+        WriteNotes();
+        _workspace.Write("wiki/other.md", "[the **day**](../raw/journal/2026-09-01.md)\n");
+
+        var json = Json(_workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--json"));
+
+        Assert.Equal([("wiki/other.md", JsonValueKind.String, "the day"), ("wiki/topics/topic.md", JsonValueKind.Null, null)],
+            json.EnumerateArray().Select(l =>
+                (l.GetProperty("source").GetString(), l.GetProperty("text").ValueKind, l.GetProperty("text").GetString())));
+    }
+
+    [Fact]
+    public void A_link_with_an_empty_label_shows_empty_brackets()
+    {
+        _workspace.Write("a.md", "[](b.md)\n");
+        _workspace.Write("b.md", "# B\n");
+
+        var refs = _workspace.Run("refs", "a.md");
+        var backrefs = _workspace.Run("backrefs", "b.md");
+
+        Assert.Equal(["1  body         file       b.md  []"], Lines(refs.Stdout));
+        Assert.Equal(["a.md:1  body         b.md  []"], Lines(backrefs.Stdout));
+    }
+
+    [Fact]
+    public void Link_text_in_text_output_has_its_control_characters_escaped()
+    {
+        _workspace.Write("a.md", "[a\u001b\\]0;T\u0007b](b.md)\n");
+
+        var refs = _workspace.Run("refs", "a.md");
+        var backrefs = _workspace.Run("backrefs", "b.md");
+
+        Assert.Equal(["1  body         missing    b.md  [a\\x1b]0;T\\x07b]"], Lines(refs.Stdout));
+        Assert.Equal(["a.md:1  body         b.md  [a\\x1b]0;T\\x07b]"], Lines(backrefs.Stdout));
+    }
+
+    [Fact]
+    public void An_index_from_before_link_text_existed_has_every_links_text_after_migrating()
+    {
+        _workspace.Write("a.md", "[the b page](b.md)\n");
+        _workspace.Write("b.md", "# B\n");
+        _workspace.Settle();
+        _workspace.RollBackIndexTo(4);
+
+        var json = Json(_workspace.Run("refs", "a.md", "--json"));
+
+        Assert.Equal("the b page", Assert.Single(json.EnumerateArray()).GetProperty("text").GetString());
     }
 
     [Fact]
@@ -138,7 +199,7 @@ public sealed class LinkCommandTests : IDisposable
         var body = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--link-kind", "body");
         var frontmatter = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--link-kind", "frontmatter");
 
-        Assert.Equal(["wiki/other.md:1  body         ../raw/journal/2026-09-01.md"], Lines(body.Stdout));
+        Assert.Equal(["wiki/other.md:1  body         ../raw/journal/2026-09-01.md  [day]"], Lines(body.Stdout));
         Assert.Equal(["wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md"], Lines(frontmatter.Stdout));
     }
 
@@ -172,11 +233,11 @@ public sealed class LinkCommandTests : IDisposable
         var notOther = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--from", "!wiki/other.md");
         var both = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--from", "wiki/**", "--link-kind", "body");
 
-        Assert.Equal(["wiki/other.md:1  body         ../raw/journal/2026-09-01.md", "wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md"],
+        Assert.Equal(["wiki/other.md:1  body         ../raw/journal/2026-09-01.md  [day]", "wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md"],
             Lines(wiki.Stdout));
-        Assert.Equal(["raw/journal/2026-09-02.md:1  body         2026-09-01.md", "wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md"],
+        Assert.Equal(["raw/journal/2026-09-02.md:1  body         2026-09-01.md  [yesterday]", "wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md"],
             Lines(notOther.Stdout));
-        Assert.Equal(["wiki/other.md:1  body         ../raw/journal/2026-09-01.md"], Lines(both.Stdout));
+        Assert.Equal(["wiki/other.md:1  body         ../raw/journal/2026-09-01.md  [day]"], Lines(both.Stdout));
     }
 
     [Fact]
@@ -238,7 +299,7 @@ public sealed class LinkCommandTests : IDisposable
         File.WriteAllText(path, "[c](c.md) and [b](b.md)\n");
         var result = _workspace.Run("refs", "a.md");
 
-        Assert.Equal(["1  body         missing    c.md", "1  body         file       b.md"], Lines(result.Stdout));
+        Assert.Equal(["1  body         missing    c.md  [c]", "1  body         file       b.md  [b]"], Lines(result.Stdout));
     }
 
     [Fact]
@@ -251,7 +312,7 @@ public sealed class LinkCommandTests : IDisposable
         _workspace.Write(".hippo/config.json", """{ "bundles": ["wiki"] }""");
         var result = _workspace.Run("refs", "wiki/a.md");
 
-        Assert.Equal(["1  body         file       wiki/b.md"], Lines(result.Stdout));
+        Assert.Equal(["1  body         file       wiki/b.md  [b]"], Lines(result.Stdout));
     }
 
     [Fact]
@@ -263,7 +324,7 @@ public sealed class LinkCommandTests : IDisposable
         var bare = _workspace.Run("backrefs", "raw/journal");
         var slashed = _workspace.Run("backrefs", "raw/journal/");
 
-        Assert.Equal(["wiki/journal.md:1  body         ../raw/journal/"], Lines(bare.Stdout));
+        Assert.Equal(["wiki/journal.md:1  body         ../raw/journal/  [journal]"], Lines(bare.Stdout));
         Assert.Equal(bare.Stdout, slashed.Stdout);
     }
 
@@ -278,7 +339,7 @@ public sealed class LinkCommandTests : IDisposable
         var fromFolder = _workspace.RunIn(_workspace.Combine("wiki"), "backrefs", "..");
         var transitive = _workspace.Run("backrefs", ".", "--transitive");
 
-        Assert.Equal(["index.md:1  body         ./", "wiki/a.md:1  body         ../"], Lines(fromRoot.Stdout));
+        Assert.Equal(["index.md:1  body         ./  [home]", "wiki/a.md:1  body         ../  [home]"], Lines(fromRoot.Stdout));
         Assert.Equal(fromRoot.Stdout, fromFolder.Stdout);
         Assert.Equal(["index.md", "wiki/a.md"], Lines(transitive.Stdout));
     }

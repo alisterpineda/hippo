@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
 
 namespace Hippo.Tests.Integration;
 
@@ -1251,15 +1250,7 @@ public sealed class FindCommandTests : IDisposable
     {
         _workspace.Write("a.md", "heron\n");
         _workspace.Settle();
-        var database = Json(_workspace.Run("status", "--json")).GetProperty("database").GetString()!;
-        using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = database, Pooling = false }.ToString()))
-        {
-            connection.Open();
-            using var command = connection.CreateCommand();
-            // The schema as it was one version back: no search table, and nothing in the files table changed.
-            command.CommandText = "DROP TABLE search; PRAGMA user_version = 3";
-            command.ExecuteNonQuery();
-        }
+        _workspace.RollBackIndexTo(3);
 
         Assert.Equal(["a.md"], Paths("heron"));
     }

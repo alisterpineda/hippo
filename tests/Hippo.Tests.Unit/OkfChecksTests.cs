@@ -223,7 +223,7 @@ public class OkfChecksTests
         var page = Page.Parse("kb/a.md", "---\ntype: Topic\n---\nNo citation.\n\n[^note]: An aside on [a file](b.md)\n", Okf);
 
         Assert.Empty(page.Findings);
-        Assert.Equal(new Link(6, "body", "path", "b.md", "kb/b.md"), Assert.Single(page.Links));
+        Assert.Equal(new Link(6, "body", "path", "b.md", "kb/b.md", "a file"), Assert.Single(page.Links));
     }
 
     [Fact]
@@ -241,7 +241,7 @@ public class OkfChecksTests
 
         var link = Assert.Single(Page.Parse("kb/a.md", text, Okf).Links);
 
-        Assert.Equal(new Link(6, "body", "path", "raw/b.md", "kb/raw/b.md"), link);
+        Assert.Equal(new Link(6, "body", "path", "raw/b.md", "kb/raw/b.md", "A file"), link);
     }
 
     [Theory]

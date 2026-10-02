@@ -14,9 +14,10 @@ namespace Hippo.Workspaces;
 /// A link out of a page. <see cref="Kind"/> is <c>body</c> or <c>frontmatter</c>; <see cref="Type"/> is <c>path</c>,
 /// <c>url</c> or <c>anchor</c> (within the page). A path link's <see cref="Target"/> is the workspace key it resolves to,
 /// or null when it leaves the workspace (<c>""</c> for the workspace root itself). <see cref="Line"/> counts from 1 at the
-/// top of the file.
+/// top of the file. <see cref="Text"/> is what a reader sees as a body link, as plain text on one line, read as a page's
+/// title is so the two compare; a frontmatter link has none.
 /// </summary>
-internal sealed record Link(int Line, string Kind, string Type, string Raw, string? Target);
+internal sealed record Link(int Line, string Kind, string Type, string Raw, string? Target, string? Text);
 
 /// <summary>
 /// Every setting that shapes the links and findings stored for a page, and nothing else: the config's <c>bundles</c>
@@ -123,7 +124,7 @@ internal static partial class Page
             {
                 foreach (var value in Values(root, field.Parts, 0))
                 {
-                    links.Add(Resolve(path, bundle, field.Resolve, Frontmatter.FileLine(value.Start), "frontmatter", value.Value!, isUrl: false));
+                    links.Add(Resolve(path, bundle, field.Resolve, Frontmatter.FileLine(value.Start), "frontmatter", value.Value!, isUrl: false, text: null));
                 }
             }
         }
@@ -147,13 +148,16 @@ internal static partial class Page
             switch (node)
             {
                 case LinkInline link:
-                    links.Add(Resolve(path, bundle, LinkBase.Page, line, "body", link.Url ?? "", isUrl: true));
+                    // An image's text is its alt text, and a reference link's is its label, not the reference id.
+                    links.Add(Resolve(path, bundle, LinkBase.Page, line, "body", link.Url ?? "", isUrl: true,
+                        PlainText.Collapse(PlainText.Of(link))));
                     break;
                 case AutolinkInline { IsEmail: true } email:
-                    links.Add(new Link(line, "body", "url", email.Url, null));
+                    links.Add(new Link(line, "body", "url", email.Url, null, email.Url));
                     break;
                 case AutolinkInline autolink:
-                    links.Add(Resolve(path, bundle, LinkBase.Page, line, "body", autolink.Url, isUrl: true));
+                    // An autolink shows its URL.
+                    links.Add(Resolve(path, bundle, LinkBase.Page, line, "body", autolink.Url, isUrl: true, autolink.Url));
                     break;
             }
         }
@@ -164,7 +168,7 @@ internal static partial class Page
             foreach (var (line, url, description) in IndexEntries.Read(document, block.Body, block.BodyLine))
             {
                 // An entry that is a URL or an anchor, or leaves the workspace, lists no file that could be checked.
-                if (Resolve(path, bundle, LinkBase.Page, line, "body", url, isUrl: true) is { Type: "path", Target: { } target })
+                if (Resolve(path, bundle, LinkBase.Page, line, "body", url, isUrl: true, text: null) is { Type: "path", Target: { } target })
                 {
                     entries.Add(new IndexEntry(line, target, description));
                 }
@@ -230,11 +234,11 @@ internal static partial class Page
     /// Body destinations are URLs, so a query is dropped and percent-encoding decoded; frontmatter values are literal
     /// paths. The fragment is never part of the target.
     /// </summary>
-    private static Link Resolve(string path, string bundle, LinkBase resolve, int line, string kind, string raw, bool isUrl)
+    private static Link Resolve(string path, string bundle, LinkBase resolve, int line, string kind, string raw, bool isUrl, string? text)
     {
         if (Scheme().IsMatch(raw) || raw.StartsWith("//", StringComparison.Ordinal))
         {
-            return new Link(line, kind, "url", raw, null);
+            return new Link(line, kind, "url", raw, null, text);
         }
 
         var target = raw;
@@ -245,7 +249,7 @@ internal static partial class Page
         }
         if (target.Length == 0)
         {
-            return new Link(line, kind, "anchor", raw, null);
+            return new Link(line, kind, "anchor", raw, null, text);
         }
         if (isUrl)
         {
@@ -262,7 +266,7 @@ internal static partial class Page
         {
             from = resolve == LinkBase.Page ? Folder(path) : bundle;
         }
-        return new Link(line, kind, "path", raw, Normalize(from, target));
+        return new Link(line, kind, "path", raw, Normalize(from, target), text);
     }
 
     /// <summary>Joins <paramref name="relative"/> onto <paramref name="folder"/> and removes <c>.</c> and <c>..</c>

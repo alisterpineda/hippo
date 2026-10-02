@@ -54,6 +54,7 @@ public sealed class HippoDbContext(DbContextOptions<HippoDbContext> options) : D
             link.Property(l => l.Type).HasColumnName("type");
             link.Property(l => l.Raw).HasColumnName("raw");
             link.Property(l => l.Target).HasColumnName("target");
+            link.Property(l => l.Text).HasColumnName("text");
             link.HasOne<FileEntity>().WithMany().HasForeignKey(l => l.SourceId).OnDelete(DeleteBehavior.Cascade);
             link.HasIndex(l => l.SourceId).HasDatabaseName("ix_links_source_id");
             link.HasIndex(l => l.Target).HasDatabaseName("ix_links_target");
