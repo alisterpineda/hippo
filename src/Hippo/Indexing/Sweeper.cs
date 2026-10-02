@@ -347,6 +347,6 @@ internal static class Sweeper
             page.Links.Select(l => new LinkRow(file.Path, hash, l.Line, l.Kind, l.Type, l.Raw, l.Target)).ToList(),
             page.Findings.Select(f => new FindingRow(file.Path, hash, f.Rule, f.Line, f.Message)).ToList(),
             page.Entries.Select(e => new EntryRow(file.Path, hash, e.Line, e.Target, e.Description)).ToList(),
-            new SearchRow(file.Path, hash, page.Title, page.Body));
+            new SearchRow(file.Path, hash, page.Title, PlainText.Collapse(page.Body)));
     }
 }

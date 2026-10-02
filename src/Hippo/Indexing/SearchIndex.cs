@@ -18,8 +18,9 @@ internal sealed record SearchQuery(string Match, SearchTokenizer Tokenizer, bool
 /// <summary>
 /// The <c>search</c> table: an FTS5 table holding its own copy of each page's title, path and body, each row's rowid
 /// the id of its page's row in <c>files</c>, so the sweep finds a page's row by rowid rather than by scanning the
-/// table. No foreign key ties them: the sweep writes it directly, and no trigger does. Results rank by BM25 with the
-/// title weighted above the path, and the path above the body.
+/// table. No foreign key ties them: the sweep writes it directly, and no trigger does. The body has each run of
+/// whitespace collapsed to one space, so a phrase matches across a line break. Results rank by BM25 with the title
+/// weighted above the path, and the path above the body.
 /// </summary>
 internal static class SearchIndex
 {
@@ -88,21 +89,34 @@ internal static class SearchIndex
     }
 
     /// <summary>
-    /// <paramref name="text"/> as a search in which every whitespace-separated word must appear, under
-    /// <paramref name="tokenizer"/>; null when there are no words. Each word is quoted, so punctuation in it is matched
-    /// as text the tokenizer splits, never read as query syntax. A word shorter than three characters has no trigram,
-    /// and FTS5 drops it from the query rather than requiring it, so under <see cref="SearchTokenizer.Trigram"/> a
-    /// search holding one can match nothing.
+    /// <paramref name="text"/> as a search under <paramref name="tokenizer"/> in which every phrase, the text between a
+    /// pair of <c>"</c>, and every whitespace-separated word outside them must appear; null when there are neither. Every
+    /// <c>"</c> is syntax, so an odd number of them is an error, and an empty phrase is left out. Each word and phrase
+    /// is quoted for FTS5, so punctuation in it is matched as text the tokenizer splits, never read as query syntax. A
+    /// phrase is an FTS5 phrase: its words side by side and in order under <c>porter</c>, its text as a substring under
+    /// <c>trigram</c>. Its whitespace is collapsed, as the sweep collapses the body's. A word or phrase shorter than
+    /// three characters has no trigram, and FTS5 drops it from the query rather than requiring it, so under
+    /// <see cref="SearchTokenizer.Trigram"/> a search holding one can match nothing.
     /// </summary>
     public static SearchQuery? Query(string text, SearchTokenizer tokenizer)
     {
-        var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length == 0)
+        var parts = text.Split('"');
+        if (parts.Length % 2 == 0)
+        {
+            throw new HippoException("unclosed quote in query");
+        }
+        // The parts alternate between text outside quotes, split into words, and a phrase, starting outside.
+        var terms = parts.SelectMany((part, i) => i % 2 == 0
+                ? part.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                : [PlainText.CollapseRuns(part)])
+            .Where(term => !string.IsNullOrWhiteSpace(term))
+            .ToList();
+        if (terms.Count == 0)
         {
             return null;
         }
-        var match = string.Join(' ', words.Select(word => $"\"{word.Replace("\"", "\"\"", StringComparison.Ordinal)}\""));
-        var canMatch = tokenizer != SearchTokenizer.Trigram || words.All(word => word.EnumerateRunes().Count() >= 3);
+        var match = string.Join(' ', terms.Select(term => $"\"{term}\""));
+        var canMatch = tokenizer != SearchTokenizer.Trigram || terms.All(term => term.EnumerateRunes().Count() >= 3);
         return new SearchQuery(match, tokenizer, canMatch);
     }
 

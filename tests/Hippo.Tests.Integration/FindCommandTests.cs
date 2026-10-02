@@ -344,16 +344,160 @@ public sealed class FindCommandTests : IDisposable
     [InlineData("foo-bar")]
     [InlineData("C#")]
     [InlineData("2.0")]
-    [InlineData("\"unclosed")]
     [InlineData("title:foo")]
     [InlineData("a AND OR NOT")]
     [InlineData("star*")]
+    [InlineData("-minus NEAR")]
+    [InlineData("\"title:foo, a AND OR NOT, star*\"")]
+    [InlineData("\"-minus NEAR(x)\"")]
     public void Query_punctuation_is_matched_as_text_never_parsed_as_syntax(string query)
     {
-        _workspace.Write("a.md", "foo-bar in C# 2.0, \"unclosed\", title:foo, a AND OR NOT, star*\n");
+        _workspace.Write("a.md", "foo-bar in C# 2.0, title:foo, a AND OR NOT, star* -minus NEAR(x)\n");
         _workspace.Write("b.md", "Nothing to see.\n");
 
         Assert.Equal(["a.md"], Paths(query));
+    }
+
+    [Fact]
+    public void A_quoted_phrase_needs_its_words_side_by_side_and_in_order()
+    {
+        _workspace.Write("phrase.md", "Each integration test runs alone.\n");
+        _workspace.Write("reversed.md", "A test integration, backwards.\n");
+        _workspace.Write("apart.md", "Integration takes time; test it.\n");
+
+        Assert.Equal(["phrase.md"], Paths("\"integration test\""));
+        Assert.Equal(["reversed.md"], Paths("\"test integration\""));
+    }
+
+    [Fact]
+    public void Phrases_and_words_must_all_appear()
+    {
+        _workspace.Write("both.md", "The integration test checks ranking.\n");
+        _workspace.Write("phrase.md", "The integration test checks nothing else.\n");
+        _workspace.Write("word.md", "Ranking of a test for integration.\n");
+
+        Assert.Equal(["both.md"], Paths("\"integration test\" ranking"));
+        Assert.Equal(["both.md"], Paths("ranking \"integration test\""));
+    }
+
+    [Fact]
+    public void A_quote_next_to_a_word_still_starts_or_ends_a_phrase()
+    {
+        _workspace.Write("a.md", "kestrel, then integration test, then heron\n");
+        _workspace.Write("b.md", "kestrel heron test integration\n");
+
+        Assert.Equal(["a.md"], Paths("kestrel\"integration test\"heron"));
+    }
+
+    [Theory]
+    [InlineData("\"integration test")]
+    [InlineData("\"integration\" test\"")]
+    [InlineData("\"")]
+    public void An_unclosed_quote_is_an_error(string query)
+    {
+        var result = _workspace.Run("find", query);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("unclosed quote in query", result.Stderr);
+    }
+
+    [Fact]
+    public void An_empty_phrase_is_ignored()
+    {
+        _workspace.Write("a.md", "Just a kestrel.\n");
+        _workspace.Write("b.md", "Nothing to see.\n");
+
+        Assert.Equal(["a.md"], Paths("\"\" kestrel"));
+    }
+
+    [Theory]
+    [InlineData("\"\"")]
+    [InlineData("\"\" \"  \"")]
+    public void A_query_of_empty_phrases_is_an_error(string query)
+    {
+        var result = _workspace.Run("find", query);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("find needs at least one word to look for", result.Stderr);
+    }
+
+    [Fact]
+    public void Under_the_default_tokenizer_a_phrase_matches_other_forms_of_its_words_and_ignores_punctuation()
+    {
+        _workspace.Write("a.md", "Left as per humans, unfilled.\n");
+        _workspace.Write("b.md", "Nothing to see.\n");
+
+        Assert.Equal(["a.md"], Paths("\"(per human, unfiled)\""));
+    }
+
+    [Fact]
+    public void Under_the_trigram_tokenizer_a_phrase_matches_as_written_ignoring_case()
+    {
+        _workspace.Write(".hippo/config.json", """{ "search": { "tokenizer": "trigram" } }""");
+        _workspace.Write("marker.md", "A marker (Per Human, Unfiled) here.\n");
+        _workspace.Write("forms.md", "Left as per humans, unfilled.\n");
+        _workspace.Write("bare.md", "Left per human, unfiled.\n");
+
+        Assert.Equal(["marker.md"], Paths("\"(per human, unfiled)\""));
+    }
+
+    [Fact]
+    public void Under_the_trigram_tokenizer_a_phrase_of_three_characters_or_more_can_match_though_its_words_are_shorter()
+    {
+        _workspace.Write(".hippo/config.json", """{ "search": { "tokenizer": "trigram" } }""");
+        _workspace.Write("a.md", "This is a test.\n");
+        _workspace.Write("b.md", "Is it a test?\n");
+
+        Assert.Equal(["a.md"], Paths("\"is a\" test"));
+        Assert.Empty(Paths("\"is\" test"));
+        Assert.Empty(Paths("is a test"));
+    }
+
+    [Fact]
+    public void Under_the_trigram_tokenizer_a_phrase_matches_across_a_line_break_in_the_page()
+    {
+        _workspace.Write(".hippo/config.json", """{ "search": { "tokenizer": "trigram" } }""");
+        _workspace.Write("a.md", "A marker (per\nhuman, unfiled) wrapped.\n");
+
+        Assert.Equal(["a.md"], Paths("\"(per human, unfiled)\""));
+    }
+
+    [Fact]
+    public void Under_the_trigram_tokenizer_whitespace_in_a_phrase_matches_one_space()
+    {
+        _workspace.Write(".hippo/config.json", """{ "search": { "tokenizer": "trigram" } }""");
+        _workspace.Write("a.md", "A marker (per human, unfiled) here.\n");
+
+        Assert.Equal(["a.md"], Paths("\"(per  human,\tunfiled)\""));
+    }
+
+    [Fact]
+    public void A_phrase_matches_within_the_title_path_or_body_never_across_them()
+    {
+        _workspace.Write("a.md", "---\ntitle: Integration\n---\nTest notes.\n");
+        _workspace.Write("b.md", "---\ntitle: Integration test\n---\nNotes.\n");
+
+        Assert.Equal(["b.md"], Paths("\"integration test\""));
+    }
+
+    [Fact]
+    public void A_phrase_snippet_marks_the_words_of_the_phrase()
+    {
+        _workspace.Write("a.md", "Each integration test\nruns alone.\n");
+
+        var snippet = Assert.Single(Json(_workspace.Run("find", "\"integration test\"", "--json")).EnumerateArray()).GetProperty("snippet").GetString();
+
+        Assert.Equal("Each **integration test** runs alone.", snippet);
+    }
+
+    [Fact]
+    public void Options_may_come_before_or_after_a_query_with_a_phrase()
+    {
+        _workspace.Write("wiki/a.md", "An integration test.\n");
+        _workspace.Write("raw/b.md", "An integration test.\n");
+
+        Assert.Equal(["wiki/a.md"], Paths("--glob", "wiki/**", "\"integration test\""));
+        Assert.Equal(["wiki/a.md"], Paths("\"integration test\"", "--glob", "wiki/**"));
     }
 
     [Theory]

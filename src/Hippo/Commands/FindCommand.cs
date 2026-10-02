@@ -13,7 +13,9 @@ internal static class FindCommand
     {
         var query = new Argument<string?>("query")
         {
-            Description = "Words every page found must contain; without them, every indexed file is listed",
+            Description = "Words every page found must contain, and \"phrases\" each must contain as a whole; "
+                + "the shell needs a phrase quoted again, as '\"two words\"' (Windows PowerShell 5.1: '\\\"two words\\\"', "
+                + "cmd.exe: \"\\\"two words\\\"\"); without a query, every indexed file is listed",
             Arity = ArgumentArity.ZeroOrOne,
         };
         var glob = new Option<string[]>("--glob")
@@ -40,7 +42,7 @@ internal static class FindCommand
             }
         });
         var command = new Command("find",
-            "List indexed files in path order, or with a query, the pages holding every word of it, best match first, "
+            "List indexed files in path order, or with a query, the pages holding every word and phrase of it, best match first, "
             + "with a snippet of each")
         {
             query,

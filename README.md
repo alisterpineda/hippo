@@ -120,9 +120,27 @@ Without a query, `hippo find` lists every indexed file in path order, one path p
 
 `--glob` takes a glob relative to the workspace root, and can be given more than once: a file is kept when any glob matches it, less those a glob starting with `!` matches. When every glob starts with `!`, they leave out what they match from every file, so `--glob '!archive/**'` keeps everything outside `archive`. `--kind` keeps only `markdown` files, those whose names end in `.md`, or only `other` files. `--no-backrefs` keeps the files, markdown or not, that no other file links to, and `--no-refs` those with no link to another indexed file; a file's links to itself, and links to folders, URLs, anchors and missing targets, count for neither. Together, `--no-refs --no-backrefs` list the files with no link in or out. The link filters read every link in the index, so a file `--glob` leaves out still has its links count.
 
-With a query, `hippo find` looks through every markdown file's title, path and body: the body is the text after the frontmatter, as written, and the title is the frontmatter `title`, or the first level-1 heading when there is none. A page matches when it holds every word of the query. Each word is matched as text, so punctuation in it is never query syntax: `foo-bar` finds the words `foo` and `bar` side by side, and `"`, `*`, `:`, `AND` and `OR` mean nothing special. Results rank by BM25, with a match in the title counting for more than one in the path, and one in the path for more than one in the body. Each result shows a snippet of the body around the match, on one line, with the matched words marked `**` as in markdown bold; a page that matches only in its title or path shows the start of its body, with nothing marked. The filters keep only the pages they match, as without a query, and `--limit` counts what is left, 20 unless another is given. Finding nothing is not an error, so `find` exits 0 either way.
+With a query, `hippo find` looks through every markdown file's title, path and body: the body is the text after the frontmatter, as written but with each run of whitespace read as one space, and the title is the frontmatter `title`, or the first level-1 heading when there is none. In the query, the text between a pair of `"` is a phrase, and every other word stands alone; a page matches when it holds every phrase and every word, so `'"integration test" ranking'` needs both the phrase and the word. Every `"` is syntax: an odd number of them is an error, an empty phrase `""` is ignored, and a `"` cannot be searched for. Each word and phrase is matched as text, so punctuation in it is never query syntax: `foo-bar` finds the words `foo` and `bar` side by side, and `*`, `:`, `-`, `AND`, `OR` and `NEAR` mean nothing special. Results rank by BM25, with a match in the title counting for more than one in the path, and one in the path for more than one in the body. Each result shows a snippet of the body around the match, on one line, with the matched words marked `**` as in markdown bold; a page that matches only in its title or path shows the start of its body, with nothing marked. The filters keep only the pages they match, as without a query, and `--limit` counts what is left, 20 unless another is given. Finding nothing is not an error, so `find` exits 0 either way.
 
 The `porter` tokenizer, the default, matches whole words and other forms of them, so `running` finds `runs`. The `trigram` tokenizer matches any run of three or more characters, inside words too, so `dex` finds `index`, but a word shorter than three characters finds nothing. Changing `search.tokenizer` rebuilds the search index on the next command, without reading the files again.
+
+A phrase means what the tokenizer makes of it, and it matches within the title, the path or the body, never across them:
+
+| | `porter` (default) | `trigram` |
+|---|---|---|
+| A phrase means | The words next to each other and in order, in any of their forms, ignoring punctuation and case | The text as a substring, punctuation included, ignoring case |
+| `"integration test"` finds "test integration" | No | No |
+| `"(per human, unfiled)"` finds "per humans, unfilled" | Yes | No |
+
+Under `trigram`, a phrase of three or more characters can match although its words are shorter, so `"is a"` finds "this is a test".
+
+The shell removes the outer quotes, so a phrase needs a second layer:
+
+| Shell | Phrase |
+|---|---|
+| bash, zsh, fish, PowerShell 7.3+ | `hippo find '"integration test"'` |
+| Windows PowerShell 5.1 | `hippo find '\"integration test\"'` |
+| cmd.exe | `hippo find "\"integration test\""` |
 
 The index lives in `<user cache>/hippo/<hash of workspace root>/index.db`; set `HIPPO_CACHE_DIR` to an absolute path to replace `<user cache>/hippo`. The hash is the SHA-256 of the root's path. On Windows that is the path the OS resolves the folder to, so a different letter case, an 8.3 short name, a junction or a `subst` drive still finds the same index. Each index records its root, which `hippo cache list` checks: `live` when the root still has a `.hippo/config.json`; `orphaned` when it does not but the root or the folder above it exists, as after the workspace was deleted, moved or renamed; `unreachable` when the drive the root was on is not mounted, or when neither the root nor the folder above it exists or they cannot be checked, as for an offline share; and `unknown` when the index records no root or cannot be read. `hippo cache prune` removes the orphaned indexes, and with `--include-unreachable` the unreachable ones too; nothing else removes an index. A moved workspace is indexed afresh at its new path, and its old index stays until pruned.
 

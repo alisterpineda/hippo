@@ -39,7 +39,11 @@ internal static partial class PlainText
 
     /// <summary>Collapses each run of whitespace to one space and trims the ends, so text that wraps across lines reads
     /// as one line.</summary>
-    public static string Collapse(string text) => Whitespace().Replace(text, " ").Trim();
+    public static string Collapse(string text) => CollapseRuns(text).Trim();
+
+    /// <summary>Collapses each run of whitespace to one space, as <see cref="Collapse"/> does, but keeps a space at
+    /// either end.</summary>
+    public static string CollapseRuns(string text) => Whitespace().Replace(text, " ");
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();

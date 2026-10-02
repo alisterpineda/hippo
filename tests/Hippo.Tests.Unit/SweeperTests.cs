@@ -754,16 +754,16 @@ public sealed class SweeperTests : IDisposable
             """).AsList();
 
     [Fact]
-    public void A_sweep_stores_each_pages_title_path_and_body_for_search()
+    public void A_sweep_stores_each_pages_title_path_and_body_with_its_whitespace_collapsed_for_search()
     {
-        _workspace.Write("wiki/a.md", "---\ntitle: Alpha\n---\n# Heading\n\nThe body.\n");
+        _workspace.Write("wiki/a.md", "---\ntitle: Alpha\n---\n# Heading\n\nThe  body\twraps\r\nhere.\n");
         _workspace.Write("b.md", "# Beta\n");
         _workspace.Write("raw/c.txt", "not a page");
 
         Sweep();
 
         Assert.Equal(
-            [new StoredSearchRow("b.md", "Beta", "b.md", "# Beta\n"), new StoredSearchRow("wiki/a.md", "Alpha", "wiki/a.md", "# Heading\n\nThe body.\n")],
+            [new StoredSearchRow("b.md", "Beta", "b.md", "# Beta"), new StoredSearchRow("wiki/a.md", "Alpha", "wiki/a.md", "# Heading The body wraps here.")],
             SearchRows());
     }
 
@@ -776,7 +776,7 @@ public sealed class SweeperTests : IDisposable
 
         Sweep();
 
-        Assert.Equal([new StoredSearchRow("a.md", "New", "a.md", "# New\n\nnew words\n")], SearchRows());
+        Assert.Equal([new StoredSearchRow("a.md", "New", "a.md", "# New new words")], SearchRows());
     }
 
     [Fact]
@@ -820,7 +820,7 @@ public sealed class SweeperTests : IDisposable
         Assert.True(Sweep().Rebuilt);
 
         Assert.Equal(
-            [new StoredSearchRow("a.md", "A", "a.md", "kept"), new StoredSearchRow("b.md", "B2", "b.md", "# B2\n")],
+            [new StoredSearchRow("a.md", "A", "a.md", "kept"), new StoredSearchRow("b.md", "B2", "b.md", "# B2")],
             SearchRows());
     }
 
