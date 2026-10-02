@@ -5,7 +5,7 @@ using YamlDotNet.RepresentationModel;
 namespace Hippo.Okf;
 
 /// <summary>
-/// A bundle from <c>links.bundles</c> whose root <c>index.md</c> declares <c>okf_version</c> in its frontmatter (§12).
+/// A bundle from <c>bundles</c> whose root <c>index.md</c> declares <c>okf_version</c> in its frontmatter (§12).
 /// <see cref="Version"/> is the declared value as written, or null when it is not a plain value. hippo reads every OKF
 /// bundle as <see cref="SpecVersion"/>, whatever it declares.
 /// </summary>
@@ -32,7 +32,7 @@ internal sealed record OkfBundle(string Root, string? Version)
     public static List<OkfBundle> Find(Workspace workspace, IReadOnlySet<string> files)
     {
         var bundles = new List<OkfBundle>();
-        foreach (var root in workspace.Config.Links.Bundles.Distinct(StringComparer.Ordinal))
+        foreach (var root in workspace.Config.Bundles.Distinct(StringComparer.Ordinal))
         {
             var index = IndexOf(root);
             if (!files.Contains(index))

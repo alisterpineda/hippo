@@ -649,8 +649,8 @@ public sealed class FindCommandTests : IDisposable
     {
         _workspace.Write(".hippo/config.json", """
             {
+              "bundles": ["wiki"],
               "links": {
-                "bundles": ["wiki"],
                 "frontmatter": [{ "field": "sources[].resource", "resolve": "bundle" }]
               }
             }

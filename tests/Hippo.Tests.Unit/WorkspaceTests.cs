@@ -63,8 +63,10 @@ public class WorkspaceTests
         Assert.Equal(["**/*"], config.Include);
         Assert.Equal([".git/**", ".obsidian/**", ".trash/**"], config.Exclude);
         Assert.True(config.Gitignore);
-        Assert.Equal(new PageSettings(WorkspaceConfig.Default.Links, []).Fingerprint, new PageSettings(config.Links, []).Fingerprint);
+        Assert.Equal(new PageSettings(WorkspaceConfig.Default.Bundles, WorkspaceConfig.Default.Links, []).Fingerprint,
+            new PageSettings(config.Bundles, config.Links, []).Fingerprint);
         Assert.Empty(config.LintOff);
+        Assert.Empty(config.LintExclude);
         Assert.Equal(SearchTokenizer.Porter, config.SearchTokenizer);
     }
 
@@ -76,9 +78,10 @@ public class WorkspaceTests
 
         var config = WorkspaceConfig.Parse(uncommented);
 
-        Assert.Equal(["wiki"], config.Links.Bundles);
+        Assert.Equal(["wiki"], config.Bundles);
         Assert.Equal([("related[]", LinkBase.Page)], config.Links.Frontmatter.Select(f => (f.Field, f.Resolve)));
         Assert.Equal(["okf-footnote"], config.LintOff);
+        Assert.Equal(["archive/**"], config.LintExclude);
         Assert.Equal(SearchTokenizer.Trigram, config.SearchTokenizer);
     }
 
@@ -96,7 +99,7 @@ public class WorkspaceTests
     [Fact]
     public void Without_a_files_section_everything_is_included()
     {
-        var config = WorkspaceConfig.Parse("""{ "links": { "bundles": ["wiki"] } }""");
+        var config = WorkspaceConfig.Parse("""{ "bundles": ["wiki"] }""");
 
         Assert.Equal(["**/*"], config.Include);
         Assert.Empty(config.Exclude);
@@ -151,11 +154,13 @@ public class WorkspaceTests
     }
 
     [Theory]
-    [InlineData("""{ "fils": {} }""", "unknown key fils; expected files or links or lint or search")]
+    [InlineData("""{ "fils": {} }""", "unknown key fils; expected files or bundles or links or lint or search")]
     [InlineData("""{ "search": { "tokeniser": "porter" } }""", "unknown key search.tokeniser; expected tokenizer")]
-    [InlineData("""{ "lint": { "of": [] } }""", "unknown key lint.of; expected off")]
+    [InlineData("""{ "lint": { "of": [] } }""", "unknown key lint.of; expected off or exclude")]
+    [InlineData("""{ "lint": { "include": ["wiki/**"] } }""", "unknown key lint.include; expected off or exclude")]
     [InlineData("""{ "files": { "exlcude": [] } }""", "unknown key files.exlcude; expected include or exclude or gitignore")]
-    [InlineData("""{ "links": { "roots": [] } }""", "unknown key links.roots; expected bundles or frontmatter")]
+    [InlineData("""{ "links": { "roots": [] } }""", "unknown key links.roots; expected frontmatter")]
+    [InlineData("""{ "links": { "bundles": ["wiki"] } }""", "unknown key links.bundles; expected frontmatter")]
     [InlineData("""{ "links": { "frontmatter": [{ "field": "a", "reslove": "page" }] } }""", "unknown key links.frontmatter[].reslove")]
     public void Unknown_keys_are_errors_that_name_the_key(string json, string message)
     {
@@ -165,12 +170,12 @@ public class WorkspaceTests
     }
 
     [Fact]
-    public void Links_are_read()
+    public void Bundles_and_links_are_read()
     {
         var config = WorkspaceConfig.Parse("""
             {
+              "bundles": ["wiki", "/docs/"],
               "links": {
-                "bundles": ["wiki", "/docs/"],
                 "frontmatter": [
                   { "field": "sources[].resource", "resolve": "bundle" },
                   { "field": "related[]" }
@@ -179,26 +184,27 @@ public class WorkspaceTests
             }
             """);
 
-        Assert.Equal(["wiki", "docs"], config.Links.Bundles);
+        Assert.Equal(["wiki", "docs"], config.Bundles);
         Assert.Equal(
             [("sources[].resource", LinkBase.Bundle), ("related[]", LinkBase.Page)],
             config.Links.Frontmatter.Select(f => (f.Field, f.Resolve)));
     }
 
     [Fact]
-    public void Without_a_links_section_there_are_no_bundles_or_frontmatter_links()
+    public void Without_bundles_or_a_links_section_there_are_no_bundles_or_frontmatter_links()
     {
         var config = WorkspaceConfig.Parse("""{ "files": { "include": ["**/*"] } }""");
 
-        Assert.Empty(config.Links.Bundles);
+        Assert.Empty(config.Bundles);
         Assert.Empty(config.Links.Frontmatter);
     }
 
     [Theory]
-    [InlineData("""{ "links": { "bundles": "wiki" } }""", "links.bundles")]
-    [InlineData("""{ "links": { "bundles": ["../outside"] } }""", "links.bundles")]
-    [InlineData("""{ "links": { "bundles": ["/"] } }""", "links.bundles")]
-    [InlineData("""{ "links": { "bundles": [{ "root": "wiki" }] } }""", "links.bundles")]
+    [InlineData("""{ "bundles": "wiki" }""", "bundles must be an array of folders inside the workspace")]
+    [InlineData("""{ "bundles": ["../outside"] }""", "bundles must be an array of folders inside the workspace")]
+    [InlineData("""{ "bundles": ["wiki/./sub"] }""", "bundles must be an array of folders inside the workspace")]
+    [InlineData("""{ "bundles": ["/"] }""", "bundles must be an array of folders inside the workspace")]
+    [InlineData("""{ "bundles": [{ "root": "wiki" }] }""", "bundles must be an array of folders inside the workspace")]
     [InlineData("""{ "links": { "frontmatter": [{ "resolve": "page" }] } }""", "links.frontmatter")]
     [InlineData("""{ "links": { "frontmatter": [{ "field": "a..b" }] } }""", "links.frontmatter")]
     [InlineData("""{ "links": { "frontmatter": [{ "field": "a[]b" }] } }""", "links.frontmatter")]
@@ -213,7 +219,7 @@ public class WorkspaceTests
     [Theory]
     [InlineData("""{ "files": { "include": ["**/*.md", 1] } }""", "files.include")]
     [InlineData("""{ "files": { "exclude": [true] } }""", "files.exclude")]
-    [InlineData("""{ "links": { "bundles": [null] } }""", "links.bundles")]
+    [InlineData("""{ "bundles": [null] }""", "bundles must be an array of folders inside the workspace")]
     [InlineData("""{ "links": { "frontmatter": [{ "field": 1 }] } }""", "links.frontmatter")]
     [InlineData("""{ "links": { "frontmatter": [{ "field": "a", "resolve": null }] } }""", "links.frontmatter[].resolve")]
     public void Values_that_are_not_strings_are_errors(string json, string key)
@@ -229,6 +235,26 @@ public class WorkspaceTests
         var config = WorkspaceConfig.Parse("""{ "lint": { "off": ["okf-footnote", "okf-status"] } }""");
 
         Assert.Equal(["okf-footnote", "okf-status"], config.LintOff);
+    }
+
+    [Fact]
+    public void Lint_exclude_is_a_list_of_globs()
+    {
+        var config = WorkspaceConfig.Parse("""{ "lint": { "exclude": ["raw/external/**", "**/templates/*.md"] } }""");
+
+        Assert.Equal(["raw/external/**", "**/templates/*.md"], config.LintExclude);
+        Assert.Empty(config.LintOff);
+    }
+
+    [Theory]
+    [InlineData("""{ "lint": { "exclude": "raw/**" } }""")]
+    [InlineData("""{ "lint": { "exclude": [1] } }""")]
+    [InlineData("""{ "lint": { "exclude": [""] } }""")]
+    public void Lint_exclude_must_be_an_array_of_globs(string json)
+    {
+        var ex = Assert.Throws<HippoException>(() => WorkspaceConfig.Parse(json));
+
+        Assert.Equal(".hippo/config.json: lint.exclude must be an array of glob patterns", ex.Message);
     }
 
     [Fact]
@@ -257,8 +283,7 @@ public class WorkspaceTests
     [Fact]
     public void The_link_fingerprint_changes_with_the_okf_bundles()
     {
-        var links = new LinkSettings(["wiki", "docs"], []);
-        string Fingerprint(params string[] okf) => new PageSettings(links, okf).Fingerprint;
+        string Fingerprint(params string[] okf) => new PageSettings(["wiki", "docs"], LinkSettings.Default, okf).Fingerprint;
 
         Assert.NotEqual(Fingerprint(), Fingerprint("wiki"));
         Assert.NotEqual(Fingerprint("docs"), Fingerprint("wiki"));
@@ -267,14 +292,19 @@ public class WorkspaceTests
     [Fact]
     public void The_link_fingerprint_changes_with_the_settings_that_shape_links_only()
     {
-        string Fingerprint(string json) => new PageSettings(WorkspaceConfig.Parse(json).Links, []).Fingerprint;
-        var baseline = Fingerprint("""{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "a" }] } }""");
+        string Fingerprint(string json)
+        {
+            var config = WorkspaceConfig.Parse(json);
+            return new PageSettings(config.Bundles, config.Links, []).Fingerprint;
+        }
+        var baseline = Fingerprint("""{ "bundles": ["wiki"], "links": { "frontmatter": [{ "field": "a" }] } }""");
 
-        Assert.Equal(baseline, Fingerprint("""{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "a" }] }, "files": { "exclude": ["y/**"] } }"""));
-        Assert.Equal(baseline, Fingerprint("""{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "a" }] }, "lint": { "off": ["okf-status"] } }"""));
-        Assert.NotEqual(baseline, Fingerprint("""{ "links": { "bundles": ["docs"], "frontmatter": [{ "field": "a" }] } }"""));
-        Assert.NotEqual(baseline, Fingerprint("""{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "a", "resolve": "bundle" }] } }"""));
-        Assert.NotEqual(baseline, Fingerprint("""{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "b" }] } }"""));
+        Assert.Equal(baseline, Fingerprint("""{ "bundles": ["wiki"], "links": { "frontmatter": [{ "field": "a" }] }, "files": { "exclude": ["y/**"] } }"""));
+        Assert.Equal(baseline, Fingerprint("""{ "bundles": ["wiki"], "links": { "frontmatter": [{ "field": "a" }] }, "lint": { "off": ["okf-status"] } }"""));
+        Assert.Equal(baseline, Fingerprint("""{ "bundles": ["wiki"], "links": { "frontmatter": [{ "field": "a" }] }, "lint": { "exclude": ["raw/**"] } }"""));
+        Assert.NotEqual(baseline, Fingerprint("""{ "bundles": ["docs"], "links": { "frontmatter": [{ "field": "a" }] } }"""));
+        Assert.NotEqual(baseline, Fingerprint("""{ "bundles": ["wiki"], "links": { "frontmatter": [{ "field": "a", "resolve": "bundle" }] } }"""));
+        Assert.NotEqual(baseline, Fingerprint("""{ "bundles": ["wiki"], "links": { "frontmatter": [{ "field": "b" }] } }"""));
     }
 
     [Fact]

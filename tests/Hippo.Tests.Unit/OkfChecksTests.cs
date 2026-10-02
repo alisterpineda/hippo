@@ -5,9 +5,9 @@ namespace Hippo.Tests.Unit;
 
 public class OkfChecksTests
 {
-    private static readonly PageSettings Okf = new(new LinkSettings(["kb"], []), ["kb"]);
+    private static readonly PageSettings Okf = new(["kb"], LinkSettings.Default, ["kb"]);
 
-    private static readonly PageSettings Plain = new(new LinkSettings(["kb"], []), []);
+    private static readonly PageSettings Plain = new(["kb"], LinkSettings.Default, []);
 
     private static List<Finding> Findings(string path, string text, PageSettings? settings = null) =>
         Page.Parse(path, text, settings ?? Okf).Findings;
@@ -53,7 +53,7 @@ public class OkfChecksTests
     [Fact]
     public void A_page_in_a_plain_bundle_nested_in_an_okf_one_is_not_checked()
     {
-        var settings = new PageSettings(new LinkSettings(["kb", "kb/plain"], []), ["kb"]);
+        var settings = new PageSettings(["kb", "kb/plain"], LinkSettings.Default, ["kb"]);
 
         Assert.Empty(Findings("kb/plain/a.md", "# No frontmatter\n", settings));
         Assert.Single(Findings("kb/a.md", "# No frontmatter\n", settings));

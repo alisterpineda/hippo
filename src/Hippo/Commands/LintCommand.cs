@@ -32,7 +32,7 @@ internal static class LintCommand
             {
                 if (bundles.Count == 0)
                 {
-                    session.Warn("no bundle in links.bundles declares okf_version in its root index.md, so there is no OKF bundle to check");
+                    session.Warn("no bundle in bundles declares okf_version in its root index.md, so there is no OKF bundle to check");
                 }
                 foreach (var bundle in bundles.Where(b => b.Version != OkfBundle.SpecVersion))
                 {
@@ -47,7 +47,7 @@ internal static class LintCommand
             var worked = new List<FindingOutput>();
             if (rules.Contains(OkfRules.Index))
             {
-                worked.AddRange(IndexSync.Check(session.Db, bundles.Select(b => b.Root).ToList(), session.Workspace.Config.Links.Bundles)
+                worked.AddRange(IndexSync.Check(session.Db, bundles.Select(b => b.Root).ToList(), session.Workspace.Config.Bundles)
                     .Select(f => new FindingOutput(OkfRules.Index, f.Path, f.Line, f.Message, f.Related)));
             }
             if (rules.Contains(LintRules.BrokenLink))
@@ -61,7 +61,10 @@ internal static class LintCommand
                 worked.AddRange(FileQueries.ParseErrors(session.Db)
                     .Select(f => new FindingOutput(LintRules.FrontmatterSyntax, f.Path, null, f.ParseError, [])));
             }
-            var output = FindingQueries.Merge(stored, worked, f => f.Path, f => f.Line);
+            // lint.exclude matches the file a finding is on, and applies whatever --rule names.
+            var merged = FindingQueries.Merge(stored, worked, f => f.Path, f => f.Line);
+            var excluded = session.Workspace.LintExcluded(merged.Select(f => f.Path).Distinct(StringComparer.Ordinal));
+            var output = merged.Where(f => !excluded.Contains(f.Path)).ToList();
 
             session.EmitList(output, OutputJson.Default.ListFindingOutput, finding =>
             {

@@ -27,13 +27,12 @@ internal sealed record FrontmatterLinkField(string Field, LinkBase Resolve)
 }
 
 /// <summary>
-/// The <c>links</c> section: how a page's links are found and resolved. <see cref="Bundles"/> are folder roots, relative
-/// to the workspace root without leading or trailing <c>/</c>. Pages are parsed under a <see cref="PageSettings"/>,
-/// which adds what the sweep reads from the workspace itself.
+/// The <c>links</c> section: which frontmatter fields hold links. Pages are parsed under a <see cref="PageSettings"/>,
+/// which adds the workspace's bundles and what the sweep reads from the workspace itself.
 /// </summary>
-internal sealed record LinkSettings(IReadOnlyList<string> Bundles, IReadOnlyList<FrontmatterLinkField> Frontmatter)
+internal sealed record LinkSettings(IReadOnlyList<FrontmatterLinkField> Frontmatter)
 {
-    public static LinkSettings Default { get; } = new([], []);
+    public static LinkSettings Default { get; } = new([]);
 }
 
 /// <summary>How the search table splits text into terms: <see cref="Porter"/>, FTS5's <c>porter unicode61</c>, matches
@@ -60,17 +59,17 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
     /// <summary>The config's path relative to the workspace root, as messages show it.</summary>
     public const string RelativePath = Folder + "/" + FileName;
 
-    /// <summary>What <c>hippo init</c> writes: every file but the ones git ignores and the usual tool folders, with the
-    /// <c>links</c> and <c>lint</c> sections shown commented out. It sets only what differs from <see cref="Default"/>; the
-    /// annotated example in README.md spells out every key, so change both together. A unit test parses the commented
-    /// sections to catch stale syntax.</summary>
+    /// <summary>What <c>hippo init</c> writes: every file but the ones git ignores and the usual tool folders, with
+    /// <c>bundles</c> and the <c>links</c> and <c>lint</c> sections shown commented out. It sets only what differs from
+    /// <see cref="Default"/>; the annotated example in README.md spells out every key, so change both together. A unit
+    /// test parses the commented sections to catch stale syntax.</summary>
     public const string Starter = """
         {
           "files": {
             "exclude": [".git/**", ".obsidian/**", ".trash/**"]
           },
+          // "bundles": ["wiki"],                  // a leading "/" in a link on a page in wiki resolves against wiki
           // "links": {
-          //   "bundles": ["wiki"],                // a leading "/" in a link on a page in wiki resolves against wiki
           //   "frontmatter": [                    // an OKF bundle's path fields, such as sources[].resource, need no entry
           //     {
           //       "field": "related[]",           // dotted for nested mappings; [] for each element of a list
@@ -79,7 +78,8 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
           //   ]
           // },
           // "lint": {
-          //   "off": ["okf-footnote"]             // rules to leave unchecked; OKF MUST rules are always checked
+          //   "off": ["okf-footnote"],            // rules to leave unchecked; OKF MUST rules are always checked
+          //   "exclude": ["archive/**"]           // files whose findings lint leaves out; they stay indexed and linkable
           // },
           // "search": {
           //   "tokenizer": "trigram"              // porter (whole words and their forms, the default) or trigram (any substring)
@@ -102,10 +102,18 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
 
     public bool Gitignore { get; init; } = true;
 
+    /// <summary>The bundles' folder roots, relative to the workspace root without leading or trailing <c>/</c>. They
+    /// decide how links resolve, which bundles are OKF bundles, and what <c>okf-index</c> covers.</summary>
+    public IReadOnlyList<string> Bundles { get; init; } = [];
+
     public LinkSettings Links { get; init; } = LinkSettings.Default;
 
     /// <summary>The rules <c>lint.off</c> turns off.</summary>
     public IReadOnlyList<string> LintOff { get; init; } = [];
+
+    /// <summary>The globs <c>lint.exclude</c> lists: <c>lint</c> leaves out the findings on files they match, and the
+    /// sweep does not warn about their frontmatter or links failing to parse. The files stay indexed.</summary>
+    public IReadOnlyList<string> LintExclude { get; init; } = [];
 
     public SearchTokenizer SearchTokenizer { get; init; } = SearchTokenizer.Porter;
 
@@ -143,13 +151,14 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
             }
 
             var config = Default;
-            foreach (var (key, value) in Properties(null, document.RootElement, "files", "links", "lint", "search"))
+            foreach (var (key, value) in Properties(null, document.RootElement, "files", "bundles", "links", "lint", "search"))
             {
                 config = key switch
                 {
                     "files" => ParseFiles(config, value),
+                    "bundles" => config with { Bundles = ParseBundles(value) },
                     "links" => config with { Links = ParseLinks(value) },
-                    "lint" => config with { LintOff = ParseLint(value) },
+                    "lint" => ParseLint(config, value),
                     "search" => config with { SearchTokenizer = ParseSearch(value) },
                     _ => throw new UnreachableException(key),
                 };
@@ -176,21 +185,16 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
     private static LinkSettings ParseLinks(JsonElement element)
     {
         var links = LinkSettings.Default;
-        foreach (var (key, value) in Object("links", element, "bundles", "frontmatter"))
+        foreach (var (_, value) in Object("links", element, "frontmatter"))
         {
-            links = key switch
-            {
-                "bundles" => links with { Bundles = ParseBundles(value) },
-                "frontmatter" => links with { Frontmatter = ParseFrontmatterLinks(value) },
-                _ => throw new UnreachableException(key),
-            };
+            links = links with { Frontmatter = ParseFrontmatterLinks(value) };
         }
         return links;
     }
 
     private static List<string> ParseBundles(JsonElement element)
     {
-        const string usage = "links.bundles must be an array of folders inside the workspace";
+        const string usage = "bundles must be an array of folders inside the workspace";
         if (element.ValueKind != JsonValueKind.Array)
         {
             throw Error(usage);
@@ -246,28 +250,39 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
         return fields;
     }
 
+    private static WorkspaceConfig ParseLint(WorkspaceConfig config, JsonElement element)
+    {
+        foreach (var (key, value) in Object("lint", element, "off", "exclude"))
+        {
+            config = key switch
+            {
+                "off" => config with { LintOff = ParseLintOff(value) },
+                "exclude" => config with { LintExclude = Patterns("lint.exclude", value) },
+                _ => throw new UnreachableException(key),
+            };
+        }
+        return config;
+    }
+
     /// <summary>The rules <c>lint.off</c> names. An OKF MUST rule cannot be turned off: with every MUST rule on, a run
     /// that reports none of them means the bundle is conformant (§11).</summary>
-    private static List<string> ParseLint(JsonElement element)
+    private static List<string> ParseLintOff(JsonElement value)
     {
-        var off = new List<string>();
-        foreach (var (_, value) in Object("lint", element, "off"))
+        if (value.ValueKind != JsonValueKind.Array)
         {
-            if (value.ValueKind != JsonValueKind.Array)
+            throw Error("lint.off must be an array of rule names");
+        }
+        var off = new List<string>();
+        foreach (var item in value.EnumerateArray())
+        {
+            var name = String(item) ?? throw Error("lint.off must be an array of rule names");
+            var rule = LintRules.Find(name)
+                ?? throw Error($"lint.off: unknown rule {name}; expected one of {string.Join(", ", LintRules.Names)}");
+            if (!rule.CanTurnOff)
             {
-                throw Error("lint.off must be an array of rule names");
+                throw Error($"lint.off: {name} cannot be turned off; it is a MUST rule in OKF v{OkfBundle.SpecVersion}");
             }
-            foreach (var item in value.EnumerateArray())
-            {
-                var name = String(item) ?? throw Error("lint.off must be an array of rule names");
-                var rule = LintRules.Find(name)
-                    ?? throw Error($"lint.off: unknown rule {name}; expected one of {string.Join(", ", LintRules.Names)}");
-                if (!rule.CanTurnOff)
-                {
-                    throw Error($"lint.off: {name} cannot be turned off; it is a MUST rule in OKF v{OkfBundle.SpecVersion}");
-                }
-                off.Add(name);
-            }
+            off.Add(name);
         }
         return off;
     }

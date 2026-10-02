@@ -566,7 +566,7 @@ public sealed class SweeperTests : IDisposable
         Sweep();
         var before = Links();
 
-        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["wiki"], "frontmatter": [{ "field": "source", "resolve": "bundle" }] } }""");
+        _workspace.Write(".hippo/config.json", """{ "bundles": ["wiki"], "links": { "frontmatter": [{ "field": "source", "resolve": "bundle" }] } }""");
         var changed = Sweep();
         var after = Sweep();
 
@@ -583,7 +583,7 @@ public sealed class SweeperTests : IDisposable
         _workspace.Write("raw/image.png", "png");
         Sweep();
 
-        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["raw"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "bundles": ["raw"] }""");
         var changed = Sweep();
 
         Assert.Equal(1, changed.Hashed);
@@ -599,7 +599,7 @@ public sealed class SweeperTests : IDisposable
         var before = _db.Query<string>("SELECT path || '=' || id FROM files ORDER BY path").AsList();
         File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddMinutes(1));
 
-        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["raw"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "bundles": ["raw"] }""");
         var changed = Sweep();
         var after = Sweep();
 
@@ -617,7 +617,7 @@ public sealed class SweeperTests : IDisposable
         MakeUnreadable(path);
         try
         {
-            _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["wiki"] } }""");
+            _workspace.Write(".hippo/config.json", """{ "bundles": ["wiki"] }""");
             var locked = Sweep();
             Assert.Contains(locked.Warnings, w => w.Contains("wiki/a.md"));
         }
@@ -638,7 +638,7 @@ public sealed class SweeperTests : IDisposable
     [Fact]
     public void Declaring_okf_version_relinks_once()
     {
-        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["kb"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "bundles": ["kb"] }""");
         _workspace.Write("kb/index.md", "# KB\n");
         _workspace.Write("kb/a.md", "# No frontmatter\n");
         Sweep();
@@ -657,7 +657,7 @@ public sealed class SweeperTests : IDisposable
     [UnsupportedOSPlatform("windows")] // MakeUnreadable skips the test there.
     public void An_unreadable_root_index_makes_a_plain_bundle_until_readable_and_then_its_findings_come_back()
     {
-        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["kb"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "bundles": ["kb"] }""");
         var index = _workspace.Write("kb/index.md", "---\nokf_version: \"0.2\"\n---\n# KB\n");
         _workspace.Write("kb/a.md", "# No frontmatter\n");
         Sweep();
@@ -694,6 +694,42 @@ public sealed class SweeperTests : IDisposable
         Assert.Contains(result.Warnings, w => w.Contains("deep.md"));
         Assert.Equal(["a.md", "deep.md"], Rows().Select(r => r.Path));
         Assert.Equal(["b.md"], Links().Select(l => l.Target));
+    }
+
+    [Fact]
+    public void Files_lint_exclude_matches_do_not_warn_that_their_frontmatter_or_links_fail_to_parse()
+    {
+        _workspace.Write(".hippo/config.json", """{ "lint": { "exclude": ["archive/**"] } }""");
+        _workspace.Write("archive/bad.md", "---\n- not\n- a mapping\n---\n");
+        _workspace.Write("archive/deep.md", new string('>', 200) + " x\n");
+        _workspace.Write("notes/bad.md", "---\n- not\n- a mapping\n---\n");
+        _workspace.Write("notes/deep.md", new string('>', 200) + " x\n");
+
+        var result = Sweep();
+
+        Assert.Equal(["cannot read the frontmatter in notes/bad.md", "cannot read the links in notes/deep.md"],
+            result.Warnings.Select(w => w[..w.IndexOf(':')]).Order(StringComparer.Ordinal));
+        Assert.Equal("frontmatter is not a mapping", Row("archive/bad.md").ParseError);
+    }
+
+    [Fact]
+    [UnsupportedOSPlatform("windows")] // MakeUnreadable skips the test there.
+    public void A_file_lint_exclude_matches_still_warns_when_it_cannot_be_read()
+    {
+        _workspace.Write(".hippo/config.json", """{ "lint": { "exclude": ["archive/**"] } }""");
+        var path = _workspace.Write("archive/locked.md", "# Locked\n");
+        MakeUnreadable(path);
+
+        try
+        {
+            var warning = Assert.Single(Sweep().Warnings);
+
+            Assert.StartsWith("cannot read archive/locked.md: ", warning);
+        }
+        finally
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
     }
 
     [Fact]
@@ -764,7 +800,7 @@ public sealed class SweeperTests : IDisposable
         Sweep();
 
         Sweep(rebuild: true);
-        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["wiki"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "bundles": ["wiki"] }""");
         Assert.True(Sweep().Rebuilt);
 
         Assert.Equal(["a.md", "b.md"], SearchRows().Select(r => r.File));
@@ -780,7 +816,7 @@ public sealed class SweeperTests : IDisposable
         _db.Execute("UPDATE search SET body = 'kept' WHERE path = 'a.md'");
         File.WriteAllText(edited, "# B2\n");
 
-        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["wiki"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "bundles": ["wiki"] }""");
         Assert.True(Sweep().Rebuilt);
 
         Assert.Equal(

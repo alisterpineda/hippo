@@ -42,8 +42,8 @@ hippo cache prune [--dry-run] [--include-unreachable]
     "exclude": [".git/**", ".obsidian/**", ".trash/**"],
     "gitignore": true                   // leave out the files git ignores, whatever include says
   },
+  "bundles": ["wiki"],                  // a leading "/" in a link on a page in wiki resolves against wiki
   "links": {
-    "bundles": ["wiki"],                // a leading "/" in a link on a page in wiki resolves against wiki
     "frontmatter": [                    // an OKF bundle's path fields, such as sources[].resource, need no entry
       {
         "field": "related[]",           // dotted for nested mappings; [] for each element of a list
@@ -52,7 +52,8 @@ hippo cache prune [--dry-run] [--include-unreachable]
     ]
   },
   "lint": {
-    "off": ["okf-footnote"]             // rules to leave unchecked; OKF MUST rules are always checked
+    "off": ["okf-footnote"],            // rules to leave unchecked; OKF MUST rules are always checked
+    "exclude": ["archive/**"]           // files whose findings lint leaves out; they stay indexed and linkable
   },
   "search": {
     "tokenizer": "porter"               // porter (whole words and their forms, the default) or trigram (any substring)
@@ -64,19 +65,21 @@ hippo cache prune [--dry-run] [--include-unreachable]
 
 The workspace root's `.hippo` folder is never indexed, whatever `include` says: it is hippo's, not the workspace's, so a link into it is broken. A nested workspace's `.hippo` folder is indexed like any other.
 
-A bundle is a folder whose pages treat it as their root: a leading `/` in a link resolves against the deepest bundle holding the page, or against the workspace root for a page in none. Other body links resolve from the page's folder; `[[x]]` is plain text, not a link.
+A bundle is a folder listed in `bundles` whose pages treat it as their root: a leading `/` in a link resolves against the deepest bundle holding the page, or against the workspace root for a page in none. Other body links resolve from the page's folder; `[[x]]` is plain text, not a link.
 
 Body links are CommonMark links, images, reference links and autolinks; their destinations are URLs, so percent-encoding is decoded and a query or fragment dropped. Frontmatter values are literal paths: nothing is decoded and a `?` is part of the path, but a `#` still starts a fragment that is dropped, so a frontmatter value cannot name a file with `#` in its name. A link with a scheme is a URL, one starting with `#` is anchor-only, and any other is a file when it resolves to an indexed file, a directory when it resolves to a folder holding an indexed file, and missing otherwise. A trailing `/` makes no difference, and the workspace root is a directory. A folder holding no indexed file, because it is empty or everything in it is excluded, is missing. `backrefs` of a folder lists the links to the folder itself, and `backrefs .` from the root lists those to the root.
 
 ### OKF bundles
 
-A bundle is an [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md) bundle when its root `index.md` declares `okf_version` in its frontmatter. hippo reads every OKF bundle as 0.2; `lint` notes one that declares another version. A bundle without the declaration is a plain bundle, and a folder not listed in `links.bundles` is never an OKF bundle, whatever its `index.md` says. A page belongs to the deepest bundle holding it.
+A bundle is an [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md) bundle when its root `index.md` declares `okf_version` in its frontmatter. hippo reads every OKF bundle as 0.2; `lint` notes one that declares another version. A bundle without the declaration is a plain bundle, and a folder not listed in `bundles` is never an OKF bundle, whatever its `index.md` says. A page belongs to the deepest bundle holding it.
 
 In an OKF bundle, OKF's path fields are frontmatter links with no `links.frontmatter` entry: `resource`, `sources[].resource`, `computation`, `executor.resource` and `attester.resource`. A relative value resolves against the bundle root, as the spec's examples do; a `links.frontmatter` entry for the same field resolves it as the entry says instead. A path may leave its bundle. Every `sources[].resource` that is not a URL is read as a path, so a scope descriptor such as `all queries in BigQuery project X` is a broken link. Body links resolve as they do anywhere else.
 
 ### Lint
 
 `hippo lint` checks the workspace against the rules below, lists the findings by path and line, and exits 1 when there are any. Every rule is on unless `lint.off` turns it off, and `--rule` checks only the rules it names, even one `lint.off` turns off. The workspace rules check every indexed file. The OKF rules check OKF bundles, and only when one of them is checked does `lint` note that no bundle declares `okf_version`, or that one declares a version other than 0.2.
+
+`lint.exclude` takes globs in the same syntax as `files.exclude`, and `lint` leaves out every finding on a file one of them matches, whatever `--rule` names; the findings left out do not count toward the exit status. A glob matches the file the finding is on, not a link's target, so a broken link from another page into an excluded folder is still reported, while the findings on the files in that folder, its own bundle's OKF findings included, are not. An excluded file stays indexed and is still a link target, unlike one `files.exclude` leaves out, which suits frozen content such as an imported archive. The findings are left out when `lint` runs, so changing `lint.exclude` needs no reindex. Nor does the sweep warn about frontmatter or links that fail to parse in an excluded file; it still warns about one it cannot read at all.
 
 #### Workspace rules
 
@@ -87,7 +90,7 @@ In an OKF bundle, OKF's path fields are frontmatter links with no `links.frontma
 
 A `broken-link` finding is on the line of the link, gives the link as written and the path it resolves to, and relates that path. It is worked out when `lint` runs, from the links the index holds, so a target that comes or goes changes it without its linking pages being read again.
 
-A `frontmatter-syntax` finding is on the whole file and gives the parse error; it reports the files `hippo find --errors` lists. It checks only that the frontmatter parses, not what it holds, and it reports a concept in an OKF bundle as well as `okf-type` does, so turning it off leaves the OKF finding in place.
+A `frontmatter-syntax` finding is on the whole file and gives the parse error; it reports the files `hippo find --errors` lists, less those `lint.exclude` matches. It checks only that the frontmatter parses, not what it holds, and it reports a concept in an OKF bundle as well as `okf-type` does, so turning it off leaves the OKF finding in place.
 
 #### OKF rules
 
@@ -127,7 +130,7 @@ The index lives in `<user cache>/hippo/<hash of workspace root>/index.db`; set `
 
 - **Pathological markdown parses slowly.** A long run of text with no spaces or line breaks that holds many unclosed `[x](` takes time that grows with the square of its length: about 1 s at 50 KB and 14 s at 200 KB. Ordinary pages, even large ones full of links, parse in milliseconds. The cost is paid when the file changes, not on every command, and the answers stay correct. Minified code pasted outside a code block is the realistic way to hit it.
 - **A page Markdig cannot parse has no body links.** Blocks nested past Markdig's depth limit make it give up on the page; hippo warns, keeps the page's frontmatter links, and indexes the rest of the workspace.
-- **An unreadable page after a link-settings change slows every command.** Changing `links`, or whether a bundle's root `index.md` declares `okf_version`, makes hippo re-read every page to redo its links and findings. If a page cannot be read then, hippo keeps its old links and does not record the new settings as applied, so each later command re-reads every page again, with a warning naming the file, until that page can be read. The answers stay correct; fixing the file's permissions ends it.
+- **An unreadable page after a link-settings change slows every command.** Changing `bundles` or `links`, or whether a bundle's root `index.md` declares `okf_version`, makes hippo re-read every page to redo its links and findings. If a page cannot be read then, hippo keeps its old links and does not record the new settings as applied, so each later command re-reads every page again, with a warning naming the file, until that page can be read. The answers stay correct; fixing the file's permissions ends it.
 - **A same-size edit can hide on a skewed clock.** hippo re-reads a file whose mtime is within 2 s of when it was last read, which catches an edit made in the same mtime tick. On a filesystem whose clock is more than 2 s off this machine's, such as some network shares, such an edit can still be missed; `hippo index --rebuild` re-reads everything.
 - **A file dated in the future is re-read on every command** until the clock passes its mtime, though its row is not rewritten.
 - **On macOS, a gitignored name with accented letters can still be indexed.** git reports names in composed Unicode form, but a name can be stored decomposed on disk, and hippo compares the two exactly. A file or folder whose name is stored that way is indexed even though git ignores it. An exclude pattern that matches it with `*` in place of the accented letters, such as `**/*.log`, leaves it out.

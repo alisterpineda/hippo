@@ -14,14 +14,14 @@ public sealed class InitCommandTests : IDisposable
     [Fact]
     public void Init_leaves_an_existing_config_alone()
     {
-        File.WriteAllText(Config, """{ "links": { "bundles": ["wiki"] } }""");
+        File.WriteAllText(Config, """{ "bundles": ["wiki"] }""");
 
         var result = _workspace.Run("init");
 
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("already exists", result.Stderr);
         Assert.Equal("", result.Stdout);
-        Assert.Equal("""{ "links": { "bundles": ["wiki"] } }""", File.ReadAllText(Config));
+        Assert.Equal("""{ "bundles": ["wiki"] }""", File.ReadAllText(Config));
     }
 
     [Fact]

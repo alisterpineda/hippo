@@ -19,13 +19,13 @@ namespace Hippo.Workspaces;
 internal sealed record Link(int Line, string Kind, string Type, string Raw, string? Target);
 
 /// <summary>
-/// Every setting that shapes the links and findings stored for a page, and nothing else: the config's <c>links</c>
-/// section, and which of its bundles are OKF bundles, which the sweep reads from each bundle's root <c>index.md</c>. It
-/// is all that <see cref="Page.Parse(string, string, PageSettings)"/> reads, so a setting it comes to need is added here,
-/// beside the <see cref="Fingerprint"/> that must cover it. <see cref="OkfBundles"/> are roots among the links'
-/// bundles.
+/// Every setting that shapes the links and findings stored for a page, and nothing else: the config's <c>bundles</c>
+/// and <c>links</c> section, and which of the bundles are OKF bundles, which the sweep reads from each bundle's root
+/// <c>index.md</c>. It is all that <see cref="Page.Parse(string, string, PageSettings)"/> reads, so a setting it comes to
+/// need is added here, beside the <see cref="Fingerprint"/> that must cover it. <see cref="OkfBundles"/> are roots among
+/// <see cref="Bundles"/>.
 /// </summary>
-internal sealed record PageSettings(LinkSettings Links, IReadOnlyList<string> OkfBundles)
+internal sealed record PageSettings(IReadOnlyList<string> Bundles, LinkSettings Links, IReadOnlyList<string> OkfBundles)
 {
     /// <summary>These settings as one string. The index keeps the value its pages were parsed under, and parses them all
     /// again when it differs.</summary>
@@ -38,7 +38,7 @@ internal sealed record PageSettings(LinkSettings Links, IReadOnlyList<string> Ok
             {
                 writer.WriteStartObject();
                 writer.WriteStartArray("bundles");
-                foreach (var bundle in Links.Bundles)
+                foreach (var bundle in Bundles)
                 {
                     writer.WriteStringValue(bundle);
                 }
@@ -108,7 +108,7 @@ internal static partial class Page
     public static ParsedPage Parse(string path, string text, PageSettings settings)
     {
         var block = Frontmatter.Read(text);
-        var bundle = BundleRoot(path, settings.Links.Bundles);
+        var bundle = BundleRoot(path, settings.Bundles);
         var okf = bundle.Length > 0 && settings.OkfBundles.Contains(bundle);
         var links = new List<Link>();
 

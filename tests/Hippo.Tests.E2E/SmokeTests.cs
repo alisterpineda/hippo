@@ -15,8 +15,8 @@ public sealed class SmokeTests : IDisposable
     {
         _workspace.Write(".hippo/config.json", """
             {
+              "bundles": ["wiki"],
               "links": {
-                "bundles": ["wiki"],
                 "frontmatter": [{ "field": "sources[].resource", "resolve": "bundle" }]
               }
             }
@@ -157,8 +157,8 @@ public sealed class SmokeTests : IDisposable
 
         _workspace.Write(".hippo/config.json", """
             {
+              "bundles": ["wiki"],
               "links": {
-                "bundles": ["wiki"],
                 "frontmatter": [{ "field": "sources[].resource", "resolve": "bundle" }]
               },
               "search": { "tokenizer": "trigram" }

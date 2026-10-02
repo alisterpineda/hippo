@@ -4,7 +4,7 @@ namespace Hippo.Tests.Unit;
 
 public class IndexEntriesTests
 {
-    private static readonly PageSettings Okf = new(new LinkSettings(["kb"], []), ["kb"]);
+    private static readonly PageSettings Okf = new(["kb"], LinkSettings.Default, ["kb"]);
 
     private static List<string> Entries(string path, string body, PageSettings? settings = null) =>
         Page.Parse(path, body, settings ?? Okf).Entries.Select(e => $"{e.Line} {e.Target} {e.Description ?? "(none)"}").ToList();
@@ -62,7 +62,7 @@ public class IndexEntriesTests
 
         Assert.Single(Entries("kb/sub/index.md", body));
         Assert.Empty(Entries("kb/a-index.md", body));
-        Assert.Empty(Entries("kb/index.md", body, new PageSettings(new LinkSettings(["kb"], []), [])));
+        Assert.Empty(Entries("kb/index.md", body, new PageSettings(["kb"], LinkSettings.Default, [])));
         Assert.Empty(Entries("notes/index.md", body));
     }
 }

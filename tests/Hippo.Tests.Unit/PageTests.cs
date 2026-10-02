@@ -6,8 +6,8 @@ public class PageTests
 {
     private static readonly WorkspaceConfig NotesConfig = WorkspaceConfig.Parse("""
         {
+          "bundles": ["wiki"],
           "links": {
-            "bundles": ["wiki"],
             "frontmatter": [
               { "field": "sources[].resource", "resolve": "bundle" },
               { "field": "generated.from" }
@@ -16,10 +16,13 @@ public class PageTests
         }
         """);
 
-    private static readonly PageSettings Notes = new(NotesConfig.Links, []);
+    private static readonly PageSettings Notes = new(NotesConfig.Bundles, NotesConfig.Links, []);
 
-    private static List<Link> Links(string path, string text, WorkspaceConfig? config = null) =>
-        Page.Parse(path, text, new PageSettings((config ?? NotesConfig).Links, [])).Links;
+    private static List<Link> Links(string path, string text, WorkspaceConfig? config = null)
+    {
+        config ??= NotesConfig;
+        return Page.Parse(path, text, new PageSettings(config.Bundles, config.Links, [])).Links;
+    }
 
     private static Link Only(string path, string text, WorkspaceConfig? config = null) => Assert.Single(Links(path, text, config));
 
@@ -126,7 +129,7 @@ public class PageTests
     [Fact]
     public void The_deepest_bundle_holding_the_page_is_its_bundle()
     {
-        var config = WorkspaceConfig.Parse("""{ "links": { "bundles": ["wiki", "wiki/sub"] } }""");
+        var config = WorkspaceConfig.Parse("""{ "bundles": ["wiki", "wiki/sub"] }""");
 
         Assert.Equal("wiki/sub/b.md", Only("wiki/sub/deep/a.md", "[x](/b.md)\n", config).Target);
         Assert.Equal("wiki/b.md", Only("wiki/subway/a.md", "[x](/b.md)\n", config).Target);

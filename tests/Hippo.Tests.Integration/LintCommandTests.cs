@@ -24,7 +24,7 @@ public sealed class LintCommandTests : IDisposable
 
     private void WriteConfig(string lint = "") => _workspace.Write(".hippo/config.json", $$"""
         {
-          "links": { "bundles": ["kb"] }{{lint}}
+          "bundles": ["kb"]{{lint}}
         }
         """);
 
@@ -215,14 +215,14 @@ public sealed class LintCommandTests : IDisposable
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("", result.Stdout);
-        Assert.Contains("no bundle in links.bundles declares okf_version", result.Stderr);
+        Assert.Contains("no bundle in bundles declares okf_version", result.Stderr);
     }
 
     [Fact]
     public void A_bundle_whose_root_index_is_excluded_is_a_plain_bundle()
     {
         WriteBundle();
-        _workspace.Write(".hippo/config.json", """{ "files": { "exclude": ["kb/index.md"] }, "links": { "bundles": ["kb"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "files": { "exclude": ["kb/index.md"] }, "bundles": ["kb"] }""");
 
         Assert.Empty(Findings(0));
     }
@@ -381,7 +381,7 @@ public sealed class LintCommandTests : IDisposable
     public void A_page_in_a_plain_bundle_nested_in_an_okf_one_need_not_be_listed()
     {
         WriteConfig();
-        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["kb", "kb/plain"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "bundles": ["kb", "kb/plain"] }""");
         _workspace.Write("kb/index.md", Declaration + "# KB\n");
         _workspace.Write("kb/plain/a.md", "# A\n");
 
@@ -391,7 +391,7 @@ public sealed class LintCommandTests : IDisposable
     /// <summary>OKF's path fields, each written as the spec's examples write them.</summary>
     private void WriteComputation(string config = "")
     {
-        _workspace.Write(".hippo/config.json", $$"""{ "links": { "bundles": ["kb"]{{config}} } }""");
+        _workspace.Write(".hippo/config.json", $$"""{ "bundles": ["kb"]{{config}} }""");
         _workspace.Write("kb/index.md", "---\nokf_version: \"0.2\"\n---\n# KB\n");
         _workspace.Write("kb/computations/revenue.md", """
             ---
@@ -449,7 +449,7 @@ public sealed class LintCommandTests : IDisposable
     [Fact]
     public void A_frontmatter_entry_for_an_okf_field_overrides_how_it_resolves()
     {
-        WriteComputation(""", "frontmatter": [{ "field": "sources[].resource", "resolve": "page" }]""");
+        WriteComputation(""", "links": { "frontmatter": [{ "field": "sources[].resource", "resolve": "page" }] }""");
 
         var refs = Refs("kb/computations/revenue.md");
 
@@ -472,8 +472,8 @@ public sealed class LintCommandTests : IDisposable
     {
         _workspace.Write(".hippo/config.json", """
             {
+              "bundles": ["wiki"],
               "links": {
-                "bundles": ["wiki"],
                 "frontmatter": [{ "field": "sources[].resource", "resolve": "bundle" }]
               }
             }
@@ -673,7 +673,7 @@ public sealed class LintCommandTests : IDisposable
 
         Assert.Equal(1, result.ExitCode);
         Assert.Equal(["wiki/topics/topic.md:7  broken-link  ../raw/journal/gone.md -> raw/journal/gone.md"], Lines(result.Stdout));
-        Assert.Equal("hippo: warning: no bundle in links.bundles declares okf_version in its root index.md, so there is no OKF bundle to check", result.Stderr.Trim());
+        Assert.Equal("hippo: warning: no bundle in bundles declares okf_version in its root index.md, so there is no OKF bundle to check", result.Stderr.Trim());
     }
 
     [Fact]
@@ -773,5 +773,96 @@ public sealed class LintCommandTests : IDisposable
         var result = BrokenLinks();
 
         Assert.Equal((0, ""), (result.ExitCode, result.Stderr));
+    }
+
+    /// <summary>A frozen archive whose page breaks two rules, and a note that links into it.</summary>
+    private void WriteArchive(string note)
+    {
+        _workspace.Write(".hippo/config.json", """{ "lint": { "exclude": ["archive/**"] } }""");
+        _workspace.Write("archive/old.md", "---\n- not\n- a mapping\n---\n[gone](gone.md)\n");
+        _workspace.Write("notes/a.md", note);
+    }
+
+    [Fact]
+    public void Lint_exclude_leaves_out_the_findings_on_files_it_matches_but_not_on_links_into_them()
+    {
+        WriteArchive("[old](../archive/old.md)\n[missing](../archive/missing.md)\n");
+
+        Assert.Equal(["broken-link notes/a.md:2"], Findings(1));
+    }
+
+    [Fact]
+    public void A_file_lint_exclude_matches_stays_indexed_and_a_link_target()
+    {
+        WriteArchive("[old](../archive/old.md)\n");
+
+        var refs = Json(_workspace.Run("refs", "notes/a.md", "--json"), 0);
+
+        Assert.Equal("file", Assert.Single(refs.EnumerateArray()).GetProperty("type").GetString());
+        Assert.Equal(["archive/old.md", "notes/a.md"], Lines(_workspace.Run("find").Stdout));
+    }
+
+    [Fact]
+    public void Findings_lint_exclude_leaves_out_do_not_count_toward_the_exit_status()
+    {
+        WriteArchive("# A\n");
+
+        var result = _workspace.Run("lint");
+
+        Assert.Equal((0, ""), (result.ExitCode, result.Stdout));
+    }
+
+    [Fact]
+    public void Lint_exclude_leaves_out_stored_and_worked_okf_findings_on_files_it_matches()
+    {
+        WriteBundle();
+        WriteConfig(""", "lint": { "exclude": ["kb/metrics/**", "kb/log.md", "kb/index.md"] }""");
+
+        Assert.Equal(
+            [
+                "okf-actor kb/attributed.md:3",
+                "okf-timestamp kb/dated.md:3",
+                "okf-footnote kb/footnoted.md:6",
+                "okf-status kb/lifecycle.md:3",
+                "okf-source-resource kb/sourced.md:4",
+                "okf-type kb/untyped.md:",
+            ],
+            Findings(1));
+    }
+
+    [Theory]
+    [InlineData("archive")]
+    [InlineData("archive/*")]
+    [InlineData("**/archive")]
+    public void A_lint_exclude_glob_that_matches_a_folder_covers_everything_under_it_as_in_files_exclude(string glob)
+    {
+        _workspace.Write(".hippo/config.json", $$"""{ "lint": { "exclude": ["{{glob}}"] } }""");
+        _workspace.Write("archive/old.md", "[gone](gone.md)\n");
+        _workspace.Write("archive/sub/deep.md", "[gone](gone.md)\n");
+
+        Assert.Empty(Findings(0));
+    }
+
+    [Fact]
+    public void Rule_still_leaves_out_the_findings_lint_exclude_matches()
+    {
+        WriteArchive("# A\n");
+
+        Assert.Empty(Findings(0, "--rule", "frontmatter-syntax"));
+    }
+
+    [Fact]
+    public void A_change_to_lint_exclude_applies_on_the_next_run_without_parsing_pages_again()
+    {
+        WriteArchive("# A\n");
+        Assert.Empty(Findings(0));
+        _workspace.Settle();
+
+        _workspace.Write(".hippo/config.json", "");
+        var result = _workspace.Run("lint", "--json");
+
+        Assert.Equal(["frontmatter-syntax", "broken-link"],
+            Json(result, 1).EnumerateArray().Select(f => f.GetProperty("rule").GetString()));
+        Assert.DoesNotContain("cannot read the frontmatter", result.Stderr);
     }
 }

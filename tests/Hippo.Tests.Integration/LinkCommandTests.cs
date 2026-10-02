@@ -21,8 +21,8 @@ public sealed class LinkCommandTests : IDisposable
     {
         _workspace.Write(".hippo/config.json", """
             {
+              "bundles": ["wiki"],
               "links": {
-                "bundles": ["wiki"],
                 "frontmatter": [{ "field": "sources[].resource", "resolve": "bundle" }]
               }
             }
@@ -184,7 +184,7 @@ public sealed class LinkCommandTests : IDisposable
         _workspace.Write("wiki/b.md", "# B\n");
         _workspace.Run("index");
 
-        _workspace.Write(".hippo/config.json", """{ "links": { "bundles": ["wiki"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "bundles": ["wiki"] }""");
         var result = _workspace.Run("refs", "wiki/a.md");
 
         Assert.Equal(["1  body         file       wiki/b.md"], Lines(result.Stdout));

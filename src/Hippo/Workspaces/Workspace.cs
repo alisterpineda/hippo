@@ -64,6 +64,23 @@ internal sealed record Workspace(string Root, WorkspaceConfig Config)
     public HashSet<string> Match(Matcher matcher, IEnumerable<string> fullPaths) =>
         matcher.Match(Root, fullPaths).Files.Select(match => Key(match.Path)).ToHashSet(StringComparer.Ordinal);
 
+    /// <summary>The keys among <paramref name="keys"/> that <c>lint.exclude</c> matches: <c>lint</c> leaves out the
+    /// findings on these files. The globs are exclude patterns, as <c>files.exclude</c>'s are, so one that matches a
+    /// folder covers everything under it.</summary>
+    public HashSet<string> LintExcluded(IEnumerable<string> keys)
+    {
+        if (Config.LintExclude.Count == 0)
+        {
+            return [];
+        }
+        var all = keys.ToList();
+        var matcher = new Matcher(StringComparison.Ordinal);
+        matcher.AddInclude("**");
+        matcher.AddExcludePatterns(Config.LintExclude);
+        var kept = Match(matcher, all.Select(FullPath));
+        return all.Where(key => !kept.Contains(key)).ToHashSet(StringComparer.Ordinal);
+    }
+
     /// <summary>The keys among <paramref name="keys"/> that any of the globs <paramref name="patterns"/>, taken relative
     /// to the root, matches, less those a glob starting with <c>!</c> matches. When every glob starts with <c>!</c>, they
     /// leave out what they match from every key.</summary>
