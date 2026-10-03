@@ -62,7 +62,7 @@ internal static class MigrationRunner
             if (Recorded(connection, transaction, version) is { } recorded && recorded != Fingerprint(version))
             {
                 throw new HippoException(
-                    $"the index at {connection.DataSource} was built by a hippo whose schema version {version} differs from this one's; "
+                    $"the index at {connection.DataSource} was built at schema version {version} by migration scripts that differ from this hippo's; "
                     + $"delete {Path.GetDirectoryName(connection.DataSource)} and run hippo again to rebuild it");
             }
 

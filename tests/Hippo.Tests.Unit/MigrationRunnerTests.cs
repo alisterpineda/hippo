@@ -180,7 +180,7 @@ public class MigrationRunnerTests
 
         var ex = Assert.Throws<HippoException>(() => MigrationRunner.Migrate(connection));
 
-        Assert.Contains("differs", ex.Message);
+        Assert.Contains($"was built at schema version {MigrationRunner.LatestVersion} by migration scripts that differ from this hippo's", ex.Message);
         Assert.Contains($"delete {Path.GetDirectoryName(connection.DataSource)} ", ex.Message);
     }
 
