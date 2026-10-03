@@ -38,7 +38,9 @@ internal static class IndexSync
 
     /// <summary>Only an <c>index.md</c> in an OKF bundle has entries, so every entry is checked. A target is missing
     /// when it is neither a file nor a folder holding one, as <see cref="LinkQueries.PathTypeSql"/> decides for a link,
-    /// which is why the entries are named <c>l</c>.</summary>
+    /// which is why the entries are named <c>l</c>. Its page is the file whose path is equal to the target under NFC,
+    /// the one named exactly as the target when two are, the rule <see cref="FileQueries.Get"/> follows: a change to
+    /// one belongs in both.</summary>
     private static void CheckEntries(SqliteConnection db, List<IndexFinding> findings)
     {
         var entries = db.Query<EntryRow>("""
@@ -54,7 +56,8 @@ internal static class IndexSync
                 END AS PageDescription
             FROM index_entries l
             JOIN files f ON f.id = l.file_id
-            LEFT JOIN files t ON t.path = l.target
+            LEFT JOIN files t ON t.id = (
+                SELECT id FROM files WHERE path_nfd = l.target_nfd ORDER BY path = l.target DESC, path LIMIT 1)
             ORDER BY f.path, l.line, l.id
             """);
         foreach (var entry in entries)
@@ -84,7 +87,8 @@ internal static class IndexSync
         }
     }
 
-    /// <summary>Reports each page in an OKF bundle that none of the indexes covering it links to.
+    /// <summary>Reports each page in an OKF bundle that none of the indexes covering it links to, in any form equal to its
+    /// path under NFC.
     /// A page belongs to the deepest bundle holding it, as its links do, so the indexes of an OKF bundle around a
     /// nested bundle do not cover the nested bundle's pages.</summary>
     private static void CheckListed(SqliteConnection db, List<IndexFinding> findings, IReadOnlyList<string> okfBundles, IReadOnlyList<string> bundles)
@@ -102,14 +106,14 @@ internal static class IndexSync
         }
         var indexes = pages.Select(page => page.Path).Where(IndexEntries.IsIndex).ToHashSet(StringComparer.Ordinal);
         // One query per index rather than one over every link, so the links read are the indexes' own.
-        var linked = new HashSet<(string Index, string Target)>();
+        var linked = new HashSet<(string Index, string TargetNfd)>();
         foreach (var index in indexes)
         {
             linked.UnionWith(db.Query<string>("""
-                    SELECT l.target
+                    SELECT l.target_nfd
                     FROM files s
                     JOIN links l ON l.source_id = s.id
-                    WHERE s.path = @index AND l.target IS NOT NULL
+                    WHERE s.path = @index AND l.target_nfd IS NOT NULL
                     """, new { index })
                 .Select(target => (index, target)));
         }
@@ -133,7 +137,8 @@ internal static class IndexSync
                     break;
                 }
             }
-            if (!covering.Any(index => linked.Contains((index, path))))
+            var pathNfd = Nfd.Of(path);
+            if (!covering.Any(index => linked.Contains((index, pathNfd))))
             {
                 findings.Add(new(path, null, $"no index above it links to it: {string.Join(", ", covering)}", covering));
             }

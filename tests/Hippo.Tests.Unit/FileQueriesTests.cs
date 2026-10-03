@@ -1,5 +1,6 @@
 using Dapper;
 using Hippo.Indexing;
+using Hippo.Workspaces;
 using Microsoft.Data.Sqlite;
 
 namespace Hippo.Tests.Unit;
@@ -30,8 +31,8 @@ public sealed class FileQueriesTests : IDisposable
 
     private void Insert(string path, string kind, string? frontmatter, string? parseError = null) =>
         _db.Execute(
-            "INSERT INTO files (path, mtime, size, hash, hashed_at, kind, frontmatter, parse_error) VALUES (@path, 0, 1, 'h', 0, @kind, @frontmatter, @parseError)",
-            new { path, kind, frontmatter, parseError });
+            "INSERT INTO files (path, path_nfd, mtime, size, hash, hashed_at, kind, frontmatter, parse_error) VALUES (@path, @pathNfd, 0, 1, 'h', 0, @kind, @frontmatter, @parseError)",
+            new { path, pathNfd = Nfd.Of(path), kind, frontmatter, parseError });
 
     [Fact]
     public void List_returns_every_file_in_path_order()
@@ -91,6 +92,24 @@ public sealed class FileQueriesTests : IDisposable
     public void Get_returns_null_for_a_path_not_in_the_index()
     {
         Assert.Null(FileQueries.Get(_db, "nope.md"));
+    }
+
+    [Fact]
+    public void Get_finds_a_file_by_a_path_equal_to_it_under_nfc()
+    {
+        Insert("wiki/caf\u00E9.md", "markdown", null);
+
+        Assert.Equal("wiki/caf\u00E9.md", FileQueries.Get(_db, "wiki/cafe\u0301.md")?.Path);
+    }
+
+    [Fact]
+    public void Get_of_one_of_two_files_equal_under_nfc_finds_the_one_named_exactly()
+    {
+        Insert("wiki/caf\u00E9.md", "markdown", null);
+        Insert("wiki/cafe\u0301.md", "other", null);
+
+        Assert.Equal("wiki/caf\u00E9.md", FileQueries.Get(_db, "wiki/caf\u00E9.md")?.Path);
+        Assert.Equal("wiki/cafe\u0301.md", FileQueries.Get(_db, "wiki/cafe\u0301.md")?.Path);
     }
 
     [Fact]

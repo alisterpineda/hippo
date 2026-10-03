@@ -27,6 +27,10 @@ public sealed class HippoDbContext(DbContextOptions<HippoDbContext> options) : D
             file.HasKey(f => f.Id);
             file.Property(f => f.Id).HasColumnName("id");
             file.Property(f => f.Path).HasColumnName("path");
+            // SQLite needs a default to add a NOT NULL column to a table with rows; the migration then sets those rows to
+            // their path. The default stays on the column, so an INSERT that leaves path_nfd out gets '' and matches no
+            // link: every insert must give it.
+            file.Property(f => f.PathNfd).HasColumnName("path_nfd").HasDefaultValue("");
             file.Property(f => f.Mtime).HasColumnName("mtime");
             file.Property(f => f.Size).HasColumnName("size");
             file.Property(f => f.Hash).HasColumnName("hash");
@@ -35,6 +39,8 @@ public sealed class HippoDbContext(DbContextOptions<HippoDbContext> options) : D
             file.Property(f => f.Frontmatter).HasColumnName("frontmatter");
             file.Property(f => f.ParseError).HasColumnName("parse_error");
             file.HasIndex(f => f.Path).IsUnique().HasDatabaseName("ix_files_path");
+            // Not unique: on a filesystem that keeps names apart by form, two files can share one.
+            file.HasIndex(f => f.PathNfd).HasDatabaseName("ix_files_path_nfd");
         });
 
         modelBuilder.Entity<LinkEntity>(link =>
@@ -54,10 +60,11 @@ public sealed class HippoDbContext(DbContextOptions<HippoDbContext> options) : D
             link.Property(l => l.Type).HasColumnName("type");
             link.Property(l => l.Raw).HasColumnName("raw");
             link.Property(l => l.Target).HasColumnName("target");
+            link.Property(l => l.TargetNfd).HasColumnName("target_nfd");
             link.Property(l => l.Text).HasColumnName("text");
             link.HasOne<FileEntity>().WithMany().HasForeignKey(l => l.SourceId).OnDelete(DeleteBehavior.Cascade);
             link.HasIndex(l => l.SourceId).HasDatabaseName("ix_links_source_id");
-            link.HasIndex(l => l.Target).HasDatabaseName("ix_links_target");
+            link.HasIndex(l => l.TargetNfd).HasDatabaseName("ix_links_target_nfd");
         });
 
         modelBuilder.Entity<FindingEntity>(finding =>
@@ -84,6 +91,8 @@ public sealed class HippoDbContext(DbContextOptions<HippoDbContext> options) : D
             entry.Property(e => e.FileId).HasColumnName("file_id");
             entry.Property(e => e.Line).HasColumnName("line");
             entry.Property(e => e.Target).HasColumnName("target");
+            // As for files.path_nfd: the migration sets the rows it finds to their target, and every insert must give it.
+            entry.Property(e => e.TargetNfd).HasColumnName("target_nfd").HasDefaultValue("");
             entry.Property(e => e.Description).HasColumnName("description");
             entry.HasOne<FileEntity>().WithMany().HasForeignKey(e => e.FileId).OnDelete(DeleteBehavior.Cascade);
             entry.HasIndex(e => e.FileId).HasDatabaseName("ix_index_entries_file_id");

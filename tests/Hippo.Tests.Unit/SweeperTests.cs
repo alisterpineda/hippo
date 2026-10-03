@@ -36,7 +36,7 @@ public sealed class SweeperTests : IDisposable
     private void SetMtime(string path, TimeSpan fromNow) => File.SetLastWriteTimeUtc(path, (_clock.Now + fromNow).UtcDateTime);
 
     private List<Sweeper.FileRow> Rows() =>
-        _db.Query<Sweeper.FileRow>("SELECT path, mtime, size, hash, hashed_at AS HashedAt, kind, frontmatter, parse_error AS ParseError FROM files ORDER BY path").AsList();
+        _db.Query<Sweeper.FileRow>("SELECT path, path_nfd AS PathNfd, mtime, size, hash, hashed_at AS HashedAt, kind, frontmatter, parse_error AS ParseError FROM files ORDER BY path").AsList();
 
     private Sweeper.FileRow Row(string path) => Rows().Single(r => r.Path == path);
 
@@ -477,6 +477,18 @@ public sealed class SweeperTests : IDisposable
             FROM links l JOIN files f ON f.id = l.source_id
             ORDER BY f.path, l.line, l.id
             """).AsList();
+
+    [Fact]
+    public void A_sweep_stores_each_path_and_link_target_as_written_and_in_nfd()
+    {
+        _workspace.Write("caf\u00E9.md", "[x](caf\u00E9-x.md)\n");
+
+        Sweep();
+
+        Assert.Equal(("caf\u00E9.md", "cafe\u0301.md"), (Row("caf\u00E9.md").Path, Row("caf\u00E9.md").PathNfd));
+        Assert.Equal(("caf\u00E9-x.md", "cafe\u0301-x.md"),
+            _db.QuerySingle<(string, string)>("SELECT target, target_nfd FROM links"));
+    }
 
     [Fact]
     public void A_sweep_stores_each_pages_links_with_source_line_kind_and_raw_text()

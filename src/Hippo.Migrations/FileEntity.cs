@@ -8,6 +8,10 @@ public sealed class FileEntity
     /// <summary>Workspace-relative path with <c>/</c> separators.</summary>
     public required string Path { get; set; }
 
+    /// <summary><see cref="Path"/> in Unicode canonical decomposition (NFD), which links and path arguments are matched
+    /// against, so a path equal to it under NFC finds it whatever form either is written in.</summary>
+    public required string PathNfd { get; set; }
+
     /// <summary>Last write time in 100 ns ticks since the Unix epoch, UTC.</summary>
     public long Mtime { get; set; }
 

@@ -74,6 +74,11 @@ internal sealed class TestWorkspace : IDisposable
     {
         [4] = "DROP TABLE search",
         [5] = "ALTER TABLE links DROP COLUMN text",
+        [6] = """
+            DROP INDEX ix_files_path_nfd; ALTER TABLE files DROP COLUMN path_nfd;
+            DROP INDEX ix_links_target_nfd; ALTER TABLE links DROP COLUMN target_nfd; CREATE INDEX ix_links_target ON links (target);
+            ALTER TABLE index_entries DROP COLUMN target_nfd
+            """,
     };
 
     /// <summary>Turns this workspace's index back into one at schema <paramref name="version"/>, as if made before every

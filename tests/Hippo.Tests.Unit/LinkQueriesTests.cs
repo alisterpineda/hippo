@@ -1,5 +1,6 @@
 using Dapper;
 using Hippo.Indexing;
+using Hippo.Workspaces;
 using Microsoft.Data.Sqlite;
 
 namespace Hippo.Tests.Unit;
@@ -39,13 +40,15 @@ public sealed class LinkQueriesTests : IDisposable
     }
 
     private void AddFile(string path, string kind) =>
-        _db.Execute("INSERT INTO files (path, mtime, size, hash, hashed_at, kind) VALUES (@path, 0, 1, 'h', 0, @kind)", new { path, kind });
+        _db.Execute(
+            "INSERT INTO files (path, path_nfd, mtime, size, hash, hashed_at, kind) VALUES (@path, @pathNfd, 0, 1, 'h', 0, @kind)",
+            new { path, pathNfd = Nfd.Of(path), kind });
 
     private void Link(string source, int line, string kind, string type, string raw, string? target, string? text) =>
         _db.Execute("""
-            INSERT INTO links (source_id, line, kind, type, raw, target, text)
-            SELECT id, @line, @kind, @type, @raw, @target, @text FROM files WHERE path = @source
-            """, new { source, line, kind, type, raw, target, text });
+            INSERT INTO links (source_id, line, kind, type, raw, target, target_nfd, text)
+            SELECT id, @line, @kind, @type, @raw, @target, @targetNfd, @text FROM files WHERE path = @source
+            """, new { source, line, kind, type, raw, target, targetNfd = target is null ? null : Nfd.Of(target), text });
 
     [Fact]
     public void Refs_lists_a_files_links_in_line_order_with_their_class_and_text()
@@ -165,5 +168,71 @@ public sealed class LinkQueriesTests : IDisposable
         Assert.Equal(["directory", "directory", "missing", "missing", "missing"], LinkQueries.Refs(_db, "wiki/folders.md").Select(l => l.Type));
         Assert.Equal(["wiki/a", "ra", "wik"], LinkQueries.Broken(_db).Where(l => l.Source == "wiki/folders.md").Select(l => l.Target));
         Assert.Equal([new LinkIn("wiki/folders.md", 2, "body", "../raw/", "raw")], LinkQueries.Backrefs(_db, "raw", null, null));
+    }
+
+    [Fact]
+    public void A_path_link_to_a_folder_named_in_the_other_form_is_a_directory()
+    {
+        // One folder stored in NFC and linked to in NFD, the other the other way round.
+        AddFile("Caf\u00E9/x.md", "markdown");
+        AddFile("Ole\u0301/y.md", "markdown");
+        AddFile("wiki/folders.md", "markdown");
+        Link("wiki/folders.md", 1, "body", "path", "../Cafe\u0301/", "Cafe\u0301", "nfd");
+        Link("wiki/folders.md", 2, "body", "path", "../Ol\u00E9/", "Ol\u00E9", "nfc");
+
+        Assert.Equal(["directory", "directory"], LinkQueries.Refs(_db, "wiki/folders.md").Select(l => l.Type));
+        Assert.Equal([1], LinkQueries.Backrefs(_db, "Caf\u00E9", null, null).Select(l => (int)l.Line));
+        Assert.Equal([2], LinkQueries.Backrefs(_db, "Ole\u0301", null, null).Select(l => (int)l.Line));
+    }
+
+    /// <summary>Two files whose names are equal under NFC, as a filesystem that keeps names apart by form can hold: a
+    /// link to either spelling reaches both.</summary>
+    private void AddTwins()
+    {
+        AddFile("wiki/caf\u00E9.md", "markdown");
+        AddFile("wiki/cafe\u0301.md", "markdown");
+        Link("wiki/b.md", 9, "body", "path", "caf\u00E9.md", "wiki/caf\u00E9.md", "Caf\u00E9");
+    }
+
+    [Fact]
+    public void A_link_to_two_files_equal_under_nfc_is_a_file()
+    {
+        AddTwins();
+
+        Assert.Equal("file", LinkQueries.Refs(_db, "wiki/b.md").Single(l => l.Line == 9).Type);
+    }
+
+    [Fact]
+    public void A_link_to_two_files_equal_under_nfc_is_a_backref_of_both()
+    {
+        AddTwins();
+        var link = new LinkIn("wiki/b.md", 9, "body", "caf\u00E9.md", "Caf\u00E9");
+
+        Assert.Equal([link], LinkQueries.Backrefs(_db, "wiki/caf\u00E9.md", null, null));
+        Assert.Equal([link], LinkQueries.Backrefs(_db, "wiki/cafe\u0301.md", null, null));
+        Assert.DoesNotContain("wiki/caf\u00E9.md", LinkQueries.WithoutBackrefs(_db, null, null, null));
+        Assert.DoesNotContain("wiki/cafe\u0301.md", LinkQueries.WithoutBackrefs(_db, null, null, null));
+    }
+
+    [Fact]
+    public void Transitive_backrefs_of_one_of_two_files_equal_under_nfc_leave_out_both()
+    {
+        AddTwins();
+        Link("wiki/caf\u00E9.md", 1, "body", "path", "a.md", "wiki/a.md", "A");
+
+        // café (NFC) → a → b → café (NFC): the NFD twin's chain passes through its NFC twin, which is the path itself.
+        Assert.Equal(["wiki/a.md", "wiki/b.md", "wiki/c.md", "wiki/index.md"], LinkQueries.TransitiveBackrefs(_db, "wiki/cafe\u0301.md", "body", null));
+    }
+
+    [Fact]
+    public void Transitive_backrefs_list_a_sources_twin_only_when_it_links_too()
+    {
+        AddTwins();
+        Link("wiki/caf\u00E9.md", 1, "body", "path", "../raw/x.md", "raw/x.md", "X");
+
+        // café (NFC) → x, and b links to café, so the chain reaches back through b; the NFD twin links to nothing.
+        Assert.Equal(
+            ["wiki/a.md", "wiki/b.md", "wiki/c.md", "wiki/caf\u00E9.md", "wiki/index.md"],
+            LinkQueries.TransitiveBackrefs(_db, "raw/x.md", null, null));
     }
 }

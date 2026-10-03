@@ -117,6 +117,24 @@ public sealed class WorkspaceFilesTests : IDisposable
     }
 
     [Fact]
+    public void A_glob_in_either_form_matches_both_keys_equal_to_it_under_nfc()
+    {
+        // Two keys equal under NFC, as a filesystem that keeps names apart by form can hold.
+        string[] keys = ["caf\u00E9.md", "cafe\u0301.md", "other.md"];
+
+        Assert.Equal(["cafe\u0301.md", "caf\u00E9.md"], Open().Glob(["caf\u00E9.md"], keys).Order(StringComparer.Ordinal));
+        Assert.Equal(["cafe\u0301.md", "caf\u00E9.md"], Open().Glob(["cafe\u0301.md"], keys).Order(StringComparer.Ordinal));
+        Assert.Equal(["other.md"], Open().Glob(["!caf\u00E9.md"], keys).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void A_glob_in_nfc_matches_a_key_in_nfd()
+    {
+        Assert.Equal(["wiki/cafe\u0301.md"], Open().Glob(["wiki/caf\u00E9.md"], ["wiki/cafe\u0301.md", "wiki/b.md"]));
+        Assert.Equal(["wiki/b.md"], Open().Glob(["wiki/**", "!wiki/caf\u00E9.md"], ["wiki/cafe\u0301.md", "wiki/b.md"]));
+    }
+
+    [Fact]
     public void Globs_that_all_exclude_leave_out_what_they_match_from_every_key()
     {
         var matched = Open().Glob(["!archive/**", "!*.png"], ["a.md", "b.png", "archive/c.md", "wiki/d.md", "wiki/e.png"]);

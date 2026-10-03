@@ -26,6 +26,10 @@ public sealed class LinkEntity
     /// other type.</summary>
     public string? Target { get; set; }
 
+    /// <summary><see cref="Target"/> in Unicode canonical decomposition (NFD), matched against a file's
+    /// <c>PathNfd</c>.</summary>
+    public string? TargetNfd { get; set; }
+
     /// <summary>What a reader sees as a body link, as plain text; null for a frontmatter link, which has none.</summary>
     public string? Text { get; set; }
 }

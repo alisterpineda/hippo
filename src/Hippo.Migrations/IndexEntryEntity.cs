@@ -15,6 +15,10 @@ public sealed class IndexEntryEntity
     /// <summary>The workspace key the entry's link resolves to.</summary>
     public required string Target { get; set; }
 
+    /// <summary><see cref="Target"/> in Unicode canonical decomposition (NFD), matched against a file's
+    /// <c>PathNfd</c>.</summary>
+    public required string TargetNfd { get; set; }
+
     /// <summary>The entry's text after its link and separator, as written; null when it has none.</summary>
     public string? Description { get; set; }
 }

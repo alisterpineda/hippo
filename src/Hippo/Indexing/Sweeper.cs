@@ -40,6 +40,7 @@ internal static class Sweeper
 
     internal sealed record FileRow(
         [property: DbValue(Size = Unsized)] string Path,
+        [property: DbValue(Size = Unsized)] string PathNfd,
         long Mtime,
         long Size,
         [property: DbValue(Size = Unsized)] string Hash,
@@ -71,6 +72,7 @@ internal static class Sweeper
         [property: DbValue(Size = Unsized)] string Type,
         [property: DbValue(Size = Unsized)] string Raw,
         [property: DbValue(Size = Unsized)] string? Target,
+        [property: DbValue(Size = Unsized)] string? TargetNfd,
         [property: DbValue(Size = Unsized)] string? Text);
 
     internal sealed record FindingRow(
@@ -85,6 +87,7 @@ internal static class Sweeper
         [property: DbValue(Size = Unsized)] string Hash,
         int Line,
         [property: DbValue(Size = Unsized)] string Target,
+        [property: DbValue(Size = Unsized)] string TargetNfd,
         [property: DbValue(Size = Unsized)] string? Description);
 
     internal sealed record SearchRow(
@@ -243,11 +246,12 @@ internal static class Sweeper
     /// <summary>Writes each row whatever it held, keeping the id of a row that was there: a rebuild rewrites what a new
     /// hippo may derive differently from unchanged content, and a relink records the stats of a page it re-read.</summary>
     private const string OverwriteSql = """
-        INSERT INTO files (path, mtime, size, hash, hashed_at, kind, frontmatter, parse_error)
-        VALUES (@Path, @Mtime, @Size, @Hash, @HashedAt, @Kind, @Frontmatter, @ParseError)
+        INSERT INTO files (path, path_nfd, mtime, size, hash, hashed_at, kind, frontmatter, parse_error)
+        VALUES (@Path, @PathNfd, @Mtime, @Size, @Hash, @HashedAt, @Kind, @Frontmatter, @ParseError)
         ON CONFLICT (path) DO UPDATE SET
-            mtime = excluded.mtime, size = excluded.size, hash = excluded.hash, hashed_at = excluded.hashed_at,
-            kind = excluded.kind, frontmatter = excluded.frontmatter, parse_error = excluded.parse_error
+            path_nfd = excluded.path_nfd, mtime = excluded.mtime, size = excluded.size, hash = excluded.hash,
+            hashed_at = excluded.hashed_at, kind = excluded.kind, frontmatter = excluded.frontmatter,
+            parse_error = excluded.parse_error
         """;
 
     /// <summary>A row changes only when its content does, so a second process writing the same file is a no-op.</summary>
@@ -276,8 +280,8 @@ internal static class Sweeper
         var searched = files.Select(f => f.Search).OfType<SearchRow>().Select(s => new SourceRow(s.Path, s.Hash)).ToList();
         db.Execute("DELETE FROM search WHERE rowid = (SELECT id FROM files WHERE path = @Path AND hash = @Hash)", searched, transaction);
         db.Execute("""
-            INSERT INTO links (source_id, line, kind, type, raw, target, text)
-            SELECT id, @Line, @Kind, @Type, @Raw, @Target, @Text FROM files WHERE path = @Path AND hash = @Hash
+            INSERT INTO links (source_id, line, kind, type, raw, target, target_nfd, text)
+            SELECT id, @Line, @Kind, @Type, @Raw, @Target, @TargetNfd, @Text FROM files WHERE path = @Path AND hash = @Hash
             """, files.SelectMany(f => f.Links).ToList(), transaction);
         // No rule yet reports other paths, so every finding's related list is empty.
         db.Execute("""
@@ -285,8 +289,8 @@ internal static class Sweeper
             SELECT id, @Rule, @Line, @Message, '[]' FROM files WHERE path = @Path AND hash = @Hash
             """, files.SelectMany(f => f.Findings).ToList(), transaction);
         db.Execute("""
-            INSERT INTO index_entries (file_id, line, target, description)
-            SELECT id, @Line, @Target, @Description FROM files WHERE path = @Path AND hash = @Hash
+            INSERT INTO index_entries (file_id, line, target, target_nfd, description)
+            SELECT id, @Line, @Target, @TargetNfd, @Description FROM files WHERE path = @Path AND hash = @Hash
             """, files.SelectMany(f => f.Entries).ToList(), transaction);
         // The values follow SearchIndex.Columns.
         db.Execute($"""
@@ -339,15 +343,15 @@ internal static class Sweeper
         bodyError = null;
         if (!Workspace.IsMarkdown(file.Path))
         {
-            return new ParsedFile(new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "other", null, null), [], [], [], null);
+            return new ParsedFile(new FileRow(file.Path, Nfd.Of(file.Path), file.Mtime, file.Size, hash, hashedAt, "other", null, null), [], [], [], null);
         }
         var page = Page.Parse(file.Path, content!, settings);
         bodyError = page.BodyError;
         return new ParsedFile(
-            new FileRow(file.Path, file.Mtime, file.Size, hash, hashedAt, "markdown", page.Frontmatter.Json, page.Frontmatter.Error),
-            page.Links.Select(l => new LinkRow(file.Path, hash, l.Line, l.Kind, l.Type, l.Raw, l.Target, l.Text)).ToList(),
+            new FileRow(file.Path, Nfd.Of(file.Path), file.Mtime, file.Size, hash, hashedAt, "markdown", page.Frontmatter.Json, page.Frontmatter.Error),
+            page.Links.Select(l => new LinkRow(file.Path, hash, l.Line, l.Kind, l.Type, l.Raw, l.Target, l.Target is null ? null : Nfd.Of(l.Target), l.Text)).ToList(),
             page.Findings.Select(f => new FindingRow(file.Path, hash, f.Rule, f.Line, f.Message)).ToList(),
-            page.Entries.Select(e => new EntryRow(file.Path, hash, e.Line, e.Target, e.Description)).ToList(),
+            page.Entries.Select(e => new EntryRow(file.Path, hash, e.Line, e.Target, Nfd.Of(e.Target), e.Description)).ToList(),
             new SearchRow(file.Path, hash, page.Title, PlainText.Collapse(page.Body)));
     }
 }

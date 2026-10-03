@@ -1,4 +1,5 @@
 using Dapper;
+using Hippo.Workspaces;
 using Microsoft.Data.Sqlite;
 
 namespace Hippo.Indexing;
@@ -57,10 +58,18 @@ internal static class FileQueries
             ? db.Query<FileListing>(TitledListSql + OrderSql, new { frontmatter }, transaction).ToList()
             : db.Query<FileListing>(UntitledListSql + OrderSql, new { frontmatter }, transaction).ToList();
 
+    /// <summary>The file at <paramref name="path"/>, or at a path equal to it under NFC. Of two such files, which only a
+    /// filesystem that keeps them apart can hold, the one named exactly <paramref name="path"/> comes first.
+    /// <c>okf-index</c> picks an entry's page by the same rule, in <see cref="Okf.IndexSync"/>'s <c>CheckEntries</c>:
+    /// a change to one belongs in both.</summary>
     public static FileDetail? Get(SqliteConnection db, string path) =>
-        db.QuerySingleOrDefault<FileDetail>(
-            "SELECT path, kind, size, mtime, hash, frontmatter, parse_error AS ParseError FROM files WHERE path = @path",
-            new { path });
+        db.QueryFirstOrDefault<FileDetail>("""
+            SELECT path, kind, size, mtime, hash, frontmatter, parse_error AS ParseError
+            FROM files
+            WHERE path_nfd = @nfd
+            ORDER BY path = @path DESC, path
+            LIMIT 1
+            """, new { path, nfd = Nfd.Of(path) });
 
     /// <summary>Every file whose frontmatter failed to parse, in path order, with the error.</summary>
     public static List<FileParseError> ParseErrors(SqliteConnection db) =>

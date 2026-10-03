@@ -12,8 +12,8 @@ internal static class RefsCommand
         command.SetAction(result => WorkspaceSession.Run(result, environment, rebuild: false, session =>
         {
             var relative = session.KeyOf(result.GetValue(path)!);
-            _ = FileQueries.Get(session.Db, relative) ?? throw new HippoException($"{relative} is not in the index");
-            var output = LinkQueries.Refs(session.Db, relative)
+            var file = FileQueries.Get(session.Db, relative) ?? throw new HippoException($"{relative} is not in the index");
+            var output = LinkQueries.Refs(session.Db, file.Path)
                 .Select(l => new RefOutput(l.Line, l.Kind, l.Type, l.Raw, l.Target, l.Text)).ToList();
 
             session.EmitList(output, OutputJson.Default.ListRefOutput, link =>

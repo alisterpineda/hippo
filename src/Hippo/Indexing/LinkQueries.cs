@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Dapper;
+using Hippo.Workspaces;
 using Microsoft.Data.Sqlite;
 
 namespace Hippo.Indexing;
@@ -18,20 +19,22 @@ internal sealed record BrokenLink(string Source, long Line, string Kind, string 
 
 /// <summary>
 /// Questions about the link graph. Whether a path link reaches a file is decided here, against the files indexed now, so
-/// a target that comes or goes changes the answer without its linking pages being parsed again. A path link reaches a
-/// folder when an indexed file lies under it: its path sorts after <c>target/</c> and before <c>target0</c>, <c>0</c> being
-/// the character after <c>/</c>, which the index on <c>files.path</c> answers. The workspace root, <c>""</c>, holds every
+/// a target that comes or goes changes the answer without its linking pages being parsed again. Paths are matched in
+/// their <see cref="Nfd"/> form, so a link reaches a file whose name is equal to its target under NFC, and a link to two
+/// such files, which only a filesystem that keeps them apart can hold, reaches both. A path link reaches a folder when an
+/// indexed file lies under it: its path sorts after <c>target/</c> and before <c>target0</c>, <c>0</c> being the
+/// character after <c>/</c>, which the index on <c>files.path_nfd</c> answers. The workspace root, <c>""</c>, holds every
 /// file, the linking page among them.
 /// </summary>
 internal static class LinkQueries
 {
-    /// <summary>What the path <c>l.target</c> reaches: <c>file</c>, <c>directory</c> or <c>missing</c>. A query over
+    /// <summary>What the path <c>l.target_nfd</c> reaches: <c>file</c>, <c>directory</c> or <c>missing</c>. A query over
     /// another table of paths, such as <c>okf-index</c>'s over index entries, names that table <c>l</c> to share it, so
     /// the two agree on what is missing.</summary>
     internal const string PathTypeSql = """
         CASE
-            WHEN EXISTS (SELECT 1 FROM files t WHERE t.path = l.target) THEN 'file'
-            WHEN l.target = '' OR EXISTS (SELECT 1 FROM files t WHERE t.path > l.target || '/' AND t.path < l.target || '0')
+            WHEN EXISTS (SELECT 1 FROM files t WHERE t.path_nfd = l.target_nfd) THEN 'file'
+            WHEN l.target_nfd = '' OR EXISTS (SELECT 1 FROM files t WHERE t.path_nfd > l.target_nfd || '/' AND t.path_nfd < l.target_nfd || '0')
                 THEN 'directory'
             ELSE 'missing'
         END
@@ -45,6 +48,8 @@ internal static class LinkQueries
         ) END
         """;
 
+    /// <summary>The links out of the file at <paramref name="path"/>, which must be its path exactly as indexed, such as
+    /// <see cref="FileQueries.Get"/> returns, not merely a form equal to it under NFC.</summary>
     public static List<LinkOut> Refs(SqliteConnection db, string path) =>
         db.Query<LinkOut>("""
             SELECT l.line, l.kind, (
@@ -64,36 +69,38 @@ internal static class LinkQueries
         AND (@sources IS NULL OR source.path IN (SELECT value FROM json_each(@sources)))
         """;
 
-    /// <summary>The links into <paramref name="path"/>, only those of <paramref name="kind"/> when it is given, and only
-    /// those from <paramref name="sources"/> when they are.</summary>
+    /// <summary>The links into <paramref name="path"/>, in any form equal to it under NFC, only those of
+    /// <paramref name="kind"/> when it is given, and only those from <paramref name="sources"/> when they are.</summary>
     public static List<LinkIn> Backrefs(SqliteConnection db, string path, string? kind, IReadOnlyCollection<string>? sources) =>
         db.Query<LinkIn>("""
             SELECT source.path AS Source, l.line, l.kind, l.raw, l.text
             FROM links l
             JOIN files source ON source.id = l.source_id
-            WHERE l.target = @path AND (
+            WHERE l.target_nfd = @nfd AND (
             """ + LinkFilterSql + """
             )
             ORDER BY source.path, l.line, l.id
-            """, new { path, kind, sources = JsonArray(sources) }).ToList();
+            """, new { nfd = Nfd.Of(path), kind, sources = JsonArray(sources) }).ToList();
 
     /// <summary>Every file that reaches <paramref name="path"/> through a chain of links of <paramref name="kind"/>
     /// (any kind when null) passing only through <paramref name="sources"/> (any file when null), the path itself left
-    /// out. <c>UNION</c> drops a file already reached, so a cycle ends.</summary>
+    /// out. The chain is followed in <see cref="Nfd"/> form, and <c>UNION</c> drops a path already reached, so a cycle
+    /// ends. Each source is carried under its own path, so a source's twin under NFC is listed only when it links
+    /// too.</summary>
     public static List<string> TransitiveBackrefs(SqliteConnection db, string path, string? kind, IReadOnlyCollection<string>? sources) =>
         db.Query<string>("""
-            WITH RECURSIVE reach (path) AS (
-                SELECT @path
+            WITH RECURSIVE reach (path, path_nfd) AS (
+                SELECT NULL, @nfd
                 UNION
-                SELECT source.path
+                SELECT source.path, source.path_nfd
                 FROM reach
-                JOIN links l ON l.target = reach.path
+                JOIN links l ON l.target_nfd = reach.path_nfd
                 JOIN files source ON source.id = l.source_id
                 WHERE (
             """ + LinkFilterSql + """
             ))
-            SELECT path FROM reach WHERE path != @path ORDER BY path
-            """, new { path, kind, sources = JsonArray(sources) }).ToList();
+            SELECT path FROM reach WHERE path IS NOT NULL AND path_nfd != @nfd ORDER BY path
+            """, new { nfd = Nfd.Of(path), kind, sources = JsonArray(sources) }).ToList();
 
     /// <summary>Every file with a link out: the files a filter on a link's source can pick from.</summary>
     public static List<string> Sources(SqliteConnection db, SqliteTransaction? transaction) =>
@@ -124,7 +131,7 @@ internal static class LinkQueries
                 SELECT 1
                 FROM links l
                 JOIN files source ON source.id = l.source_id
-                WHERE l.target = f.path AND l.source_id != f.id AND (
+                WHERE l.target_nfd = f.path_nfd AND l.source_id != f.id AND (
             """ + LinkFilterSql + """
             ))
             """, new { kind, sources = JsonArray(sources) }, transaction).ToHashSet(StringComparer.Ordinal);
@@ -138,7 +145,7 @@ internal static class LinkQueries
             FROM files f
             WHERE NOT EXISTS (
                 SELECT 1
-                FROM links l JOIN files t ON t.path = l.target
+                FROM links l JOIN files t ON t.path_nfd = l.target_nfd
                 WHERE l.source_id = f.id AND t.id != f.id AND (@kind IS NULL OR l.kind = @kind)
             )
             """, new { kind }, transaction).ToHashSet(StringComparer.Ordinal);
