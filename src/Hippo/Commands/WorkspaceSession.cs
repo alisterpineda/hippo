@@ -9,11 +9,12 @@ namespace Hippo.Commands;
 
 /// <summary>
 /// What every workspace command starts from: the workspace found from the working directory, its migrated index, and
-/// a sweep that has just brought the index in line with the files on disk.
+/// a sweep that has just brought the index in line with the files on disk. <see cref="Styled"/> says whether text
+/// output may be styled, as <see cref="CliEnvironment.Styled"/> does.
 /// </summary>
 internal sealed record WorkspaceSession(
     Workspace Workspace, string WorkingDirectory, string DatabasePath, SqliteConnection Db, SweepResult Sweep, TextWriter Output,
-    TextWriter Error, bool Json)
+    TextWriter Error, bool Json, bool Styled)
 {
     public static readonly Option<bool> JsonOption = new("--json") { Description = "Print JSON instead of text" };
 
@@ -41,7 +42,7 @@ internal sealed record WorkspaceSession(
             Warn(error, sweep.Warnings);
 
             var session = new WorkspaceSession(workspace, environment.WorkingDirectory, databasePath, db, sweep,
-                result.InvocationConfiguration.Output, error, result.GetValue(JsonOption));
+                result.InvocationConfiguration.Output, error, result.GetValue(JsonOption), environment.Styled);
             return command(session);
         });
     }

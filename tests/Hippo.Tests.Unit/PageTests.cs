@@ -249,12 +249,13 @@ public class PageTests
     }
 
     [Fact]
-    public void A_body_markdig_cannot_parse_keeps_the_frontmatter_title()
+    public void A_body_markdig_cannot_parse_keeps_the_frontmatter_title_and_description()
     {
-        var page = Page.Parse("a.md", $"---\ntitle: Deep\n---\n{new string('>', 200)} x\n", Notes);
+        var page = Page.Parse("a.md", $"---\ntitle: Deep\ndescription: Nested quotes\n---\n{new string('>', 200)} x\n", Notes);
 
         Assert.NotNull(page.BodyError);
         Assert.Equal("Deep", page.Title);
+        Assert.Equal("Nested quotes", page.Description);
         Assert.Equal($"{new string('>', 200)} x\n", page.Body);
     }
 

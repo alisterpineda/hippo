@@ -35,6 +35,9 @@ internal sealed class TestWorkspace : IDisposable
     /// so what a test sees does not depend on what this machine has mounted.</summary>
     public IReadOnlyList<string> MountPoints { get; set; } = [Path.GetPathRoot(Path.GetTempPath())!];
 
+    /// <summary>Whether hippo takes its output for a terminal: false unless a test sets it.</summary>
+    public bool Terminal { get; set; }
+
     public string Combine(string relativePath) => Path.Combine(Root, relativePath);
 
     /// <summary>A path in the temp directory beside the workspace and the cache.</summary>
@@ -114,7 +117,7 @@ internal sealed class TestWorkspace : IDisposable
     {
         var output = new StringWriter();
         var error = new StringWriter();
-        var environment = new CliEnvironment(workingDirectory, name => variables.GetValueOrDefault(name), Clock, () => MountPoints);
+        var environment = new CliEnvironment(workingDirectory, name => variables.GetValueOrDefault(name), Clock, () => MountPoints, Terminal);
 
         var exitCode = Cli.Run(args, environment, new InvocationConfiguration { Output = output, Error = error });
 

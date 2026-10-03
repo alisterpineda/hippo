@@ -187,7 +187,7 @@ public sealed class FindCommandTests : IDisposable
         var result = _workspace.Run("find", "kestrel", "--errors");
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Equal("bad.md  Herons\n  # Herons A **kestrel**.\n", result.Stdout.ReplaceLineEndings("\n"));
+        Assert.Equal("bad.md  Herons\n  # Herons A kestrel.\n", result.Stdout.ReplaceLineEndings("\n"));
     }
 
     [Fact]
@@ -200,7 +200,7 @@ public sealed class FindCommandTests : IDisposable
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("", result.Stderr);
-        Assert.Equal("wiki/heron.md  Herons\n  The grey **heron** waits by the water.\n", result.Stdout.ReplaceLineEndings("\n"));
+        Assert.Equal("wiki/heron.md  Herons\n  The grey heron waits by the water.\n", result.Stdout.ReplaceLineEndings("\n"));
     }
 
     [Fact]
@@ -217,7 +217,7 @@ public sealed class FindCommandTests : IDisposable
         Assert.Equal(File.GetLastWriteTimeUtc(_workspace.Combine("a.md")), result.GetProperty("modified").GetDateTimeOffset().UtcDateTime);
         Assert.Equal("Alpha", result.GetProperty("title").GetString());
         Assert.Equal(JsonValueKind.Null, result.GetProperty("parseError").ValueKind);
-        Assert.Equal("# Alpha A **kestrel** hovers.", result.GetProperty("snippet").GetString());
+        Assert.Equal("# Alpha A kestrel hovers.", result.GetProperty("snippet").GetString());
     }
 
     [Fact]
@@ -227,7 +227,85 @@ public sealed class FindCommandTests : IDisposable
 
         var result = _workspace.Run("find", "kestrel");
 
-        Assert.Equal("a.md\n  Plain **kestrel** text.\n", result.Stdout.ReplaceLineEndings("\n"));
+        Assert.Equal("a.md\n  Plain kestrel text.\n", result.Stdout.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void Piped_text_prints_the_pages_own_markdown_with_no_markers()
+    {
+        _workspace.Write("a.md", "The **Market Approach** is ours.\n");
+
+        var result = _workspace.Run("find", "Market Approach");
+
+        Assert.Equal("a.md\n  The **Market Approach** is ours.\n", result.Stdout.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void The_json_snippet_holds_no_highlighting()
+    {
+        _workspace.Write("a.md", "The **Market Approach** is ours.\n");
+        _workspace.Terminal = true;
+
+        var json = Json(_workspace.Run("find", "Market Approach", "--json"));
+
+        Assert.Equal("The **Market Approach** is ours.", Assert.Single(json.EnumerateArray()).GetProperty("snippet").GetString());
+    }
+
+    [Fact]
+    public void On_a_terminal_each_match_in_the_snippet_is_bold()
+    {
+        _workspace.Write("a.md", "---\ntitle: Approach\n---\nThe **Market Approach** is ours.\n");
+        _workspace.Terminal = true;
+
+        var result = _workspace.Run("find", "Market Approach");
+
+        Assert.Equal("a.md  Approach\n  The **\e[1mMarket\e[22m \e[1mApproach\e[22m** is ours.\n", result.Stdout.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void On_a_terminal_the_pages_own_control_characters_are_still_escaped()
+    {
+        _workspace.Write("a.md", "A \u001b[31m kestrel\u0007 hovers.\n");
+        _workspace.Terminal = true;
+
+        var result = _workspace.Run("find", "kestrel");
+
+        Assert.Equal("a.md\n  A \\x1b[31m \e[1mkestrel\e[22m\\x07 hovers.\n", result.Stdout.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void A_page_cannot_mark_its_own_text_as_a_match()
+    {
+        _workspace.Write("a.md", "A kestrel \u0002hovers\u0003 \u0003 here\u0001.\n");
+        _workspace.Terminal = true;
+
+        var result = _workspace.Run("find", "kestrel");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("a.md\n  A \e[1mkestrel\e[22m �hovers� � here�.\n", result.Stdout.ReplaceLineEndings("\n"));
+    }
+
+    [Theory]
+    [InlineData("1", false)]
+    [InlineData("", true)]
+    public void No_color_turns_the_bold_off_unless_it_is_empty(string noColor, bool bold)
+    {
+        _workspace.Write("a.md", "A kestrel hovers.\n");
+        _workspace.Terminal = true;
+
+        var result = _workspace.RunWith(
+            new Dictionary<string, string> { ["HIPPO_CACHE_DIR"] = _workspace.CacheDir, ["NO_COLOR"] = noColor }, "find", "kestrel");
+
+        Assert.Equal(bold ? "a.md\n  A \e[1mkestrel\e[22m hovers.\n" : "a.md\n  A kestrel hovers.\n", result.Stdout.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void Text_only_in_a_links_destination_is_found()
+    {
+        _workspace.Write("a.md", "See [the notes](kestrel-notes.md).\n");
+        _workspace.Write("b.md", "Other notes.\n");
+
+        Assert.Equal(["a.md"], Paths("kestrel"));
     }
 
     [Fact]
@@ -238,7 +316,7 @@ public sealed class FindCommandTests : IDisposable
 
         var snippet = Assert.Single(Json(_workspace.Run("find", "kestrel", "--json")).EnumerateArray()).GetProperty("snippet").GetString()!;
 
-        Assert.Contains("**kestrel** hovers", snippet);
+        Assert.Contains("The kestrel hovers", snippet);
         Assert.StartsWith("...", snippet);
         Assert.EndsWith("...", snippet);
         Assert.DoesNotContain('\n', snippet);
@@ -297,11 +375,11 @@ public sealed class FindCommandTests : IDisposable
 
         var snippet = Assert.Single(Json(_workspace.Run("find", "kestrel", "--json")).EnumerateArray()).GetProperty("snippet").GetString()!;
 
-        Assert.Contains("The **kestrel** hovers over the field.", snippet);
+        Assert.Contains("The kestrel hovers over the field.", snippet);
         Assert.StartsWith("...", snippet);
         Assert.EndsWith("...", snippet);
         // Every word is whole: none is a cut-off piece of before58, after0 or the like.
-        Assert.All(snippet[3..^3].Split(' '), word => Assert.Matches(@"^(before\d+|after\d+|The|\*\*kestrel\*\*|hovers|over|the|field\.)$", word));
+        Assert.All(snippet[3..^3].Split(' '), word => Assert.Matches(@"^(before\d+|after\d+|The|kestrel|hovers|over|the|field\.)$", word));
     }
 
     [Fact]
@@ -315,7 +393,24 @@ public sealed class FindCommandTests : IDisposable
 
         var snippet = Assert.Single(Json(_workspace.Run("find", "kestrel falcon", "--json")).EnumerateArray()).GetProperty("snippet").GetString();
 
-        Assert.Equal($"...**kestrel** {between} **falcon**...", snippet);
+        Assert.Equal($"...kestrel {between} falcon...", snippet);
+    }
+
+    [Fact]
+    public void A_trigram_snippet_keeps_a_phrase_match_that_ends_beside_where_it_is_cut()
+    {
+        var between = new string('x', 41);
+        _workspace.Write(".hippo/config.json", """{ "search": { "tokenizer": "trigram" } }""");
+        // The 64-character window then ends just after the phrase, so the cut is beside the phrase's last word.
+        _workspace.Write("a.md", $"kestrel {between} integration test and then the rest of the page.\n");
+        _workspace.Terminal = true;
+
+        var snippet = Assert.Single(Json(_workspace.Run("find", "\"kestrel\" \"integration test\"", "--json")).EnumerateArray())
+            .GetProperty("snippet").GetString();
+        var result = _workspace.Run("find", "\"kestrel\" \"integration test\"");
+
+        Assert.Equal($"kestrel {between} integration test...", snippet);
+        Assert.Equal($"a.md\n  \e[1mkestrel\e[22m {between} \e[1mintegration test\e[22m...\n", result.Stdout.ReplaceLineEndings("\n"));
     }
 
     [Fact]
@@ -326,7 +421,7 @@ public sealed class FindCommandTests : IDisposable
 
         var snippet = Assert.Single(Json(_workspace.Run("find", "kestrel", "--json")).EnumerateArray()).GetProperty("snippet").GetString();
 
-        Assert.Equal("...and the **kestrel** waits...", snippet);
+        Assert.Equal("...and the kestrel waits...", snippet);
     }
 
     [Fact]
@@ -483,10 +578,11 @@ public sealed class FindCommandTests : IDisposable
     public void A_phrase_snippet_marks_the_words_of_the_phrase()
     {
         _workspace.Write("a.md", "Each integration test\nruns alone.\n");
+        _workspace.Terminal = true;
 
-        var snippet = Assert.Single(Json(_workspace.Run("find", "\"integration test\"", "--json")).EnumerateArray()).GetProperty("snippet").GetString();
+        var result = _workspace.Run("find", "\"integration test\"");
 
-        Assert.Equal("Each **integration test** runs alone.", snippet);
+        Assert.Equal("a.md\n  Each \e[1mintegration test\e[22m runs alone.\n", result.Stdout.ReplaceLineEndings("\n"));
     }
 
     [Fact]
@@ -526,6 +622,41 @@ public sealed class FindCommandTests : IDisposable
         _workspace.Write("zebra.md", "Striped animals.\n");
 
         Assert.Equal(["zebra.md", "body.md"], Paths("zebra"));
+    }
+
+    [Fact]
+    public void A_word_only_in_the_description_finds_the_page()
+    {
+        _workspace.Write("a.md", "---\ntitle: Birds\ndescription: Notes on the kestrel.\n---\nStriped animals.\n");
+        _workspace.Write("b.md", "---\ntitle: Birds\n---\nStriped animals.\n");
+
+        Assert.Equal(["a.md"], Paths("kestrel"));
+    }
+
+    [Fact]
+    public void A_description_that_is_not_text_is_not_searched()
+    {
+        _workspace.Write("a.md", "---\ndescription: [kestrel]\n---\nStriped animals.\n");
+
+        Assert.Empty(Paths("kestrel"));
+    }
+
+    [Fact]
+    public void A_description_match_ranks_between_a_title_match_and_a_path_match()
+    {
+        _workspace.Write("zebra.md", "Striped animals.\n");
+        _workspace.Write("described.md", "---\ndescription: Zebra\n---\nStriped animals.\n");
+        _workspace.Write("title.md", "---\ntitle: Zebra\n---\nStriped animals.\n");
+
+        Assert.Equal(["title.md", "described.md", "zebra.md"], Paths("zebra"));
+    }
+
+    [Fact]
+    public void A_phrase_does_not_match_across_the_description_and_the_body()
+    {
+        _workspace.Write("a.md", "---\ndescription: Integration\n---\nTest notes.\n");
+
+        Assert.Empty(Paths("\"integration test\""));
     }
 
     [Fact]
@@ -837,7 +968,7 @@ public sealed class FindCommandTests : IDisposable
 
         var result = _workspace.Run("find", "kestrel", "--field", "as_of,count,draft");
 
-        Assert.Equal(["a.md  Alpha  as_of=2026-04-01  count=3  draft=false", "**kestrel**"], Lines(result.Stdout));
+        Assert.Equal(["a.md  Alpha  as_of=2026-04-01  count=3  draft=false", "kestrel"], Lines(result.Stdout));
     }
 
     [Fact]

@@ -94,6 +94,7 @@ internal static class Sweeper
         [property: DbValue(Size = Unsized)] string Path,
         [property: DbValue(Size = Unsized)] string Hash,
         [property: DbValue(Size = Unsized)] string Title,
+        [property: DbValue(Size = Unsized)] string Description,
         [property: DbValue(Size = Unsized)] string Body);
 
     /// <summary>A parsed file; <see cref="Search"/> is null for a file that is not markdown, and for a page whose search
@@ -295,7 +296,7 @@ internal static class Sweeper
         // The values follow SearchIndex.Columns.
         db.Execute($"""
             INSERT INTO search (rowid, {SearchIndex.Columns})
-            SELECT id, @Title, @Path, @Body FROM files WHERE path = @Path AND hash = @Hash
+            SELECT id, @Title, @Description, @Path, @Body FROM files WHERE path = @Path AND hash = @Hash
             """, files.Select(f => f.Search).OfType<SearchRow>().ToList(), transaction);
     }
 
@@ -352,6 +353,6 @@ internal static class Sweeper
             page.Links.Select(l => new LinkRow(file.Path, hash, l.Line, l.Kind, l.Type, l.Raw, l.Target, l.Target is null ? null : Nfd.Of(l.Target), l.Text)).ToList(),
             page.Findings.Select(f => new FindingRow(file.Path, hash, f.Rule, f.Line, f.Message)).ToList(),
             page.Entries.Select(e => new EntryRow(file.Path, hash, e.Line, e.Target, Nfd.Of(e.Target), e.Description)).ToList(),
-            new SearchRow(file.Path, hash, page.Title, PlainText.Collapse(page.Body)));
+            new SearchRow(file.Path, hash, page.Title, page.Description, SearchIndex.Body(page.Body)));
     }
 }

@@ -167,7 +167,8 @@ internal static class FindCommand
             var found = matches.Take(result.GetValue(limit) ?? QueryLimit).Select(m =>
             {
                 var page = SearchIndex.Text(session.Db, transaction, search, m.Id);
-                return new FindOutput(m.Path, m.Kind, m.Size, Format.Modified(m.Mtime), page.Title, m.ParseError, page.Snippet, Fields(m));
+                return new FindOutput(m.Path, m.Kind, m.Size, Format.Modified(m.Mtime), page.Title, m.ParseError, page.Snippet,
+                    Fields(m));
             }).ToList();
             transaction.Commit();
 
@@ -177,7 +178,7 @@ internal static class FindCommand
                 {
                     writer.WriteLine((page.Title is null ? Format.Safe(page.Path) : $"{Format.Safe(page.Path)}  {Format.Safe(page.Title)}")
                         + FieldText(page));
-                    writer.WriteLine($"  {Format.Safe(page.Snippet!)}");
+                    writer.WriteLine($"  {Format.Snippet(page.Marked!, session.Styled)}");
                 }
             });
             return ExitCode.Clean;

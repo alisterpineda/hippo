@@ -162,7 +162,11 @@ public sealed class SmokeTests : IDisposable
 
         var result = Assert.Single(porter.EnumerateArray());
         Assert.Equal(("wiki/topics/topic.md", "Topic"), (result.GetProperty("path").GetString(), result.GetProperty("title").GetString()));
-        Assert.Contains("**", result.GetProperty("snippet").GetString());
+        Assert.Equal("# Topic Back to [the index](/index.md), and [a gap](missing.md).", result.GetProperty("snippet").GetString());
+        // Piped output is not a terminal, so its snippet carries no bold.
+        var text = await _workspace.RunAsync("find", "topics", "--where", "type=Topic", "--glob", "wiki/**");
+        Assert.Equal("wiki/topics/topic.md  Topic\n  # Topic Back to [the index](/index.md), and [a gap](missing.md).\n",
+            text.Stdout.ReplaceLineEndings("\n"));
 
         _workspace.Write(".hippo/config.json", """
             {

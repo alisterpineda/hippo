@@ -13,7 +13,7 @@ namespace Hippo.Migrations.Migrations
             // EF cannot model an FTS5 table, so the model leaves it out and this migration creates it as SQL. Each row's
             // rowid is its page's id in files. The sweep writes it directly, with no triggers, and recreates it when
             // search.tokenizer changes (SearchIndex.cs).
-            migrationBuilder.Sql("CREATE VIRTUAL TABLE search USING fts5(title, path, body, tokenize = 'porter unicode61');");
+            migrationBuilder.Sql("CREATE VIRTUAL TABLE search USING fts5(title, description, path, body, tokenize = 'porter unicode61');");
         }
 
         /// <inheritdoc />

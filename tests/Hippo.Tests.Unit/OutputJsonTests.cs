@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Hippo.Commands;
+using Hippo.Indexing;
 
 namespace Hippo.Tests.Unit;
 
@@ -61,7 +62,7 @@ public class OutputJsonTests
             "modified": "2026-09-01T12:30:00+00:00",
             "title": "Herons",
             "parseError": null,
-            "snippet": "The grey **heron** waits..."
+            "snippet": "The grey heron waits..."
           },
           {
             "path": "raw/day.md",
@@ -75,7 +76,7 @@ public class OutputJsonTests
         ]
         """,
         [
-            new FindOutput("wiki/heron.md", "markdown", 40, Time, "Herons", null, "The grey **heron** waits..."),
+            new FindOutput("wiki/heron.md", "markdown", 40, Time, "Herons", null, new SearchSnippet("The grey heron waits...", [])),
             new FindOutput("raw/day.md", "markdown", 4, Time, null, "line 1: bad", null),
         ],
         OutputJson.Default.ListFindOutput);

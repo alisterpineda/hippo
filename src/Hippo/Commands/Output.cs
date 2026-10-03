@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Hippo.Indexing;
 
 namespace Hippo.Commands;
 
@@ -14,11 +15,17 @@ internal sealed record CountsOutput(long Total, long Markdown, long Other, long 
 internal sealed record SweepOutput(DateTimeOffset FinishedAt, long ElapsedMs, int Added, int Updated, int Removed);
 
 /// <summary>A file <c>find</c> lists. <see cref="Title"/> is null when the file is not a page or the page has none;
-/// <see cref="Snippet"/> is null without a query, and with one marks each matched term <c>**</c>. <see cref="Fields"/>
-/// holds the frontmatter fields <c>--field</c> asks for, keyed as asked, and is left out without it.</summary>
+/// <see cref="Marked"/> is null without a query, and with one is the snippet with where each match lies, which only
+/// text output shows; JSON carries its text alone as <see cref="Snippet"/>, with nothing marked.
+/// <see cref="Fields"/> holds the frontmatter fields <c>--field</c> asks for, keyed as asked, and is left out without
+/// it, after the snippet.</summary>
 internal sealed record FindOutput(
-    string Path, string Kind, long Size, DateTimeOffset Modified, string? Title, string? ParseError, string? Snippet,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Dictionary<string, JsonElement>? Fields = null);
+    string Path, string Kind, long Size, DateTimeOffset Modified, string? Title, string? ParseError,
+    [property: JsonIgnore] SearchSnippet? Marked,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull), JsonPropertyOrder(1)] Dictionary<string, JsonElement>? Fields = null)
+{
+    public string? Snippet => Marked?.Text;
+}
 
 internal sealed record ShowOutput(
     string Path, string Kind, long Size, DateTimeOffset Modified, string Hash, JsonElement? Frontmatter, string? ParseError);
@@ -96,6 +103,25 @@ internal static class Format
         string.Join(Environment.NewLine, text.Split(["\r\n", "\r", "\n"], StringSplitOptions.None).Select(Safe));
 
     private static bool IsUnsafe(char c) => char.IsControl(c) && c != '\t';
+
+    /// <summary>A search snippet as a line of text, escaped as <see cref="Safe"/> escapes it, with each match in ANSI
+    /// bold when <paramref name="bold"/> is set.</summary>
+    public static string Snippet(SearchSnippet snippet, bool bold)
+    {
+        if (!bold)
+        {
+            return Safe(snippet.Text);
+        }
+        var text = new StringBuilder();
+        var at = 0;
+        foreach (var match in snippet.Matches)
+        {
+            var (start, length) = match.GetOffsetAndLength(snippet.Text.Length);
+            text.Append(Safe(snippet.Text[at..start])).Append("\e[1m").Append(Safe(snippet.Text.Substring(start, length))).Append("\e[22m");
+            at = start + length;
+        }
+        return text.Append(Safe(snippet.Text[at..])).ToString();
+    }
 
     /// <summary>A link's text as it ends a line of <c>refs</c> or <c>backrefs</c>: in brackets, as markdown shows a
     /// link's label, so an empty label reads <c>[]</c>; nothing for a frontmatter link, which has no text.</summary>

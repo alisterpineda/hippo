@@ -1,3 +1,4 @@
+using System.Text;
 using Dapper;
 using Hippo.Workspaces;
 using Microsoft.Data.Sqlite;
@@ -10,31 +11,35 @@ internal sealed record SearchMatch(long Id, string Path, string Kind, long Size,
     : IFileRow;
 
 /// <summary>A matching page's title, null when it has none, and the stretch of its body around the match.</summary>
-internal sealed record SearchText(string? Title, string Snippet);
+internal sealed record SearchText(string? Title, SearchSnippet Snippet);
+
+/// <summary>A stretch of a page's body on one line, its text as written, and where in it each match lies, in
+/// order.</summary>
+internal sealed record SearchSnippet(string Text, List<Range> Matches);
 
 /// <summary>A search as <see cref="SearchIndex.Query"/> reads it: <see cref="Match"/> is its FTS5 query, and
 /// <see cref="CanMatch"/> is false when no page can hold every word under <see cref="Tokenizer"/>.</summary>
 internal sealed record SearchQuery(string Match, SearchTokenizer Tokenizer, bool CanMatch);
 
 /// <summary>
-/// The <c>search</c> table: an FTS5 table holding its own copy of each page's title, path and body, each row's rowid
-/// the id of its page's row in <c>files</c>, so the sweep finds a page's row by rowid rather than by scanning the
-/// table. No foreign key ties them: the sweep writes it directly, and no trigger does. The body has each run of
-/// whitespace collapsed to one space, so a phrase matches across a line break. Results rank by BM25 with the title
-/// weighted above the path, and the path above the body.
+/// The <c>search</c> table: an FTS5 table holding its own copy of each page's title, description, path and body, each
+/// row's rowid the id of its page's row in <c>files</c>, so the sweep finds a page's row by rowid rather than by
+/// scanning the table. No foreign key ties them: the sweep writes it directly, and no trigger does. The body has each
+/// run of whitespace collapsed to one space, so a phrase matches across a line break. Results rank by BM25 with the title
+/// weighted above the description, the description above the path, and the path above the body.
 /// </summary>
 internal static class SearchIndex
 {
     /// <summary>The table's columns, in order. <see cref="Weights"/> and <see cref="BodyColumn"/> follow it, and so do
     /// the values the sweep inserts.</summary>
-    internal const string Columns = "title, path, body";
+    internal const string Columns = "title, description, path, body";
 
-    /// <summary>Each column's BM25 weight, in the order of <see cref="Columns"/>: the title above the path, the path
-    /// above the body.</summary>
-    private const string Weights = "10.0, 5.0, 1.0";
+    /// <summary>Each column's BM25 weight, in the order of <see cref="Columns"/>: the title above the description, the
+    /// description above the path, the path above the body.</summary>
+    private const string Weights = "10.0, 7.0, 5.0, 1.0";
 
     /// <summary>The body's place in <see cref="Columns"/>, counting from 0.</summary>
-    private const int BodyColumn = 2;
+    private const int BodyColumn = 3;
 
     /// <summary>The title of the page in a query's <c>search</c> row, null when it has none: the sweep stores a page
     /// with no title as <c>""</c>.</summary>
@@ -141,10 +146,22 @@ internal static class SearchIndex
     /// <c>...</c> the page itself holds. A control character no page has reason to hold.</summary>
     private const string Cut = "\u0001";
 
+    /// <summary>What <see cref="Text"/> has <c>snippet()</c> put before and after each match, so the body's own text,
+    /// markdown such as <c>**</c> included, is never mistaken for one. Control characters no page has reason to
+    /// hold.</summary>
+    private const char Open = '\u0002', Close = '\u0003';
+
+    /// <summary>A page's body as the <c>search</c> table holds it: each run of whitespace one space, and each
+    /// <see cref="Cut"/>, <see cref="Open"/> or <see cref="Close"/> the page holds itself U+FFFD, so the only ones in a
+    /// snippet are those <c>snippet()</c> put there.</summary>
+    public static string Body(string body) =>
+        PlainText.Collapse(body).Replace(Cut[0], '�').Replace(Open, '�').Replace(Close, '�');
+
     /// <summary>The title of the page at <paramref name="id"/>, from <see cref="Matches"/> in the same transaction, and
-    /// its body around the match on one line, each matched term marked <c>**</c> as markdown bold.</summary>
+    /// its body around the match on one line, each matched term between <see cref="Open"/> and
+    /// <see cref="Close"/>.</summary>
     private const string TextSql = $"""
-        SELECT {Title} AS Title, snippet(search, @Column, '**', '**', @Cut, @Tokens) AS Snippet
+        SELECT {Title} AS Title, snippet(search, @Column, @Open, @Close, @Cut, @Tokens) AS Snippet
         FROM search
         WHERE search MATCH @Match AND rowid = @Id
         """;
@@ -154,9 +171,48 @@ internal static class SearchIndex
         // The snippet runs to about 20 tokens: 20 words under porter. A trigram token is one character's three-character
         // window, so trigram takes FTS5's most, 64, about that many characters.
         var trigram = query.Tokenizer == SearchTokenizer.Trigram;
-        var text = db.QuerySingle<SearchText>(TextSql, new { query.Match, Id = id, Column = BodyColumn, Cut, Tokens = trigram ? 64 : 20 }, transaction);
+        var text = db.QuerySingle<MarkedText>(TextSql, new
+        {
+            query.Match,
+            Id = id,
+            Column = BodyColumn,
+            Open = Open.ToString(),
+            Close = Close.ToString(),
+            Cut,
+            Tokens = trigram ? 64 : 20,
+        }, transaction);
         var snippet = PlainText.Collapse(text.Snippet);
-        return text with { Snippet = (trigram ? WholeWords(snippet) : snippet).Replace(Cut, "...", StringComparison.Ordinal) };
+        return new SearchText(text.Title, Unmark((trigram ? WholeWords(snippet) : snippet).Replace(Cut, "...", StringComparison.Ordinal)));
+    }
+
+    /// <summary>A row of <see cref="TextSql"/>: its snippet still holds the marks <c>snippet()</c> put in it.</summary>
+    internal sealed record MarkedText(string? Title, string Snippet);
+
+    /// <summary><paramref name="snippet"/> less the marks around each match, with where each one was.</summary>
+    private static SearchSnippet Unmark(string snippet)
+    {
+        var text = new StringBuilder(snippet.Length);
+        var matches = new List<Range>();
+        var start = -1;
+        foreach (var c in snippet)
+        {
+            switch (c)
+            {
+                case Open:
+                    start = text.Length;
+                    break;
+                case Close when start >= 0:
+                    matches.Add(start..text.Length);
+                    start = -1;
+                    break;
+                case Close:
+                    break;
+                default:
+                    text.Append(c);
+                    break;
+            }
+        }
+        return new SearchSnippet(text.ToString(), matches);
     }
 
     /// <summary>A trigram snippet less the words its cuts go through. A trigram snippet starts and ends at any
@@ -164,12 +220,12 @@ internal static class SearchIndex
     private static string WholeWords(string snippet)
     {
         if (snippet.StartsWith(Cut, StringComparison.Ordinal) && snippet.IndexOf(' ', StringComparison.Ordinal) is > 0 and var first
-            && !snippet.AsSpan(0, first).Contains("**", StringComparison.Ordinal))
+            && !snippet.AsSpan(0, first).ContainsAny(Open, Close))
         {
             snippet = Cut + snippet[(first + 1)..];
         }
         if (snippet.EndsWith(Cut, StringComparison.Ordinal) && snippet.LastIndexOf(' ') is var last && last > Cut.Length
-            && !snippet.AsSpan(last).Contains("**", StringComparison.Ordinal))
+            && !snippet.AsSpan(last).ContainsAny(Open, Close))
         {
             snippet = snippet[..last] + Cut;
         }
