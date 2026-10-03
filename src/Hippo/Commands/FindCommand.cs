@@ -28,16 +28,19 @@ internal static class FindCommand
         kind.AcceptOnlyFromAmong("markdown", "other");
         var where = new Option<string[]>("--where")
         {
-            Description = "Only files whose frontmatter field meets the condition: field=value, field!=value, field<value, "
-                + "field<=value, field>value, field>=value, field (present) or !field (missing); repeatable, and every condition "
-                + "must hold. Numbers compare as numbers, anything else as text, so write dates as ISO 8601. Quote it for the "
-                + "shell, as --where 'as_of<2026-04-01'",
+            Description = "Only markdown files whose frontmatter field meets the condition: field=value, field!=value, "
+                + "field<value, field<=value, field>value, field>=value, field (present) or !field (missing); repeatable, and "
+                + "every condition must hold. A field is a dotted path, and a part ending in [] means each element of that list, "
+                + "as sources[].id=x. A value starting with @ names a field of the same page, as 'verified.at<@generated.at', "
+                + "and @@ writes a literal @; a value without a leading @ is always a literal. Numbers compare as numbers, "
+                + "anything else as text, so write dates as ISO 8601. Quote it for the shell, as --where 'as_of<2026-04-01'",
             HelpName = "condition",
         };
         var field = new Option<string[]>("--field")
         {
             Description = "Show this frontmatter field of each file, a dotted path such as verified.at, or several separated "
-                + "by commas; repeatable. A list or mapping shows whole; keys holding ., ,, [ or ] cannot be reached",
+                + "by commas; repeatable. A part ending in [] means each element of that list, so sources[].resource shows the "
+                + "list of values. A list or mapping shows whole; keys holding ., ,, [ or ] cannot be reached",
             HelpName = "path",
         };
         var errors = new Option<bool>("--errors") { Description = "Only files whose frontmatter failed to parse, with the error" };
@@ -114,9 +117,11 @@ internal static class FindCommand
                 {
                     rows = rows.Where(row => row.Kind == only).ToList();
                 }
+                // Only a page has frontmatter, so every condition is a question about pages, negations included.
                 if (filters.Count > 0)
                 {
-                    rows = rows.Where(row => FrontmatterFilter.MatchesAll(filters, row.Frontmatter, row.ParseError)).ToList();
+                    rows = rows.Where(row => row.Kind == "markdown" && FrontmatterFilter.MatchesAll(filters, row.Frontmatter, row.ParseError))
+                        .ToList();
                 }
                 if (result.GetValue(noRefs))
                 {

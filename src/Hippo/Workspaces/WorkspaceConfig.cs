@@ -17,13 +17,20 @@ internal enum LinkBase
 /// ending in <c>[]</c> stands for each element of a list, as in <c>sources[].resource</c>.</summary>
 internal sealed record FrontmatterLinkField(string Field, LinkBase Resolve)
 {
-    public IReadOnlyList<(string Name, bool Each)> Parts { get; } = Field.Split('.')
-        .Select(part => part.EndsWith("[]", StringComparison.Ordinal) ? (part[..^2], true) : (part, false))
-        .ToList();
+    public IReadOnlyList<(string Name, bool Each)> Parts { get; } = Split(Field);
 
     /// <summary>Whether <see cref="Field"/> is dotted names, each optionally ending in <c>[]</c>, with no other
     /// brackets.</summary>
-    public bool IsValid => Parts.All(part => part.Name.Length > 0 && part.Name.IndexOfAny(['[', ']']) < 0);
+    public bool IsValid => IsValidPath(Parts);
+
+    /// <summary>The parts of a dotted <paramref name="field"/>, each its name and whether it ends in <c>[]</c>.</summary>
+    public static IReadOnlyList<(string Name, bool Each)> Split(string field) => field.Split('.')
+        .Select(part => part.EndsWith("[]", StringComparison.Ordinal) ? (part[..^2], true) : (part, false))
+        .ToList();
+
+    /// <summary>Whether every one of <paramref name="parts"/> has a name, and no name holds a bracket.</summary>
+    public static bool IsValidPath(IReadOnlyList<(string Name, bool Each)> parts) =>
+        parts.All(part => part.Name.Length > 0 && part.Name.IndexOfAny(['[', ']']) < 0);
 }
 
 /// <summary>

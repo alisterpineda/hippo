@@ -20,7 +20,9 @@ hippo find ["<query>"] [--glob <pattern>…] [--kind markdown|other] [--where <c
                              --kind and --where filter by path, kind or frontmatter field, and a --glob
                              starting with ! leaves out what it matches; --where takes field=value,
                              field!=value, field<value, field<=value, field>value, field>=value, field or
-                             !field, quoted for the shell ('as_of<2026-04-01'); --field shows those
+                             !field, quoted for the shell ('as_of<2026-04-01'), keeping only pages, and
+                             a value @field names another field of the page; a field path's part
+                             ending in [] means each element of that list; --field shows those
                              frontmatter fields of each file; --errors keeps only files whose
                              frontmatter failed to parse, with the error; --no-refs keeps files with no
                              link to another file, and --no-backrefs those no other file links to;
@@ -135,9 +137,9 @@ Without a query, `hippo find` lists every indexed file in path order, one path p
 hippo find --glob 'raw/artifacts/**' --no-backrefs --from 'wiki/**' --link-kind frontmatter
 ```
 
-`--where` keeps the files whose frontmatter meets a condition, and can be given more than once: a file must meet every one. A field is a dotted path into nested mappings, such as `verified.at`. It has no `[]`, so it cannot hold `[` or `]`, and it cannot hold `=`, `<`, `>` or `!`, since the first of them starts the operator.
+`--where` keeps the pages whose frontmatter meets a condition, and can be given more than once: a page must meet every one. Only markdown files have frontmatter, so no condition matches any other file, not even `!=` or `!field`. A field is a dotted path into nested mappings, such as `verified.at`, written as a `links.frontmatter` field is in the config: a part ending in `[]` means each element of that list, so `--where 'sources[].id=j-2026-09-16'` keeps the pages where any element of `sources` has that `id`. A part without `[]` does not step into a list, so `sources.id` reaches nothing when `sources` is a list, and `[]` on a value that is not a list reaches nothing either. A field cannot hold `=`, `<`, `>` or `!`, since the first of them starts the operator, and a key holding `.`, `[` or `]` cannot be reached.
 
-| Condition | Keeps the files where |
+| Condition | Keeps the pages where |
 |---|---|
 | `field=value` | the field equals the value |
 | `field!=value` | it does not: `tags!=draft` keeps the pages with no `draft` tag, including those with no `tags` |
@@ -145,9 +147,11 @@ hippo find --glob 'raw/artifacts/**' --no-backrefs --from 'wiki/**' --link-kind 
 | `field` | the field is there and not null; `as_of:` with no value counts as missing |
 | `!field` | the field is missing or null |
 
-A stored number is compared as a number when the value is one too, and anything else as text, character by character, so write dates as ISO 8601 (`2026-04-01`), which sort as text in date order. YAML dates are stored as text, so `as_of: 2026-04-01` is the string `"2026-04-01"`. A list matches when any element does. A range never matches a missing field, a boolean, a null or a mapping. A file whose frontmatter failed to parse meets no condition, not even `!=` or `!field`, since nothing is known of it; `--errors` lists those. `<` and `>` redirect in every shell, so quote each condition: `--where 'as_of<2026-04-01'`.
+A stored number is compared as a number when the value is one too, and anything else as text, character by character, so write dates as ISO 8601 (`2026-04-01`), which sort as text in date order. YAML dates are stored as text, so `as_of: 2026-04-01` is the string `"2026-04-01"`. A list matches when any element does. A range never matches a missing field, a boolean, a null or a mapping. A page whose frontmatter failed to parse meets no condition, not even `!=` or `!field`, since nothing is known of it; `--errors` lists those. `<` and `>` redirect in every shell, so quote each condition: `--where 'as_of<2026-04-01'`.
 
-`--field` shows the frontmatter fields it names, each a dotted path as `--where` takes, and can be given more than once, or with several paths separated by commas: `--field as_of,tracking --field verified.at`. A path naming a list or a mapping shows it whole, and a key holding `.`, `,`, `[` or `]` cannot be reached. With `--json`, each file gets a `fields` map keyed by the path as given, leaving out a field the file does not have, giving a field set to YAML null as `null`, and empty for a file whose frontmatter failed to parse. In text, each field ends the file's line as `key=value`, a list or mapping as compact JSON, and with a query on the title line, above the snippet:
+A value starting with `@` names a field of the same page, in the same path grammar, in place of a literal: `--where 'verified.at<@generated.at'` keeps the pages verified before they were generated. `@@` writes a literal `@`, so `author=@@alice` matches `@alice`, and a value without a leading `@` is always a literal. The two fields compare as numbers when both are numbers, and as text otherwise, and if either is a list, the condition holds when any pair of elements meets it. A missing right-hand field fails `=`, `<`, `<=`, `>` and `>=`, and meets `!=`, which stays the exact negation of `=`.
+
+`--field` shows the frontmatter fields it names, each a dotted path as `--where` takes, and can be given more than once, or with several paths separated by commas: `--field as_of,tracking --field verified.at`. A path naming a list or a mapping shows it whole, a path through `[]` shows the list of the values it reaches, as `--field 'sources[].resource'` does, and one that reaches nothing is left out. A key holding `.`, `,`, `[` or `]` cannot be reached. With `--json`, each file gets a `fields` map keyed by the path as given, leaving out a field the file does not have, giving a field set to YAML null as `null`, and empty for a file whose frontmatter failed to parse. In text, each field ends the file's line as `key=value`, a list or mapping as compact JSON, and with a query on the title line, above the snippet:
 
 ```
 wiki/x.md  as_of=2026-04-01  tracking=open

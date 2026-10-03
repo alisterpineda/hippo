@@ -28,6 +28,11 @@ public class FrontmatterQueriesTests
     [InlineData("tracking", "tracking", "Present", "")]
     [InlineData("generated.at", "generated.at", "Present", "")]
     [InlineData("!as_of", "as_of", "Missing", "")]
+    [InlineData("sources[].id=a", "sources[].id", "Equal", "a")]
+    [InlineData("!sources[]", "sources[]", "Missing", "")]
+    [InlineData("author=@@alice", "author", "Equal", "@alice")]
+    [InlineData("author=@@", "author", "Equal", "@")]
+    [InlineData("author=a@b", "author", "Equal", "a@b")]
     public void A_condition_reads_its_field_up_to_the_first_operator_character(
         string text, string field, string op, string value)
     {
@@ -44,7 +49,17 @@ public class FrontmatterQueriesTests
     [InlineData("!")]
     [InlineData("!a=b")]
     [InlineData("!!a")]
-    [InlineData("sources[].id=a")]
+    [InlineData("sources[.id=a")]
+    [InlineData("sources[=a")]
+    [InlineData("sources]=a")]
+    [InlineData("sources[x].id=a")]
+    [InlineData("sources[]id=a")]
+    [InlineData("sources[][]=a")]
+    [InlineData("[]=a")]
+    [InlineData("a=@")]
+    [InlineData("a<@b..c")]
+    [InlineData("a=@b[")]
+    [InlineData("a=@.b")]
     public void A_malformed_condition_is_an_error(string text)
     {
         var error = Assert.Throws<HippoException>(() => FrontmatterFilter.Parse(text));
@@ -233,6 +248,162 @@ public class FrontmatterQueriesTests
         Assert.True(FrontmatterFilter.MatchesAll([], null, "line 2: bad"));
     }
 
+    [Theory]
+    [InlineData("verified.at<@generated.at", "verified.at", "Less", "generated.at")]
+    [InlineData("a!=@b[].c", "a", "NotEqual", "b[].c")]
+    public void A_value_starting_with_at_names_a_field(string text, string field, string op, string reference)
+    {
+        Assert.Equal(new FrontmatterFilter(field, Enum.Parse<FrontmatterOperator>(op), "", reference), FrontmatterFilter.Parse(text));
+    }
+
+    [Fact]
+    public void Brackets_match_when_any_element_of_the_list_does()
+    {
+        Assert.True(Matches("sources[].id=a"));
+        Assert.True(Matches("sources[].id=b"));
+        Assert.False(Matches("sources[].id=c"));
+    }
+
+    [Fact]
+    public void Brackets_reach_into_lists_at_any_depth()
+    {
+        const string nested = """{"a":[{"b":[{"c":1},{"c":2}]},{"b":{"c":3}}]}""";
+
+        Assert.True(Matches("a[].b[].c=2", nested));
+        Assert.False(Matches("a[].b[].c=3", nested));
+        Assert.True(Matches("a[].b.c=3", nested));
+    }
+
+    [Fact]
+    public void Brackets_on_a_list_of_scalars_mean_the_same_as_none()
+    {
+        Assert.True(Matches("tags[]=x"));
+        Assert.False(Matches("tags[]=z"));
+        Assert.True(Matches("rank[]>5"));
+    }
+
+    [Fact]
+    public void Brackets_on_a_value_that_is_not_a_list_reach_nothing()
+    {
+        Assert.False(Matches("type[]=Topic"));
+        Assert.False(Matches("generated[].at=2026-09-01"));
+    }
+
+    [Fact]
+    public void A_path_without_brackets_does_not_step_into_a_list()
+    {
+        Assert.False(Matches("sources.id=a"));
+        Assert.False(Matches("sources.id"));
+        Assert.True(Matches("!sources.id"));
+    }
+
+    [Fact]
+    public void Present_and_missing_through_brackets_ask_whether_any_element_has_the_field()
+    {
+        const string partly = """{"sources":[{"id":"a"},{"title":"b"}],"none":[{"title":"c"}]}""";
+
+        Assert.True(Matches("sources[].id", partly));
+        Assert.False(Matches("!sources[].id", partly));
+        Assert.False(Matches("none[].id", partly));
+        Assert.True(Matches("!none[].id", partly));
+
+        const string nullFirst = """{"sources":[{"id":null},{"id":"a"}],"nulls":[{"id":null},{"id":null}]}""";
+
+        Assert.True(Matches("sources[].id", nullFirst));
+        Assert.False(Matches("!sources[].id", nullFirst));
+        Assert.False(Matches("nulls[].id", nullFirst));
+        Assert.True(Matches("!nulls[].id", nullFirst));
+    }
+
+    [Fact]
+    public void Not_equals_through_brackets_is_the_exact_negation_of_equals()
+    {
+        Assert.False(Matches("sources[].id!=a"));
+        Assert.True(Matches("sources[].id!=c"));
+    }
+
+    [Theory]
+    [InlineData("""{"verified":{"at":"2026-08-01"},"generated":{"at":"2026-09-01"}}""", true)]
+    [InlineData("""{"verified":{"at":"2026-10-01"},"generated":{"at":"2026-09-01"}}""", false)]
+    public void A_field_reference_compares_against_the_other_field_of_the_same_page(string frontmatter, bool expected)
+    {
+        Assert.Equal(expected, Matches("verified.at<@generated.at", frontmatter));
+    }
+
+    [Fact]
+    public void A_doubled_at_is_a_literal_at()
+    {
+        Assert.True(Matches("author=@@alice", """{"author":"@alice","alice":"x"}"""));
+        Assert.False(Matches("author=@@alice", """{"author":"alice"}"""));
+        Assert.False(Matches("author=@alice", """{"author":"@alice","alice":"x"}"""));
+        Assert.True(Matches("author=@alice", """{"author":"x","alice":"x"}"""));
+    }
+
+    [Theory]
+    [InlineData("a>@b", true)]
+    [InlineData("a<@b", true)]
+    [InlineData("a=@b", false)]
+    [InlineData("a!=@b", true)]
+    [InlineData("a=@c", true)]
+    [InlineData("c=@a", true)]
+    [InlineData("a>@d", false)]
+    public void A_reference_with_a_list_on_either_side_holds_when_any_pair_does(string condition, bool expected)
+    {
+        Assert.Equal(expected, Matches(condition, """{"a":[1,5],"b":[3],"c":5,"d":[7,9]}"""));
+    }
+
+    [Theory]
+    [InlineData("a=@b", false)]
+    [InlineData("a<@b", false)]
+    [InlineData("a<=@b", false)]
+    [InlineData("a>@b", false)]
+    [InlineData("a>=@b", false)]
+    [InlineData("a!=@b", true)]
+    public void A_missing_right_hand_field_fails_every_operator_but_not_equals(string condition, bool expected)
+    {
+        Assert.Equal(expected, Matches(condition, """{"a":1}"""));
+    }
+
+    [Fact]
+    public void A_right_hand_mapping_is_like_a_missing_field()
+    {
+        Assert.False(Matches("a=@m", """{"a":1,"m":{"x":1}}"""));
+        Assert.True(Matches("a!=@m", """{"a":1,"m":{"x":1}}"""));
+    }
+
+    [Theory]
+    [InlineData("""{"a":10,"b":9}""", "a>@b", true)]
+    [InlineData("""{"a":"10","b":9}""", "a>@b", false)]
+    [InlineData("""{"a":10,"b":"9"}""", "a>@b", false)]
+    [InlineData("""{"a":3,"b":3.0}""", "a=@b", true)]
+    [InlineData("""{"a":"3","b":3}""", "a=@b", true)]
+    [InlineData("""{"a":"3.0","b":3}""", "a=@b", false)]
+    [InlineData("""{"a":1234567890123456790,"b":1234567890123456789}""", "a>@b", true)]
+    [InlineData("""{"a":1234567890123456790,"b":1234567890123456789}""", "a=@b", false)]
+    public void A_reference_compares_as_numbers_when_both_sides_are_numbers_and_as_text_otherwise(
+        string frontmatter, string condition, bool expected)
+    {
+        Assert.Equal(expected, Matches(condition, frontmatter));
+    }
+
+    [Theory]
+    [InlineData("""{"a":"x","b":true}""", "a<@b", false)]
+    [InlineData("""{"a":"x","b":null}""", "a>@b", false)]
+    [InlineData("""{"a":true,"b":"x"}""", "a<@b", false)]
+    [InlineData("""{"a":true,"b":true}""", "a=@b", true)]
+    public void A_reference_ranges_only_over_numbers_and_text_and_equals_any_scalar_by_its_text(
+        string frontmatter, string condition, bool expected)
+    {
+        Assert.Equal(expected, Matches(condition, frontmatter));
+    }
+
+    [Fact]
+    public void A_reference_can_reach_through_brackets()
+    {
+        Assert.True(Matches("tags=@picked[].tag", """{"tags":["x","y"],"picked":[{"tag":"z"},{"tag":"y"}]}"""));
+        Assert.False(Matches("tags=@picked.tag", """{"tags":["x","y"],"picked":[{"tag":"z"},{"tag":"y"}]}"""));
+    }
+
     [Fact]
     public void Field_paths_split_at_commas_across_every_value_and_keep_the_order_given()
     {
@@ -244,7 +415,10 @@ public class FrontmatterQueriesTests
     [InlineData("as_of,")]
     [InlineData("a..b")]
     [InlineData(".a")]
-    [InlineData("sources[].id")]
+    [InlineData("sources[")]
+    [InlineData("sources[.id")]
+    [InlineData("sources[x]")]
+    [InlineData("[]")]
     public void A_malformed_field_path_is_an_error(string value)
     {
         var error = Assert.Throws<HippoException>(() => FrontmatterFields.ParsePaths([value]));
@@ -270,6 +444,30 @@ public class FrontmatterQueriesTests
     public void Read_leaves_out_a_missing_field_and_keeps_a_null_one()
     {
         Assert.Equal("""{"empty":null}""", Read(Page, "status", "empty", "type.name"));
+    }
+
+    [Fact]
+    public void Read_through_brackets_returns_the_list_of_values_reached()
+    {
+        Assert.Equal("""{"sources[].id":["a","b"],"tags[]":["x","y"]}""", Read(Page, "sources[].id", "tags[]"));
+    }
+
+    [Fact]
+    public void Read_through_brackets_skips_elements_without_the_field_and_keeps_a_null_one()
+    {
+        Assert.Equal("""{"s[].id":["a",null]}""", Read("""{"s":[{"id":"a"},{"title":"b"},{"id":null}]}""", "s[].id"));
+    }
+
+    [Fact]
+    public void Read_through_brackets_returns_a_list_even_of_one_value()
+    {
+        Assert.Equal("""{"s[].id":["a"],"tags[]":["x"]}""", Read("""{"s":[{"id":"a"},{"title":"b"}],"tags":["x"]}""", "s[].id", "tags[]"));
+    }
+
+    [Fact]
+    public void Read_through_brackets_leaves_out_a_path_that_reaches_nothing()
+    {
+        Assert.Equal("{}", Read(Page, "sources[].missing", "type[]", "status[].id", "sources.id"));
     }
 
     [Fact]

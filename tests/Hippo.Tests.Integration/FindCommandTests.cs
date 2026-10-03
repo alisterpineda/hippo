@@ -663,6 +663,91 @@ public sealed class FindCommandTests : IDisposable
     }
 
     [Theory]
+    [InlineData("!sources")]
+    [InlineData("tracking!=open")]
+    [InlineData("!sources[].id")]
+    [InlineData("a!=@b")]
+    public void Where_matches_only_markdown_files(string condition)
+    {
+        _workspace.Write("pic.png", "png");
+        _workspace.Write("notes.txt", "text");
+        _workspace.Write("plain.md", "# Plain\n");
+
+        Assert.Equal(["plain.md"], Paths("--where", condition));
+    }
+
+    [Fact]
+    public void Where_through_brackets_finds_exactly_the_pages_citing_a_source()
+    {
+        _workspace.Write("wiki/cites.md", "---\nsources:\n  - id: j-2026-09-16\n    resource: raw/a.md\n  - id: j-2026-09-17\n---\n");
+        _workspace.Write("wiki/other.md", "---\nsources:\n  - id: j-2026-09-17\n---\n");
+        _workspace.Write("wiki/flat.md", "---\nsources: j-2026-09-16\nid: j-2026-09-16\n---\n");
+        _workspace.Write("wiki/none.md", "# None\n");
+
+        Assert.Equal(["wiki/cites.md"], Paths("--where", "sources[].id=j-2026-09-16"));
+    }
+
+    [Fact]
+    public void Where_without_brackets_does_not_step_into_a_list()
+    {
+        _workspace.Write("cites.md", "---\nsources:\n  - id: x\n---\n");
+
+        Assert.Empty(Paths("--where", "sources.id=x"));
+        Assert.Empty(Paths("--where", "sources.id"));
+    }
+
+    [Fact]
+    public void Where_brackets_on_a_list_mean_the_same_as_none()
+    {
+        _workspace.Write("a.md", "---\nrelated: [x, y]\n---\n");
+        _workspace.Write("b.md", "---\nrelated: [y]\n---\n");
+
+        Assert.Equal(["a.md"], Paths("--where", "related[]=x"));
+        Assert.Equal(Paths("--where", "related=x"), Paths("--where", "related[]=x"));
+    }
+
+    [Fact]
+    public void Where_compares_a_field_against_another_field_of_the_same_page()
+    {
+        _workspace.Write("stale.md", "---\nverified:\n  at: 2026-08-01\ngenerated:\n  at: 2026-09-01\n---\n");
+        _workspace.Write("fresh.md", "---\nverified:\n  at: 2026-10-01\ngenerated:\n  at: 2026-09-01\n---\n");
+        _workspace.Write("unverified.md", "---\ngenerated:\n  at: 2026-09-01\n---\n");
+
+        Assert.Equal(["stale.md"], Paths("--where", "verified.at<@generated.at"));
+    }
+
+    [Fact]
+    public void Where_a_doubled_at_matches_a_literal_at()
+    {
+        _workspace.Write("handle.md", "---\nauthor: \"@alice\"\n---\n");
+        _workspace.Write("name.md", "---\nauthor: alice\n---\n");
+
+        Assert.Equal(["handle.md"], Paths("--where", "author=@@alice"));
+    }
+
+    [Theory]
+    [InlineData("sources[.id=x")]
+    [InlineData("sources[=x")]
+    [InlineData("a=@")]
+    [InlineData("a<@b[")]
+    public void A_where_with_an_unclosed_bracket_or_a_malformed_reference_is_an_error(string condition)
+    {
+        var result = _workspace.Run("find", "--where", condition);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("--where", result.Stderr);
+    }
+
+    [Fact]
+    public void Where_help_says_only_pages_match_and_a_value_without_at_is_a_literal()
+    {
+        var text = Words(_workspace.Run("find", "--help").Stdout);
+
+        Assert.Contains("Only markdown files", text);
+        Assert.Contains("a value without a leading @ is always a literal", text);
+    }
+
+    [Theory]
     [InlineData("a!b")]
     [InlineData("!a=b")]
     [InlineData("a..b<3")]
@@ -753,6 +838,37 @@ public sealed class FindCommandTests : IDisposable
         var result = _workspace.Run("find", "kestrel", "--field", "as_of,count,draft");
 
         Assert.Equal(["a.md  Alpha  as_of=2026-04-01  count=3  draft=false", "**kestrel**"], Lines(result.Stdout));
+    }
+
+    [Fact]
+    public void Field_json_through_brackets_gives_the_list_of_values()
+    {
+        _workspace.Write("x.md", "---\nsources:\n  - id: a\n    resource: raw/a.md\n  - id: b\n  - id: c\n    resource: raw/c.md\n---\n");
+
+        var file = Assert.Single(Json(_workspace.Run("find", "--field", "sources[].resource,sources.resource", "--json")).EnumerateArray());
+
+        Assert.Equal("""{"sources[].resource":["raw/a.md","raw/c.md"]}""", Compact(file.GetProperty("fields")));
+    }
+
+    [Fact]
+    public void Field_text_through_brackets_shows_the_list_as_compact_json()
+    {
+        _workspace.Write("x.md", "---\nsources:\n  - resource: raw/a.md\n  - resource: raw/c.md\n---\n");
+
+        var result = _workspace.Run("find", "--field", "sources[].resource");
+
+        Assert.Equal(["x.md  sources[].resource=[\"raw/a.md\",\"raw/c.md\"]"], Lines(result.Stdout));
+    }
+
+    [Theory]
+    [InlineData("sources[")]
+    [InlineData("sources[.resource")]
+    public void A_field_with_an_unclosed_bracket_is_an_error(string field)
+    {
+        var result = _workspace.Run("find", "--field", field);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("--field", result.Stderr);
     }
 
     [Theory]
