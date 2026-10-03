@@ -53,6 +53,40 @@ public class PageTests
         Assert.Empty(Links("a.md", "[unused]: target.md\n"));
     }
 
+    [Theory]
+    [InlineData("A claim.[^1]\n\n[^1]: foo\n")]
+    [InlineData("A claim.[^1]\n\n[^1]: Two words\n")]
+    public void A_footnote_reference_is_not_a_link(string markdown)
+    {
+        Assert.Empty(Links("notes/a.md", markdown));
+    }
+
+    [Fact]
+    public void A_link_in_a_footnote_definition_is_a_body_link_on_the_definitions_line()
+    {
+        var link = Only("wiki/topics/a.md", "# A\n\nA claim.[^j-2026-09-16]\n\n[^j-2026-09-16]: [Day](<../../raw/x.md>)\n");
+
+        Assert.Equal(new Link(5, "body", "path", "../../raw/x.md", "raw/x.md", "Day"), link);
+    }
+
+    [Fact]
+    public void A_link_in_a_footnote_definition_nothing_references_is_still_a_body_link()
+    {
+        var links = Links("notes/a.md", "No citation.\n\n[^x]: [Day](<day.md>)\n[^y]: An aside on [b](b.md)\n");
+
+        Assert.Equal(
+            [new Link(3, "body", "path", "day.md", "notes/day.md", "Day"), new Link(4, "body", "path", "b.md", "notes/b.md", "b")],
+            links);
+    }
+
+    [Fact]
+    public void A_link_reference_definition_beside_footnotes_still_resolves()
+    {
+        var links = Links("a.md", "See [r] and a claim.[^1]\n\n[^1]: foo\n\n[r]: target.md\n");
+
+        Assert.Equal(new Link(1, "body", "path", "target.md", "target.md", "r"), Assert.Single(links));
+    }
+
     [Fact]
     public void An_angle_bracket_destination_keeps_its_spaces()
     {

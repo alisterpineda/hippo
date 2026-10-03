@@ -553,6 +553,25 @@ public sealed class LintCommandTests : IDisposable
     }
 
     [Fact]
+    public void A_footnote_reference_is_not_a_broken_link_but_a_broken_link_in_a_definition_is()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("raw/x.md", "# Day\n");
+        _workspace.Write("wiki/topics/a.md", """
+            A claim.[^j-2026-09-16] Another.[^1]
+
+            [^j-2026-09-16]: [Day](<../../raw/x.md>)
+            [^1]: foo
+            [^aside]: [Gone](<../../raw/gone.md>)
+            """);
+
+        var result = BrokenLinks();
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(["wiki/topics/a.md:5  broken-link  ../../raw/gone.md -> raw/gone.md"], Lines(result.Stdout));
+    }
+
+    [Fact]
     public void A_clean_workspace_exits_0_from_broken_link()
     {
         _workspace.Write(".hippo/config.json", "");

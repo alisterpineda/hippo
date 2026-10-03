@@ -124,6 +124,17 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
+    public void A_link_in_a_footnote_definition_is_a_backref_of_its_target()
+    {
+        _workspace.Write("a.md", "A claim.[^b-1]\n\n[^b-1]: [B](<b.md>)\n");
+        _workspace.Write("b.md", "# B\n");
+
+        var backrefs = _workspace.Run("backrefs", "b.md");
+
+        Assert.Equal(["a.md:3  body         b.md  [B]"], Lines(backrefs.Stdout));
+    }
+
+    [Fact]
     public void An_index_from_before_link_text_existed_has_every_links_text_after_migrating()
     {
         _workspace.Write("a.md", "[the b page](b.md)\n");

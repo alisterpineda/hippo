@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Hippo.Workspaces;
-using Markdig;
 using Markdig.Extensions.Footnotes;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
@@ -16,13 +15,9 @@ namespace Hippo.Okf;
 /// </summary>
 internal static partial class OkfChecks
 {
-    // Footnotes are read apart from links: Markdig drops a footnote definition nothing references, with the links in it,
-    // and those links still count.
-    private static readonly MarkdownPipeline FootnotePipeline = new MarkdownPipelineBuilder().UsePreciseSourceLocation().UseFootnotes().Build();
-
     /// <summary>Checks the page at <paramref name="path"/> in the bundle at <paramref name="bundle"/>.
-    /// <paramref name="document"/> is its body as plain CommonMark, or null when Markdig could not parse it, in which case
-    /// only its frontmatter is checked.</summary>
+    /// <paramref name="document"/> is its body as CommonMark with footnotes, or null when Markdig could not parse it, in
+    /// which case only its frontmatter is checked.</summary>
     public static List<Finding> Check(string path, string bundle, FrontmatterBlock block, MarkdownDocument? document)
     {
         var findings = new List<Finding>();
@@ -104,7 +99,7 @@ internal static partial class OkfChecks
         CheckStatus(findings, root);
         if (document is not null)
         {
-            CheckFootnotes(findings, root, block);
+            CheckFootnotes(findings, root, document, block.BodyLine);
         }
     }
 
@@ -217,26 +212,9 @@ internal static partial class OkfChecks
 
     /// <summary>§5.1: a footnote attributes a claim by taking a <c>sources[].id</c> as its label. An explanatory
     /// footnote is reported too, since nothing tells it from a citation. A definition nothing references attributes
-    /// nothing, and Markdig does not read it as a footnote.</summary>
-    private static void CheckFootnotes(List<Finding> findings, YamlMappingNode root, FrontmatterBlock block)
+    /// nothing, and Markdig leaves it out of the document.</summary>
+    private static void CheckFootnotes(List<Finding> findings, YamlMappingNode root, MarkdownDocument document, int bodyLine)
     {
-        // A footnote reference needs a "[^", so a body without one is not parsed a second time.
-        if (!block.Body.Contains("[^", StringComparison.Ordinal))
-        {
-            return;
-        }
-        MarkdownDocument document;
-        try
-        {
-            document = Markdown.Parse(block.Body, FootnotePipeline);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            // The plain parse that gave the page its links succeeded, so this is not expected; if it happens, the
-            // footnotes go unchecked rather than the page going unindexed.
-            return;
-        }
-
         var ids = Sources(root)
             .OfType<YamlMappingNode>()
             .Select(source => Frontmatter.Field(source, "id")?.Value)
@@ -250,7 +228,7 @@ internal static partial class OkfChecks
             var label = footnote.Label?.TrimStart('^') ?? "";
             if (!ids.Contains(label))
             {
-                findings.Add(new(OkfRules.Footnote, footnote.Line + block.BodyLine, $"footnote [^{label}] matches no sources[].id"));
+                findings.Add(new(OkfRules.Footnote, footnote.Line + bodyLine, $"footnote [^{label}] matches no sources[].id"));
             }
         }
     }

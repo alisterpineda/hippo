@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Hippo.Okf;
 using Markdig;
+using Markdig.Extensions.Footnotes;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 using YamlDotNet.RepresentationModel;
@@ -89,8 +90,32 @@ internal sealed record ParsedPage(
 /// OKF's rules; an <c>index.md</c> there also has its entries read.</summary>
 internal static partial class Page
 {
-    // Plain CommonMark: [[x]] stays text.
-    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().UsePreciseSourceLocation().Build();
+    // CommonMark with footnotes, so a top-level definition such as [^1]: foo is not read as a link reference
+    // definition. Markdig opens a footnote only at the top level, so one inside a list item or blockquote still is.
+    // [[x]] stays text.
+    private static readonly MarkdownPipeline Pipeline = BuildPipeline();
+
+    /// <summary>The key under which a parsed document keeps every footnote definition in it.</summary>
+    private static readonly object FootnotesKey = new();
+
+    private static MarkdownPipeline BuildPipeline()
+    {
+        // Markdig drops a footnote definition nothing references, with the links in it, and those links still count, so
+        // each definition is kept aside as it closes. UseFootnotes finds this parser in place and adds no other.
+        var footnotes = new FootnoteParser();
+        footnotes.Closed += (processor, block) =>
+        {
+            if (processor.Document.GetData(FootnotesKey) is not List<Footnote> kept)
+            {
+                kept = [];
+                processor.Document.SetData(FootnotesKey, kept);
+            }
+            kept.Add((Footnote)block);
+        };
+        var builder = new MarkdownPipelineBuilder().UsePreciseSourceLocation();
+        builder.BlockParsers.Insert(0, footnotes);
+        return builder.UseFootnotes().Build();
+    }
 
     /// <summary>OKF's path-valued fields (§6.2). A relative value resolves against the bundle root, as the spec's
     /// examples do (§10).</summary>
@@ -142,7 +167,11 @@ internal static partial class Page
                 Title(block, null), block.Body, ex.Message);
         }
 
-        foreach (var node in document.Descendants())
+        // A dropped definition is no longer in the document, but its inlines were parsed before it was dropped.
+        var dropped = document.GetData(FootnotesKey) is List<Footnote> footnotes
+            ? footnotes.Where(footnote => footnote.Parent is null).SelectMany(footnote => footnote.Descendants())
+            : [];
+        foreach (var node in document.Descendants().Concat(dropped))
         {
             var line = node.Line + block.BodyLine;
             switch (node)
