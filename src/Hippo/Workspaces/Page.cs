@@ -147,7 +147,7 @@ internal static partial class Page
                 : configured;
             foreach (var field in fields)
             {
-                foreach (var value in Values(root, field.Parts, 0))
+                foreach (var value in Values(root, field.Path.Parts, 0))
                 {
                     links.Add(Resolve(path, bundle, field.Resolve, Frontmatter.FileLine(value.Start), "frontmatter", value.Value!, isUrl: false, text: null));
                 }
@@ -227,7 +227,7 @@ internal static partial class Page
 
     /// <summary>The scalar values at <paramref name="parts"/> under <paramref name="node"/>. A value of any other shape
     /// than the field declares, or an empty one, is not a link.</summary>
-    private static IEnumerable<YamlScalarNode> Values(YamlNode node, IReadOnlyList<(string Name, bool Each)> parts, int index)
+    private static IEnumerable<YamlScalarNode> Values(YamlNode node, IReadOnlyList<FieldPathPart> parts, int index)
     {
         if (index == parts.Count)
         {

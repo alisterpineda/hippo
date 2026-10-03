@@ -13,24 +13,11 @@ internal enum LinkBase
     Bundle,
 }
 
-/// <summary>A frontmatter field whose values are links. <see cref="Field"/> is dotted for nested mappings, and a part
-/// ending in <c>[]</c> stands for each element of a list, as in <c>sources[].resource</c>.</summary>
+/// <summary>A frontmatter field whose values are links, as a <see cref="FieldPath"/> such as
+/// <c>sources[].resource</c>.</summary>
 internal sealed record FrontmatterLinkField(string Field, LinkBase Resolve)
 {
-    public IReadOnlyList<(string Name, bool Each)> Parts { get; } = Split(Field);
-
-    /// <summary>Whether <see cref="Field"/> is dotted names, each optionally ending in <c>[]</c>, with no other
-    /// brackets.</summary>
-    public bool IsValid => IsValidPath(Parts);
-
-    /// <summary>The parts of a dotted <paramref name="field"/>, each its name and whether it ends in <c>[]</c>.</summary>
-    public static IReadOnlyList<(string Name, bool Each)> Split(string field) => field.Split('.')
-        .Select(part => part.EndsWith("[]", StringComparison.Ordinal) ? (part[..^2], true) : (part, false))
-        .ToList();
-
-    /// <summary>Whether every one of <paramref name="parts"/> has a name, and no name holds a bracket.</summary>
-    public static bool IsValidPath(IReadOnlyList<(string Name, bool Each)> parts) =>
-        parts.All(part => part.Name.Length > 0 && part.Name.IndexOfAny(['[', ']']) < 0);
+    public FieldPath Path { get; } = new(Field);
 }
 
 /// <summary>
@@ -248,7 +235,7 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
                 }
             }
             var link = field is null ? null : new FrontmatterLinkField(field, resolve);
-            if (link is null || !link.IsValid)
+            if (link is null || !link.Path.IsValid)
             {
                 throw Error(usage);
             }

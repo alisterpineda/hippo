@@ -5,47 +5,29 @@ using Hippo.Workspaces;
 
 namespace Hippo.Indexing;
 
-/// <summary>A dotted path into a file's frontmatter, as <c>--where</c> and <c>--field</c> take it, in the config's
-/// grammar (<see cref="FrontmatterLinkField"/>): each part a key of the mapping the part before it names, and a part
-/// ending in <c>[]</c> each element of the list that key holds. A part without <c>[]</c> does not step into a list, and
-/// <c>[]</c> on anything but a list reaches nothing. A key holding <c>.</c>, <c>[</c> or <c>]</c> cannot be
-/// reached.</summary>
-internal sealed record FrontmatterPath(string Text)
+/// <summary>Where a <see cref="FieldPath"/> leads in a file's frontmatter as the index stores it.</summary>
+internal static class FrontmatterJson
 {
-    private readonly IReadOnlyList<(string Name, bool Each)> _parts = FrontmatterLinkField.Split(Text);
+    /// <summary>Every value <paramref name="path"/> reaches in <paramref name="frontmatter"/>: none when a key on the
+    /// way is missing or names something of another shape than the path says, and at most one when no part ends in
+    /// <c>[]</c>.</summary>
+    public static IEnumerable<JsonElement> Find(this FieldPath path, JsonElement frontmatter) => Find(path.Parts, frontmatter, 0);
 
-    /// <summary>Whether <see cref="Text"/> has no empty part and no bracket but a closing <c>[]</c>.</summary>
-    public bool IsValid => FrontmatterLinkField.IsValidPath(_parts);
-
-    /// <summary>Whether a part ends in <c>[]</c>, so the path can reach any number of values.</summary>
-    public bool IsEach => _parts.Any(part => part.Each);
-
-    /// <summary>Equal by <see cref="Text"/> alone, since the record's own equality would compare the parsed parts by
-    /// reference; this keeps <see cref="FrontmatterFilter"/>, which holds its paths, equal to another of the same
-    /// text.</summary>
-    public bool Equals(FrontmatterPath? other) => other is not null && string.Equals(Text, other.Text, StringComparison.Ordinal);
-
-    public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(Text);
-
-    /// <summary>Every value the path reaches in <paramref name="frontmatter"/>: none when a key on the way is missing
-    /// or names something of another shape than the path says, and at most one when no part ends in <c>[]</c>.</summary>
-    public IEnumerable<JsonElement> Find(JsonElement frontmatter) => Find(frontmatter, 0);
-
-    private IEnumerable<JsonElement> Find(JsonElement value, int index)
+    private static IEnumerable<JsonElement> Find(IReadOnlyList<FieldPathPart> parts, JsonElement value, int index)
     {
-        if (index == _parts.Count)
+        if (index == parts.Count)
         {
             yield return value;
             yield break;
         }
-        var (name, each) = _parts[index];
+        var (name, each) = parts[index];
         if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty(name, out var child))
         {
             yield break;
         }
         if (!each)
         {
-            foreach (var found in Find(child, index + 1))
+            foreach (var found in Find(parts, child, index + 1))
             {
                 yield return found;
             }
@@ -57,7 +39,7 @@ internal sealed record FrontmatterPath(string Text)
         }
         foreach (var item in child.EnumerateArray())
         {
-            foreach (var found in Find(item, index + 1))
+            foreach (var found in Find(parts, item, index + 1))
             {
                 yield return found;
             }
@@ -80,9 +62,9 @@ internal sealed record FrontmatterFilter(string Field, FrontmatterOperator Opera
 {
     private static readonly char[] OperatorStarts = ['=', '<', '>', '!'];
 
-    private readonly FrontmatterPath _field = new(Field);
+    private readonly FieldPath _field = new(Field);
 
-    private readonly FrontmatterPath? _reference = Reference is null ? null : new(Reference);
+    private readonly FieldPath? _reference = Reference is null ? null : new(Reference);
 
     /// <summary><see cref="Value"/> as a side of a comparison.</summary>
     private readonly Operand _value = Operand.Of(Value);
@@ -114,7 +96,7 @@ internal sealed record FrontmatterFilter(string Field, FrontmatterOperator Opera
             : value.StartsWith('@') ? ("", value[1..])
             : (value, null);
         var (literal, reference) = operand;
-        if (!new FrontmatterPath(field).IsValid || reference is not null && !new FrontmatterPath(reference).IsValid)
+        if (!new FieldPath(field).IsValid || reference is not null && !new FieldPath(reference).IsValid)
         {
             throw new HippoException(
                 "--where expects <field>, !<field>, or <field> then =, !=, <, <=, > or >= and a value or an @field, such as "
@@ -244,7 +226,7 @@ internal static class FrontmatterFields
     /// <summary>The paths in every <c>--field</c> value, each a comma-separated list, in the order given and each
     /// once.</summary>
     public static List<string> ParsePaths(IEnumerable<string> values) =>
-        values.SelectMany(value => value.Split(',').Select(path => new FrontmatterPath(path).IsValid ? path
+        values.SelectMany(value => value.Split(',').Select(path => new FieldPath(path).IsValid ? path
                 : throw new HippoException(
                     $"--field expects dotted field names separated by commas, such as as_of,verified.at,sources[].id; got '{value}'")))
             .Distinct(StringComparer.Ordinal)
@@ -263,7 +245,7 @@ internal static class FrontmatterFields
         using var json = JsonDocument.Parse(frontmatter);
         foreach (var text in paths)
         {
-            var path = new FrontmatterPath(text);
+            var path = new FieldPath(text);
             var values = path.Find(json.RootElement).ToList();
             if (values.Count == 0)
             {
