@@ -17,11 +17,16 @@ internal static class IndexMeta
     /// found. While that mount point is not mounted, <c>hippo cache</c> takes the workspace for unreachable, not gone.</summary>
     public const string Volume = "volume";
 
+    /// <summary>The <see cref="MigrationRunner.Fingerprint"/> of the scripts that built the index, which tells the
+    /// runner whether a script it would skip as already run has changed since. Absent from an index built before it was
+    /// recorded, which the runner trusts.</summary>
+    public const string Schema = "schema";
+
     // Internal, not private: the code Dapper.AOT generates must reach it.
     internal sealed record MetaRow(string Key, string Value);
 
-    public static string? Get(SqliteConnection db, string key) =>
-        db.QuerySingleOrDefault<string>("SELECT value FROM meta WHERE key = @key", new { key });
+    public static string? Get(SqliteConnection db, string key, SqliteTransaction? transaction = null) =>
+        db.QuerySingleOrDefault<string>("SELECT value FROM meta WHERE key = @key", new { key }, transaction);
 
     public static void Set(SqliteConnection db, string key, string value, SqliteTransaction? transaction = null) =>
         db.Execute("""

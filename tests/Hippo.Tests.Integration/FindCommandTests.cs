@@ -1510,4 +1510,16 @@ public sealed class FindCommandTests : IDisposable
 
         Assert.Equal(["a.md"], Paths("heron"));
     }
+
+    [Fact]
+    public void An_index_from_before_descriptions_were_searched_finds_them_after_migrating()
+    {
+        _workspace.Write("a.md", "---\ndescription: Notes on the kestrel.\n---\nStriped animals.\n");
+        _workspace.Settle();
+        _workspace.RollBackIndexTo(6);
+
+        var result = Json(_workspace.Run("find", "kestrel", "--json"));
+
+        Assert.Equal("a.md", Assert.Single(result.EnumerateArray()).GetProperty("path").GetString());
+    }
 }

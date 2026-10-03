@@ -82,10 +82,16 @@ internal sealed class TestWorkspace : IDisposable
             DROP INDEX ix_links_target_nfd; ALTER TABLE links DROP COLUMN target_nfd; CREATE INDEX ix_links_target ON links (target);
             ALTER TABLE index_entries DROP COLUMN target_nfd
             """,
+        [7] = """
+            CREATE TEMP TABLE search_copy AS SELECT rowid AS id, title, path, body FROM search; DROP TABLE search;
+            CREATE VIRTUAL TABLE search USING fts5(title, path, body, tokenize = 'porter unicode61');
+            INSERT INTO search (rowid, title, path, body) SELECT id, title, path, body FROM temp.search_copy; DROP TABLE temp.search_copy
+            """,
     };
 
     /// <summary>Turns this workspace's index back into one at schema <paramref name="version"/>, as if made before every
-    /// later migration: undoes each of them, newest first, leaving the files table as it was.</summary>
+    /// later migration: undoes each of them, newest first, leaving the files table as it was, and records the
+    /// fingerprint of the scripts up to that version, as the hippo that made it would have.</summary>
     public void RollBackIndexTo(int version)
     {
         if (version < Undo.Keys.Min() - 1)
@@ -100,7 +106,9 @@ internal sealed class TestWorkspace : IDisposable
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = string.Join("; ", Undo.Where(u => u.Key > version).OrderByDescending(u => u.Key).Select(u => u.Value))
-            + $"; PRAGMA user_version = {version}";
+            + $"; PRAGMA user_version = {version}; UPDATE meta SET value = @fingerprint WHERE key = @key";
+        command.Parameters.AddWithValue("@fingerprint", Hippo.Indexing.MigrationRunner.Fingerprint(version));
+        command.Parameters.AddWithValue("@key", Hippo.Indexing.IndexMeta.Schema);
         command.ExecuteNonQuery();
     }
 

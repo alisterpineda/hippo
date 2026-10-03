@@ -2,7 +2,7 @@
 # Adds an EF Core migration to Hippo.Migrations and exports that migration alone as the next numbered SQL script in
 # src/Hippo/Migrations, named NNNN_<migration id>.sql. The number is the schema version the runner stores in
 # user_version; the id pairs the script with its EF migration. The SQL is the real migration: review it before
-# committing, and never edit a shipped script.
+# committing, and never edit a committed script, even before a release: an index that ran it never runs it again.
 set -euo pipefail
 
 name=${1:?usage: scripts/add-migration.sh <Name>}
@@ -41,6 +41,7 @@ perl -0pi -e '
 ' "$output"
 
 echo "Wrote $output. Review it, then update the SQL and record types in src/Hippo that touch the changed tables."
+echo "Before committing, add its checksum to SchemaTests.Committed; Committed_scripts_are_never_edited prints it."
 if grep -q "may result in the loss of data" <<<"$added"; then
   echo >&2
   echo "WARNING: EF says this migration may lose data. Read every DROP in $output; if the loss is not intended," >&2

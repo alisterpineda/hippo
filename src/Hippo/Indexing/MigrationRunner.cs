@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Data.Sqlite;
 
 namespace Hippo.Indexing;
@@ -9,16 +11,28 @@ namespace Hippo.Indexing;
 /// <c>&lt;name&gt;</c> is the migration's id. Safe for several processes at once: an index that is up to date is left
 /// without taking the write lock, so opening it never waits on another process's writes; otherwise the version is read
 /// again under the write lock, so a second process waits and then finds nothing to do.
+/// <para>The version alone cannot tell that a script the index already ran has since been edited: the index would look
+/// current and keep the old schema. So the index records the <see cref="Fingerprint"/> of the scripts it ran, and an
+/// index whose scripts differ from the binary's at its version is refused.</para>
 /// </summary>
 internal static class MigrationRunner
 {
     private const string ResourcePrefix = "Hippo.Migrations.";
 
-    internal sealed record Script(int Version, string Name, string Sql);
+    internal sealed record Script(int Version, string Name, string Sql)
+    {
+        /// <summary>The SHA-256 of <see cref="Sql"/>, its line endings read as <c>\n</c>, so a checkout that writes
+        /// <c>\r\n</c> gives the same one.</summary>
+        public string Checksum { get; } = Hash(Sql.ReplaceLineEndings("\n"));
+    }
 
     public static IReadOnlyList<Script> Scripts { get; } = LoadScripts();
 
     public static int LatestVersion => Scripts.Count == 0 ? 0 : Scripts[^1].Version;
+
+    /// <summary>What <see cref="IndexMeta.Schema"/> records for an index at <paramref name="version"/>: a hash of the
+    /// checksums of scripts 1 to <paramref name="version"/>, so it changes when any of them does.</summary>
+    public static string Fingerprint(int version) => Hash(string.Join('\n', Scripts.Take(version).Select(s => s.Checksum)));
 
     /// <summary>Applies every newer script and returns how many ran.</summary>
     public static int Migrate(SqliteConnection connection)
@@ -28,8 +42,9 @@ internal static class MigrationRunner
         // SQLite ignores this pragma inside a transaction, and a table rebuild needs it off.
         Execute(connection, null, "PRAGMA foreign_keys = OFF");
 
-        // The version alone needs no lock, and under WAL reading it never waits on a writer.
-        if (Version(connection, null) == LatestVersion)
+        // The version and fingerprint alone need no lock, and under WAL reading them never waits on a writer.
+        var current = Version(connection, null);
+        if (current == LatestVersion && Recorded(connection, null, current) == Fingerprint(current))
         {
             Execute(connection, null, "PRAGMA foreign_keys = ON");
             return 0;
@@ -44,6 +59,12 @@ internal static class MigrationRunner
                 throw new HippoException(
                     $"the index at {connection.DataSource} has schema version {version}, newer than this hippo supports ({LatestVersion}); upgrade hippo");
             }
+            if (Recorded(connection, transaction, version) is { } recorded && recorded != Fingerprint(version))
+            {
+                throw new HippoException(
+                    $"the index at {connection.DataSource} was built by a hippo whose schema version {version} differs from this one's; "
+                    + $"delete {Path.GetDirectoryName(connection.DataSource)} and run hippo again to rebuild it");
+            }
 
             foreach (var script in Scripts.Where(s => s.Version > version))
             {
@@ -51,6 +72,7 @@ internal static class MigrationRunner
                 Execute(connection, transaction, $"PRAGMA user_version = {script.Version}");
                 applied++;
             }
+            IndexMeta.Set(connection, IndexMeta.Schema, Fingerprint(LatestVersion), transaction);
 
             if (Scalar(connection, transaction, "PRAGMA foreign_key_check") is not null)
             {
@@ -67,6 +89,13 @@ internal static class MigrationRunner
     /// application and never touches.</summary>
     private static int Version(SqliteConnection connection, SqliteTransaction? transaction) =>
         Convert.ToInt32(Scalar(connection, transaction, "PRAGMA user_version"), CultureInfo.InvariantCulture);
+
+    /// <summary>The fingerprint the index recorded, or null when it recorded none: an index at version 0 has no meta table
+    /// yet, and one built before fingerprints were recorded has no row.</summary>
+    private static string? Recorded(SqliteConnection connection, SqliteTransaction? transaction, int version) =>
+        version == 0 ? null : IndexMeta.Get(connection, IndexMeta.Schema, transaction);
+
+    private static string Hash(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
     private static void Execute(SqliteConnection connection, SqliteTransaction? transaction, string sql)
     {
