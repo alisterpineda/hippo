@@ -634,6 +634,45 @@ public sealed class FindCommandTests : IDisposable
     }
 
     [Fact]
+    public void A_match_only_in_the_description_shows_the_description_as_its_snippet()
+    {
+        _workspace.Write("a.md", "---\ntitle: Birds\ndescription: Notes on the kestrel.\n---\nStriped animals.\n");
+        _workspace.Terminal = true;
+
+        var result = _workspace.Run("find", "kestrel");
+
+        Assert.Equal("a.md  Birds\n  Notes on the \e[1mkestrel\e[22m.\n", result.Stdout.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void A_match_in_the_body_and_the_description_shows_the_body()
+    {
+        _workspace.Write("a.md", "---\ndescription: Notes on the kestrel.\n---\nThe kestrel hovers.\n");
+
+        Assert.Equal("The kestrel hovers.", Assert.Single(Json(_workspace.Run("find", "kestrel", "--json")).EnumerateArray()).GetProperty("snippet").GetString());
+    }
+
+    [Fact]
+    public void A_match_only_in_the_title_shows_the_start_of_the_body()
+    {
+        _workspace.Write("a.md", "---\ntitle: Kestrel\ndescription: Notes on birds.\n---\nStriped animals.\n");
+
+        Assert.Equal("Striped animals.", Assert.Single(Json(_workspace.Run("find", "kestrel", "--json")).EnumerateArray()).GetProperty("snippet").GetString());
+    }
+
+    [Fact]
+    public void A_description_cannot_mark_its_own_text_as_a_match()
+    {
+        _workspace.Write("a.md", "---\ndescription: \"A kestrel \\u0002hovers\\u0003 \\u0003 here\\u0001.\"\n---\nStriped animals.\n");
+        _workspace.Terminal = true;
+
+        var result = _workspace.Run("find", "kestrel");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("a.md\n  A \e[1mkestrel\e[22m �hovers� � here�.\n", result.Stdout.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
     public void A_description_that_is_not_text_is_not_searched()
     {
         _workspace.Write("a.md", "---\ndescription: [kestrel]\n---\nStriped animals.\n");

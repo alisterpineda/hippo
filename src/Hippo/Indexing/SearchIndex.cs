@@ -30,13 +30,16 @@ internal sealed record SearchQuery(string Match, SearchTokenizer Tokenizer, bool
 /// </summary>
 internal static class SearchIndex
 {
-    /// <summary>The table's columns, in order. <see cref="Weights"/> and <see cref="BodyColumn"/> follow it, and so do
-    /// the values the sweep inserts.</summary>
+    /// <summary>The table's columns, in order. <see cref="Weights"/>, <see cref="DescriptionColumn"/> and
+    /// <see cref="BodyColumn"/> follow it, and so do the values the sweep inserts.</summary>
     internal const string Columns = "title, description, path, body";
 
     /// <summary>Each column's BM25 weight, in the order of <see cref="Columns"/>: the title above the description, the
     /// description above the path, the path above the body.</summary>
     private const string Weights = "10.0, 7.0, 5.0, 1.0";
+
+    /// <summary>The description's place in <see cref="Columns"/>, counting from 0.</summary>
+    private const int DescriptionColumn = 1;
 
     /// <summary>The body's place in <see cref="Columns"/>, counting from 0.</summary>
     private const int BodyColumn = 3;
@@ -151,17 +154,19 @@ internal static class SearchIndex
     /// hold.</summary>
     private const char Open = '\u0002', Close = '\u0003';
 
-    /// <summary>A page's body as the <c>search</c> table holds it: each run of whitespace one space, and each
-    /// <see cref="Cut"/>, <see cref="Open"/> or <see cref="Close"/> the page holds itself U+FFFD, so the only ones in a
-    /// snippet are those <c>snippet()</c> put there.</summary>
-    public static string Body(string body) =>
-        PlainText.Collapse(body).Replace(Cut[0], '�').Replace(Open, '�').Replace(Close, '�');
+    /// <summary>A page's description or body as the <c>search</c> table holds it: each run of whitespace one space, and
+    /// each <see cref="Cut"/>, <see cref="Open"/> or <see cref="Close"/> the page holds itself U+FFFD, so the only ones
+    /// in a snippet are those <c>snippet()</c> put there.</summary>
+    public static string Searchable(string text) =>
+        PlainText.Collapse(text).Replace(Cut[0], '�').Replace(Open, '�').Replace(Close, '�');
 
     /// <summary>The title of the page at <paramref name="id"/>, from <see cref="Matches"/> in the same transaction, and
-    /// its body around the match on one line, each matched term between <see cref="Open"/> and
-    /// <see cref="Close"/>.</summary>
+    /// its body and its description, each around the match on one line, each matched term between <see cref="Open"/>
+    /// and <see cref="Close"/>. A column with no match comes from its start, with nothing marked.</summary>
     private const string TextSql = $"""
-        SELECT {Title} AS Title, snippet(search, @Column, @Open, @Close, @Cut, @Tokens) AS Snippet
+        SELECT {Title} AS Title,
+            snippet(search, @BodyColumn, @Open, @Close, @Cut, @Tokens) AS Body,
+            snippet(search, @DescriptionColumn, @Open, @Close, @Cut, @Tokens) AS Description
         FROM search
         WHERE search MATCH @Match AND rowid = @Id
         """;
@@ -175,18 +180,22 @@ internal static class SearchIndex
         {
             query.Match,
             Id = id,
-            Column = BodyColumn,
+            BodyColumn,
+            DescriptionColumn,
             Open = Open.ToString(),
             Close = Close.ToString(),
             Cut,
             Tokens = trigram ? 64 : 20,
         }, transaction);
-        var snippet = PlainText.Collapse(text.Snippet);
+        // The body around the match, unless only the description matched: the start of the body would not show why the
+        // page was found. A page that matched only in its title or path shows the start of its body.
+        var marked = text.Body.Contains(Open) || !text.Description.Contains(Open) ? text.Body : text.Description;
+        var snippet = PlainText.Collapse(marked);
         return new SearchText(text.Title, Unmark((trigram ? WholeWords(snippet) : snippet).Replace(Cut, "...", StringComparison.Ordinal)));
     }
 
-    /// <summary>A row of <see cref="TextSql"/>: its snippet still holds the marks <c>snippet()</c> put in it.</summary>
-    internal sealed record MarkedText(string? Title, string Snippet);
+    /// <summary>A row of <see cref="TextSql"/>: its snippets still hold the marks <c>snippet()</c> put in them.</summary>
+    internal sealed record MarkedText(string? Title, string Body, string Description);
 
     /// <summary><paramref name="snippet"/> less the marks around each match, with where each one was.</summary>
     private static SearchSnippet Unmark(string snippet)
