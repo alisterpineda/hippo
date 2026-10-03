@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Globalization;
 using System.Text.Json;
 using Hippo.Indexing;
 using Microsoft.Data.Sqlite;
@@ -60,7 +61,8 @@ internal static class FindCommand
         };
         limit.Validators.Add(result =>
         {
-            if (result.GetValueOrDefault<int?>() < 1)
+            // The token is read, not the value: a value that is not a number has its own error, and reading it throws.
+            if (result.Tokens is [{ Value: var value }] && int.TryParse(value, CultureInfo.InvariantCulture, out var n) && n < 1)
             {
                 result.AddError("--limit must be at least 1");
             }

@@ -35,7 +35,9 @@ public class ProcessTests
     {
         var result = await HippoProcess.RunAsync("bogus");
 
-        Assert.NotEqual(0, result.ExitCode);
+        Assert.Equal(2, result.ExitCode);
         Assert.Contains("Unrecognized command or argument 'bogus'", result.Stderr);
+        Assert.Equal("Run 'hippo --help' for usage.", result.Stderr.TrimEnd().Split('\n')[^1].TrimEnd('\r'));
+        Assert.Empty(result.Stdout.Trim());
     }
 }

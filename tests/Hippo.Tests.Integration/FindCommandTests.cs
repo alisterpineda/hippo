@@ -1090,6 +1090,15 @@ public sealed class FindCommandTests : IDisposable
         Assert.Contains("--limit", result.Stderr);
     }
 
+    [Fact]
+    public void A_limit_that_is_not_a_number_is_an_error()
+    {
+        var result = _workspace.Run("find", "heron", "--limit", "nope");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("Cannot parse argument 'nope' for option '--limit'", result.Stderr);
+    }
+
     [Theory]
     [InlineData("0")]
     [InlineData("-1")]

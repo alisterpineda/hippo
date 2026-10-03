@@ -75,4 +75,21 @@ internal static class LintCommand
         }));
         return command;
     }
+
+    /// <summary>What <c>hippo lint --help</c> ends with: every rule and what it reports, laid out as the options are,
+    /// then which rules <c>lint.off</c> can turn off.</summary>
+    public static void WriteRules(TextWriter output)
+    {
+        var width = LintRules.All.Max(r => r.Name.Length);
+        output.WriteLine("Rules:");
+        foreach (var rule in LintRules.All)
+        {
+            output.WriteLine($"  {rule.Name.PadRight(width)}  {rule.Description}");
+        }
+        output.WriteLine();
+        var always = LintRules.All.Where(r => !r.CanTurnOff).Select(r => r.Name).ToList();
+        output.WriteLine(
+            $"  lint.off can turn off every rule but {string.Join(", ", always[..^1])} and {always[^1]}, the MUST rules of OKF v{OkfBundle.SpecVersion}.");
+        output.WriteLine();
+    }
 }

@@ -9,7 +9,8 @@ internal static class BackrefsCommand
     {
         var path = new Argument<string>("path")
         {
-            Description = "A path in the workspace, relative to the working directory: a file, a folder, or the workspace root; it need not exist, so links broken on it show",
+            Description = "A path in the workspace, relative to the working directory: a file, a folder, or the workspace root; it need not exist, so links broken on it show; "
+                + "a folder's backrefs are the links to the folder itself, not to the files in it",
         };
         var linkKind = WorkspaceSession.LinkKindOption("Only links of this kind");
         var from = new Option<string[]>("--from")

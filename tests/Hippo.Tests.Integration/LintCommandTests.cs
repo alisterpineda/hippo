@@ -887,4 +887,67 @@ public sealed class LintCommandTests : IDisposable
             Json(result, 1).EnumerateArray().Select(f => f.GetProperty("rule").GetString()));
         Assert.DoesNotContain("cannot read the frontmatter", result.Stderr);
     }
+
+    [Fact]
+    public void Help_lists_every_rule_with_a_description()
+    {
+        string[] rules =
+        [
+            "okf-type", "okf-index-frontmatter", "okf-log-date", "okf-source-resource", "okf-footnote", "okf-timestamp",
+            "okf-actor", "okf-status", "okf-index", "broken-link", "frontmatter-syntax",
+        ];
+
+        var lines = Lines(_workspace.Run("lint", "--help").Stdout);
+
+        foreach (var rule in rules)
+        {
+            // The rule's name, then its description on the same line.
+            Assert.Single(lines, line => line.StartsWith(rule + " ", StringComparison.Ordinal) && line.Length > rule.Length + 20);
+        }
+    }
+
+    [Fact]
+    public void Help_says_which_rules_lint_off_can_turn_off()
+    {
+        var text = Words(_workspace.Run("lint", "--help").Stdout);
+
+        Assert.Contains("lint.off can turn off every rule but okf-type, okf-index-frontmatter and okf-log-date", text);
+    }
+
+    [Fact]
+    public void Help_lists_the_rules_after_lints_options()
+    {
+        var result = _workspace.Run("lint", "--help");
+
+        Assert.Equal(0, result.ExitCode);
+        var options = result.Stdout.IndexOf("Options:", StringComparison.Ordinal);
+        Assert.InRange(options, 0, result.Stdout.IndexOf("Rules:", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData]
+    [InlineData("find")]
+    public void Only_lints_help_lists_the_rules(params string[] command)
+    {
+        var result = _workspace.Run([.. command, "--help"]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("Rules:", result.Stdout);
+        Assert.DoesNotContain("lint.off can turn off", result.Stdout);
+    }
+
+    [Fact]
+    public void An_unknown_rule_prints_the_error_and_a_pointer_to_help_not_the_help()
+    {
+        var result = _workspace.Run("lint", "--rule", "no-such-rule");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("Argument 'no-such-rule' not recognized", result.Stderr);
+        Assert.Equal("Run 'hippo lint --help' for usage.", Lines(result.Stderr)[^1]);
+        Assert.DoesNotContain("Usage:", result.Stdout + result.Stderr);
+        Assert.DoesNotContain("Options:", result.Stdout + result.Stderr);
+    }
+
+    /// <summary>Help text with each run of whitespace read as one space, so where it wraps does not matter.</summary>
+    private static string Words(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 }

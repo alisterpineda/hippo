@@ -67,6 +67,33 @@ public sealed class CommandTests : IDisposable
     }
 
     [Fact]
+    public void Index_rebuild_says_it_rebuilt_the_index_rather_than_counting_changes()
+    {
+        _workspace.Write("a.md", "# A\n");
+        _workspace.Write("b.txt", "b");
+        _workspace.Run("index");
+
+        var result = _workspace.Run("index", "--rebuild");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Matches(@"^Rebuilt the index from 2 files in \d+ ms\.$", result.Stdout.TrimEnd());
+    }
+
+    [Fact]
+    public void Index_says_it_rebuilt_the_index_when_a_migration_rebuilt_it()
+    {
+        _workspace.Write("a.md", "# A\n");
+        _workspace.Settle();
+        _workspace.Run("index");
+        _workspace.RollBackIndexTo(5);
+
+        var result = _workspace.Run("index");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Matches(@"^Rebuilt the index from 1 files in \d+ ms\.$", result.Stdout.TrimEnd());
+    }
+
+    [Fact]
     public void The_first_command_builds_the_index_in_the_cache_dir()
     {
         var json = Json(_workspace.Run("status", "--json"));

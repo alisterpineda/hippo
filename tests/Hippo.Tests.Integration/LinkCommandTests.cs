@@ -16,6 +16,9 @@ public sealed class LinkCommandTests : IDisposable
 
     private static string[] Lines(string text) => text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
+    /// <summary>Help text with each run of whitespace read as one space, so where it wraps does not matter.</summary>
+    private static string Words(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
     /// <summary>A small workspace in the notes repo's shape: a wiki bundle whose pages cite raw files from frontmatter.</summary>
     private void WriteNotes()
     {
@@ -393,4 +396,12 @@ public sealed class LinkCommandTests : IDisposable
         .EnumerateFileSystemEntries(_workspace.Root, "*", SearchOption.AllDirectories)
         .Order(StringComparer.Ordinal)
         .Select(p => File.Exists(p) ? $"{p} {File.GetLastWriteTimeUtc(p).Ticks} {File.ReadAllText(p)}" : $"{p}/"));
+
+    [Fact]
+    public void Backrefs_help_says_a_folders_backrefs_are_the_links_to_the_folder_itself()
+    {
+        var result = _workspace.Run("backrefs", "--help");
+
+        Assert.Contains("a folder's backrefs are the links to the folder itself, not to the files in it", Words(result.Stdout));
+    }
 }

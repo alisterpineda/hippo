@@ -8,9 +8,11 @@ using Microsoft.Data.Sqlite;
 namespace Hippo.Indexing;
 
 /// <summary>What one sweep found. <see cref="Hashed"/> counts files read from disk; <see cref="Updated"/> counts files
-/// whose content changed. <see cref="OkfBundles"/> are the OKF bundles the pages were read under.</summary>
+/// whose content changed. <see cref="Rebuilt"/> says the sweep rewrote its rows in one transaction, as a rebuild or a
+/// relink does; <see cref="RereadEveryFile"/> says it was a rebuild of an index that already held files, which reads
+/// and parses every one of them again. <see cref="OkfBundles"/> are the OKF bundles the pages were read under.</summary>
 internal sealed record SweepResult(
-    int Files, int Added, int Updated, int Removed, int Hashed, bool Rebuilt,
+    int Files, int Added, int Updated, int Removed, int Hashed, bool Rebuilt, bool RereadEveryFile,
     DateTimeOffset FinishedAt, TimeSpan Elapsed, IReadOnlyList<string> Warnings, IReadOnlyList<OkfBundle> OkfBundles);
 
 /// <summary>
@@ -241,7 +243,7 @@ internal static class Sweeper
             InBatches(db, removed, (batch, t) => Remove(db, batch, t));
         }
 
-        return new SweepResult(seen.Count, added, updated, removed.Count, hashed, bulk, clock.GetUtcNow(), stopwatch.Elapsed, warnings, okfBundles);
+        return new SweepResult(seen.Count, added, updated, removed.Count, hashed, bulk, rebuild && known.Count > 0, clock.GetUtcNow(), stopwatch.Elapsed, warnings, okfBundles);
     }
 
     /// <summary>Writes each row whatever it held, keeping the id of a row that was there: a rebuild rewrites what a new

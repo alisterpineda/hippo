@@ -585,6 +585,7 @@ public sealed class SweeperTests : IDisposable
         Assert.Equal(["b.md"], before.Select(l => l.Target));
         Assert.Equal(["wiki/x.md", "wiki/b.md"], Links().Select(l => l.Target));
         Assert.True(changed.Rebuilt);
+        Assert.False(changed.RereadEveryFile);
         Assert.False(after.Rebuilt);
     }
 
