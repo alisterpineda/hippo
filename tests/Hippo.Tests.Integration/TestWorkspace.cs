@@ -5,28 +5,14 @@ using Microsoft.Data.Sqlite;
 namespace Hippo.Tests.Integration;
 
 /// <summary>
-/// A workspace folder and a cache folder under a fresh temp directory, deleted on dispose. hippo's commands run in this
-/// process, reading the working directory, environment and clock from a <see cref="CliEnvironment"/> rather than the
-/// test process's own: the workspace as the working directory, and only <c>HIPPO_CACHE_DIR</c> set, pointing at the
-/// cache. The workspace is outside any repository, so hippo never runs git, which would see the test process's own
+/// A <see cref="WorkspaceFixture"/> where hippo's commands run in this process, reading the working directory,
+/// environment and clock from a <see cref="CliEnvironment"/> rather than the test process's own: the workspace as the
+/// working directory, and only <c>HIPPO_CACHE_DIR</c> set, pointing at the cache. The workspace is outside any repository, so hippo never runs git, which would see the test process's own
 /// environment; tests that need git are E2E tests.
 /// </summary>
-internal sealed class TestWorkspace : IDisposable
+internal sealed class TestWorkspace : WorkspaceFixture
 {
     public sealed record Result(int ExitCode, string Stdout, string Stderr);
-
-    private readonly TempDirectory _dir = new();
-
-    public TestWorkspace()
-    {
-        Directory.CreateDirectory(Root);
-        Directory.CreateDirectory(CacheDir);
-        Write(".hippo/config.json", "");
-    }
-
-    public string Root => _dir.Combine("workspace");
-
-    public string CacheDir => _dir.Combine("cache");
 
     /// <summary>The clock hippo reads: the real one unless a test sets its own.</summary>
     public TimeProvider Clock { get; set; } = TimeProvider.System;
@@ -38,37 +24,17 @@ internal sealed class TestWorkspace : IDisposable
     /// <summary>Whether hippo takes its output for a terminal: false unless a test sets it.</summary>
     public bool Terminal { get; set; }
 
-    public string Combine(string relativePath) => Path.Combine(Root, relativePath);
-
     /// <summary>A path in the temp directory beside the workspace and the cache.</summary>
-    public string Beside(string relativePath) => _dir.Combine(relativePath);
+    public string Beside(string relativePath) => Path.Combine(Folder, relativePath);
 
     /// <summary>Makes another workspace at <paramref name="relativePath"/> beside this one; run hippo there with
     /// <see cref="RunIn"/>, and it shares this cache.</summary>
     public string AddWorkspace(string relativePath)
     {
         var root = Beside(relativePath);
-        _dir.Write(Path.Combine(relativePath, ".hippo", "config.json"), "");
+        Directory.CreateDirectory(Path.Combine(root, ".hippo"));
+        File.WriteAllText(Path.Combine(root, ".hippo", "config.json"), "");
         return root;
-    }
-
-    public string Write(string relativePath, string content)
-    {
-        var path = Combine(relativePath);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, content);
-        return path;
-    }
-
-    /// <summary>Sets every file's mtime a minute into the past, as if written long before, so hippo trusts what it
-    /// last read of them.</summary>
-    public void Settle()
-    {
-        var past = DateTime.UtcNow.AddMinutes(-1);
-        foreach (var file in Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories))
-        {
-            File.SetLastWriteTimeUtc(file, past);
-        }
     }
 
     /// <summary>The undoing of each migration, by the schema version it brings the index to. A new migration adds its
@@ -131,6 +97,4 @@ internal sealed class TestWorkspace : IDisposable
 
         return new Result(exitCode, output.ToString(), error.ToString());
     }
-
-    public void Dispose() => _dir.Dispose();
 }

@@ -6,6 +6,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Hippo.Tests.E2E/Hippo.Tests.E2E.csproj" />
     <Project Path="tests/Hippo.Tests.Integration/Hippo.Tests.Integration.csproj" />
+    <Project Path="tests/Hippo.Tests.Shared/Hippo.Tests.Shared.csproj" />
     <Project Path="tests/Hippo.Tests.Unit/Hippo.Tests.Unit.csproj" />
   </Folder>
 </Solution>

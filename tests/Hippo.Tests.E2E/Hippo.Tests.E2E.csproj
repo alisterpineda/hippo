@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Hippo\Hippo.csproj" />
+    <ProjectReference Include="..\Hippo.Tests.Shared\Hippo.Tests.Shared.csproj" />
   </ItemGroup>
 
 </Project>

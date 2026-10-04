@@ -206,7 +206,7 @@ src/Hippo.Migrations/           dev-time only: EF Core model for authoring migra
 tests/Hippo.Tests.Unit/         one piece of the CLI at a time: parsing, queries, the sweep, migrations
 tests/Hippo.Tests.Integration/  whole commands run in-process against a temp workspace
 tests/Hippo.Tests.E2E/          hippo run as a separate process, as a user would
-tests/Shared/                   helpers compiled into the unit and integration tests
+tests/Hippo.Tests.Shared/       fixtures the three test projects reference, with no reference to hippo or xunit
 docs/dev/                       notes for working on hippo; architecture.md maps the folders inside src/Hippo
 ```
 

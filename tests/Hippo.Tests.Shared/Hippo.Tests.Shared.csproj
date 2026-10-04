@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Fixtures the three test projects share. It references neither xunit nor hippo: the E2E tests consume it, and must
+       not reach hippo's code through it. -->
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

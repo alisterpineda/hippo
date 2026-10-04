@@ -18,12 +18,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\Shared\*.cs" Link="Shared\%(Filename)%(Extension)" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\..\src\Hippo\Hippo.csproj" />
     <ProjectReference Include="..\..\src\Hippo.Migrations\Hippo.Migrations.csproj" />
+    <ProjectReference Include="..\Hippo.Tests.Shared\Hippo.Tests.Shared.csproj" />
   </ItemGroup>
 
 </Project>
