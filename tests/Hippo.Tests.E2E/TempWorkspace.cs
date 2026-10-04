@@ -5,7 +5,8 @@ namespace Hippo.Tests.E2E;
 /// <summary>
 /// A <see cref="WorkspaceFixture"/> where hippo runs as a process, with the workspace as its working directory and
 /// <c>HIPPO_CACHE_DIR</c> pointing at the cache, so no test touches the user's cache. hippo and <see cref="Git"/> see no
-/// global or system git config, so the user's own ignore rules do not change what a test finds.
+/// global or system git config, so the user's own ignore rules do not change what a test finds, and neither inherits the
+/// test runner's <c>GIT_</c> variables, so a run from a git hook never reaches the outer repository.
 /// </summary>
 public sealed class TempWorkspace : WorkspaceFixture
 {
@@ -35,6 +36,7 @@ public sealed class TempWorkspace : WorkspaceFixture
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
+        HippoProcess.RemoveGitVariables(start);
         foreach (var (name, value) in GitEnvironment)
         {
             start.Environment[name] = value;
