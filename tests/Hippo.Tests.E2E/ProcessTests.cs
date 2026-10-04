@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace Hippo.Tests.E2E;
 
 public class ProcessTests
@@ -14,10 +16,13 @@ public class ProcessTests
     [Fact]
     public async Task Version_flag_prints_the_version()
     {
+        var expected = typeof(ProcessTests).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .Single(a => a.Key == "HippoVersion").Value;
+
         var result = await HippoProcess.RunAsync("--version");
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Equal(Cli.Version, result.Stdout.TrimEnd());
+        Assert.Equal(expected, result.Stdout.TrimEnd());
     }
 
     [Fact]

@@ -4,8 +4,6 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>hippo</AssemblyName>
     <RootNamespace>Hippo</RootNamespace>
-    <Version>0.1.0</Version>
-    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 
     <!-- Trim, single-file and AOT analyzers; TreatWarningsAsErrors makes their warnings errors. -->
     <IsAotCompatible>true</IsAotCompatible>

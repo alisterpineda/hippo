@@ -16,8 +16,38 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Hippo\Hippo.csproj" />
+    <!-- The version the binary should print, since the tests cannot read it from hippo. -->
+    <AssemblyMetadata Include="HippoVersion" Value="$(Version)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Only so hippo.dll and its dependencies land beside the tests, which run it as a process. E2E must not call
+         into hippo, and without the reference assembly the compiler enforces that. -->
+    <ProjectReference Include="..\..\src\Hippo\Hippo.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\Hippo.Tests.Shared\Hippo.Tests.Shared.csproj" />
   </ItemGroup>
+
+  <!-- Without the reference assembly the build copies hippo's apphost, deps.json and runtimeconfig but not hippo.dll,
+       and NuGet drops hippo's packages from this project, so the dll, its packages and the native SQLite libraries
+       come from hippo's own build output instead. FileWrites keeps incremental clean from deleting them.
+       Only the top-level files, the satellite resources and runtimes/ are taken: the same folder also holds the
+       <rid>/ and publish/ folders that `dotnet build/pack/publish -r` leave behind, hundreds of MB the tests never run. -->
+  <Target Name="CopyHippoOutput" AfterTargets="CopyFilesToOutputDirectory">
+    <MSBuild Projects="..\..\src\Hippo\Hippo.csproj" Targets="GetTargetPath">
+      <Output TaskParameter="TargetOutputs" ItemName="_HippoTargetPath" />
+    </MSBuild>
+    <PropertyGroup>
+      <_HippoOutDir>@(_HippoTargetPath->'%(RootDir)%(Directory)')</_HippoOutDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_HippoOutput Include="$(_HippoOutDir)*;$(_HippoOutDir)*\*.resources.dll;$(_HippoOutDir)runtimes\**" />
+      <_HippoOutput>
+        <Destination>$(OutDir)$([MSBuild]::MakeRelative($(_HippoOutDir), %(FullPath)))</Destination>
+      </_HippoOutput>
+    </ItemGroup>
+    <Copy SourceFiles="@(_HippoOutput)" DestinationFiles="@(_HippoOutput->'%(Destination)')" SkipUnchangedFiles="true">
+      <Output TaskParameter="DestinationFiles" ItemName="FileWrites" />
+    </Copy>
+  </Target>
 
 </Project>
