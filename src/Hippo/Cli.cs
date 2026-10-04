@@ -4,6 +4,7 @@ using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
 using System.Reflection;
 using Hippo.Commands;
+using Hippo.Commands.Find;
 
 namespace Hippo;
 

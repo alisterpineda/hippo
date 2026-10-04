@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Hippo.Commands;
+using Hippo.Commands.Find;
 
 namespace Hippo.Tests.Unit;
 

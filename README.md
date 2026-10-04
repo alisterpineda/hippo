@@ -210,7 +210,7 @@ tests/Shared/                   helpers compiled into the unit and integration t
 docs/dev/                       notes for working on hippo; architecture.md maps the folders inside src/Hippo
 ```
 
-A test of what a command does belongs in the integration tests, which pass each command its working directory, environment variables and clock. The E2E tests are kept for what only the real process shows: a smoke test per command, so every query and JSON shape runs once as native AOT compiled it; exit codes, arguments and output as the shell sees them; the user cache folder; and git, which hippo runs with its own environment.
+A test of what a command does belongs in the integration tests, which pass each command its working directory, environment variables and clock. A command with a `Run` method, as `find` has, may also have unit tests that call it and check the records it returns; the binding, the validators and both forms of output stay in the integration tests. The E2E tests are kept for what only the real process shows: a smoke test per command, so every query and JSON shape runs once as native AOT compiled it; exit codes, arguments and output as the shell sees them; the user cache folder; and git, which hippo runs with its own environment.
 
 ## Build and test
 

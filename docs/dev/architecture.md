@@ -28,7 +28,13 @@ Three shared pieces live here too:
 - `Guard` is where every failure ends: a `HippoException` prints its message, anything else prints whole, and both exit 2.
 - `Output.cs` holds the `--json` records, the source-generated serializer for them, and `Format`, the text helpers. The JSON records are hippo's contract with scripts, so each is a record of its own and never a row type from `Indexing/`.
 
-`FrontmatterOptions.cs` is the `--where` and `--field` language of `find`. It parses conditions and field paths and runs them over a page's stored frontmatter JSON. It is here rather than in `Indexing/` because only `find` speaks it.
+A command that has helpers of its own gets a folder, named for the command, with a namespace to match. `Find/` is the one so far and the pattern for the rest:
+
+- `FindCommand.Build` declares the options and validators, as every command does. Its action binds the parse result into a `FindOptions` record, calls `Run`, and prints what comes back.
+- `FindCommand.Run` takes the options, the workspace and the connection, and returns the `--json` records. It takes no parse result and writes nothing, so a unit test can ask what `find` would list with no command line and no output to parse. The integration tests keep covering the binding, the validators and the two forms of output.
+- `FrontmatterOptions.cs` is the `--where` and `--field` language. It parses conditions and field paths and runs them over a page's stored frontmatter JSON. It is here rather than in `Indexing/` because only `find` speaks it.
+
+A command that fits in one file stays as one file at the root of `Commands/`. The seam is the point, not the folder: a single-file command whose action grows past a screen should get the same `Run` method before it gets a folder.
 
 ### `Workspaces/` — the disk side
 
@@ -82,7 +88,7 @@ The Open Knowledge Format checks, kept apart because they are a spec hippo follo
 ## Where a change goes
 
 - A new option on an existing command: that command's file in `Commands/`, and its `*Output` record if the JSON changes, with the matching test in `OutputJsonTests`.
-- A new command: a new file in `Commands/`, registered in `Cli.Build`. If it needs the index, it opens a `WorkspaceSession`; if it does not, it runs under `Guard` directly, as `init` and `cache` do.
+- A new command: a new file in `Commands/`, registered in `Cli.Build`. If it needs the index, it opens a `WorkspaceSession`; if it does not, it runs under `Guard` directly, as `init` and `cache` do. Give it an options record and a `Run` method as `find` has by the rule above, once its action is past a screen, and a folder once it has helpers of its own.
 - A new question to ask the index: a method on the fitting `*Queries` class, with a unit test against `TestDatabase`.
 - A new fact to store per file: a migration (see the README), a column on the sweep's row records, and the parse in `Workspaces/Page`.
 - A new lint rule: its description in `LintRules`, and its name there too, or in `OkfRules` if it is an OKF rule. An OKF rule that judges a file alone goes in `OkfChecks`, which runs only inside OKF bundles. Any other rule is a worked rule in `LintCommand`, reading what the sweep stored, as `frontmatter-syntax` does from `FileQueries.ParseErrors`.
