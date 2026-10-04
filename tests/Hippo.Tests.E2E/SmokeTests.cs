@@ -49,7 +49,7 @@ public sealed class SmokeTests : IDisposable
     private static List<string?> Strings(JsonElement array, string property) =>
         array.EnumerateArray().Select(item => item.GetProperty(property).GetString()).ToList();
 
-    [Fact]
+    [Fact, Covers("index")]
     public async Task Index()
     {
         var json = await Json(0, "index");
@@ -58,7 +58,7 @@ public sealed class SmokeTests : IDisposable
         Assert.True(json.GetProperty("rebuilt").GetBoolean());
     }
 
-    [Fact]
+    [Fact, Covers("status")]
     public async Task Status()
     {
         var json = await Json(0, "status");
@@ -66,7 +66,7 @@ public sealed class SmokeTests : IDisposable
         Assert.Equal((4, 4), (json.GetProperty("files").GetProperty("total").GetInt32(), json.GetProperty("files").GetProperty("markdown").GetInt32()));
     }
 
-    [Fact]
+    [Fact, Covers("find")]
     public async Task Find()
     {
         var all = await Json(0, "find");
@@ -81,7 +81,7 @@ public sealed class SmokeTests : IDisposable
             (fields.GetProperty("type").GetString(), fields.GetProperty("sources")[0].GetProperty("resource").GetString()));
     }
 
-    [Fact]
+    [Fact, Covers("show")]
     public async Task Show()
     {
         var json = await Json(0, "show", "wiki/topics/topic.md");
@@ -91,7 +91,7 @@ public sealed class SmokeTests : IDisposable
         Assert.Contains("\"type\": \"Topic\"", text.Stdout);
     }
 
-    [Fact]
+    [Fact, Covers("refs")]
     public async Task Refs()
     {
         var json = await Json(0, "refs", "wiki/topics/topic.md");
@@ -102,7 +102,7 @@ public sealed class SmokeTests : IDisposable
                 $"{l.GetProperty("line").GetInt64()} {l.GetProperty("kind").GetString()} {l.GetProperty("type").GetString()} {l.GetProperty("target").GetString()}"));
     }
 
-    [Fact]
+    [Fact, Covers("backrefs")]
     public async Task Backrefs()
     {
         var direct = await Json(0, "backrefs", "raw/day.md");
@@ -117,7 +117,7 @@ public sealed class SmokeTests : IDisposable
         Assert.Equal(["wiki/topics/topic.md"], Strings(filtered, "source"));
     }
 
-    [Fact]
+    [Fact, Covers("find")]
     public async Task Find_files_with_no_links()
     {
         Assert.Equal(["raw/lonely.md"], Strings(await Json(0, "find", "--no-refs", "--no-backrefs", "--kind", "markdown"), "path"));
@@ -126,7 +126,7 @@ public sealed class SmokeTests : IDisposable
             Strings(await Json(0, "find", "--glob", "raw/**", "--no-backrefs", "--from", "wiki/**", "--link-kind", "body"), "path"));
     }
 
-    [Fact]
+    [Fact, Covers("lint")]
     public async Task Lint()
     {
         _workspace.Write("wiki/index.md", "---\nokf_version: \"0.2\"\n---\n# Index\n\n- [Topic](topics/topic.md)\n");
@@ -155,7 +155,7 @@ public sealed class SmokeTests : IDisposable
                 findings[3].GetProperty("message").GetString(), findings[3].GetProperty("related")[0].GetString()));
     }
 
-    [Fact]
+    [Fact, Covers("find")]
     public async Task Find_with_a_query()
     {
         var porter = await Json(0, "find", "topics", "--where", "type=Topic", "--glob", "wiki/**", "--limit", "5");
@@ -180,7 +180,7 @@ public sealed class SmokeTests : IDisposable
         Assert.Equal(["wiki/topics/topic.md"], Strings(await Json(0, "find", "gap"), "path"));
     }
 
-    [Fact]
+    [Fact, Covers("cache", "list")]
     public async Task Cache_list()
     {
         var database = (await Json(0, "status")).GetProperty("database").GetString();
@@ -191,7 +191,7 @@ public sealed class SmokeTests : IDisposable
         Assert.Equal("workspace", Path.GetFileName(index.GetProperty("root").GetString()));
     }
 
-    [Fact]
+    [Fact, Covers("cache", "prune")]
     public async Task Cache_prune()
     {
         var nested = _workspace.Write("gone/.hippo/config.json", "");

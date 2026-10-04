@@ -10,7 +10,7 @@ public sealed class InitCommandTests : IDisposable
 
     private string Config => _workspace.Combine(Path.Combine(".hippo", "config.json"));
 
-    [Fact]
+    [Fact, Covers("init")]
     public async Task Init_makes_the_folder_a_workspace()
     {
         Directory.Delete(_workspace.Combine(".hippo"), recursive: true);
