@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using Hippo.Workspaces;
 
-namespace Hippo.Indexing;
+namespace Hippo.Commands;
 
 /// <summary>Where a <see cref="FieldPath"/> leads in a file's frontmatter as the index stores it.</summary>
 internal static class FrontmatterJson

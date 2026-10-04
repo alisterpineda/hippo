@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using Hippo.Indexing;
+using Hippo.Cache;
 
 namespace Hippo.Tests.Unit;
 

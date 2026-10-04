@@ -1,4 +1,4 @@
-namespace Hippo.Indexing;
+namespace Hippo.Cache;
 
 /// <summary>
 /// Where filesystems are mounted: <c>/</c>, <c>/mnt/nas</c> and <c>/Volumes/Notes</c> on Unix, drive roots on Windows.

@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using Hippo.Cache;
 using Hippo.Indexing;
 using Hippo.Workspaces;
 using Microsoft.Data.Sqlite;
@@ -36,7 +37,7 @@ internal sealed record WorkspaceSession(
             var canonicalRoot = CanonicalPath.Of(workspace.Root);
             var databasePath = CacheLocation.DatabasePath(canonicalRoot, environment.GetVariable);
             using var db = IndexDatabase.Open(databasePath, out var scriptsApplied);
-            IndexMeta.RecordRoot(db, canonicalRoot, environment.GetMountPoints);
+            IndexMeta.RecordRoot(db, canonicalRoot, root => MountPoints.Containing(root, environment.GetMountPoints()));
             // A schema change may alter what the sweep stores for unchanged files, so it re-reads them all.
             var sweep = Sweeper.Run(workspace, db, rebuild || scriptsApplied > 0, environment.Clock);
             Warn(error, sweep.Warnings);

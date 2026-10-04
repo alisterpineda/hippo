@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Hippo.Indexing;
+namespace Hippo.Cache;
 
 /// <summary>
 /// Where a workspace's index lives: <c>&lt;user cache&gt;/hippo/&lt;hash of workspace root&gt;/index.db</c>, or

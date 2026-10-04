@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Microsoft.Win32.SafeHandles;
 
-namespace Hippo.Indexing;
+namespace Hippo.Cache;
 
 /// <summary>
 /// The one name of a workspace root that its index is keyed by, so every way of reaching a folder finds the same index.

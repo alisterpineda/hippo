@@ -1,7 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Help;
 using System.Diagnostics;
-using Hippo.Indexing;
+using Hippo.Cache;
 
 namespace Hippo.Commands;
 

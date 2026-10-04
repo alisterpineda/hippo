@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Hippo.Cache;
 using Hippo.Commands;
 using Hippo.Indexing;
 using Microsoft.Data.Sqlite;

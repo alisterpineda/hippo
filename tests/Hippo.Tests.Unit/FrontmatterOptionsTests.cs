@@ -1,10 +1,10 @@
 using System.Text.Json;
-using Hippo.Indexing;
+using Hippo.Commands;
 
 namespace Hippo.Tests.Unit;
 
 /// <summary>Runs <c>--where</c> conditions and <c>--field</c> paths against frontmatter as the index stores it.</summary>
-public class FrontmatterQueriesTests
+public class FrontmatterOptionsTests
 {
     private const string Page = """
         {"type":"Topic","title":"A","tags":["x","y"],"count":3,"ratio":0.5,"draft":true,"empty":null,

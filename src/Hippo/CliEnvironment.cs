@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using Hippo.Indexing;
+using Hippo.Cache;
 
 namespace Hippo;
 

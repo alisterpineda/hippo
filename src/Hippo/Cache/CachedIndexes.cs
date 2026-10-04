@@ -1,7 +1,8 @@
+using Hippo.Indexing;
 using Hippo.Workspaces;
 using Microsoft.Data.Sqlite;
 
-namespace Hippo.Indexing;
+namespace Hippo.Cache;
 
 /// <summary>Whether an index's workspace is still there, as far as can be told from its recorded root.</summary>
 internal enum IndexState

@@ -35,14 +35,16 @@ internal static class IndexMeta
             """, new MetaRow(key, value), transaction);
 
     /// <summary>Records <paramref name="root"/> as the index's workspace, with the mount point it is on, writing only
-    /// when they are not recorded already. The mount points are listed only then, so most commands never list them.</summary>
-    public static void RecordRoot(SqliteConnection db, string root, Func<IReadOnlyList<string>> getMountPoints)
+    /// when they are not recorded already. <paramref name="findVolume"/> is called with <paramref name="root"/> only
+    /// then, so most commands never list the mount points; it returns null when the root is on none that can be
+    /// found.</summary>
+    public static void RecordRoot(SqliteConnection db, string root, Func<string, string?> findVolume)
     {
         if (Get(db, Root) == root && Get(db, Volume) is not null)
         {
             return;
         }
-        var volume = MountPoints.Containing(root, getMountPoints()) ?? "";
+        var volume = findVolume(root) ?? "";
         using var transaction = db.BeginTransaction(deferred: false);
         Set(db, Root, root, transaction);
         Set(db, Volume, volume, transaction);

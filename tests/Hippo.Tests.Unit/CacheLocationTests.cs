@@ -1,4 +1,4 @@
-using Hippo.Indexing;
+using Hippo.Cache;
 
 namespace Hippo.Tests.Unit;
 
