@@ -31,7 +31,7 @@ public static class HippoProcess
         {
             start.WorkingDirectory = workingDirectory;
         }
-        RemoveGitVariables(start);
+        WorkspaceFixture.RemoveGitVariables(start);
         foreach (var (name, value) in environment)
         {
             start.Environment[name] = value;
@@ -66,16 +66,5 @@ public static class HippoProcess
             throw;
         }
         return new Result(process.ExitCode, await stdout, await stderr);
-    }
-
-    /// <summary>Removes every inherited variable whose name starts with <c>GIT_</c>. Run from a git hook, the test
-    /// runner has <c>GIT_DIR</c> (and <c>GIT_INDEX_FILE</c> in pre-commit), which would point git at the outer
-    /// repository instead of the workspace.</summary>
-    public static void RemoveGitVariables(ProcessStartInfo start)
-    {
-        foreach (var name in start.Environment.Keys.Where(name => name.StartsWith("GIT_", StringComparison.Ordinal)).ToList())
-        {
-            start.Environment.Remove(name);
-        }
     }
 }

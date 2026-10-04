@@ -1561,4 +1561,48 @@ public sealed class FindCommandTests : IDisposable
 
         Assert.Equal("a.md", Assert.Single(result.EnumerateArray()).GetProperty("path").GetString());
     }
+
+    [Fact]
+    public void Control_characters_in_file_names_are_escaped()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "Windows file names cannot hold control characters");
+        _workspace.Write("n\u001b]0;T\u0007.md", "# N\n");
+
+        var result = _workspace.Run("find");
+
+        Assert.Contains("n\\x1b]0;T\\x07.md", Lines(result.Stdout));
+        Assert.DoesNotContain('\u001b', result.Stdout);
+    }
+
+    [Fact]
+    public void Turning_gitignore_off_lists_ignored_files()
+    {
+        _workspace.Git("init");
+        _workspace.Write(".hippo/config.json", """{ "files": { "exclude": [".git/**"], "gitignore": false } }""");
+        _workspace.Write(".gitignore", "build/\n*.log\n");
+        _workspace.Write("a.md", "# A\n");
+        _workspace.Write("build/out.md", "# Out\n");
+        _workspace.Write("build/deep/more.md", "# More\n");
+        _workspace.Write("notes/b.md", "# B\n");
+        _workspace.Write("notes/debug.log", "log");
+        _workspace.Write("only-logs/x.log", "log");
+
+        var files = _workspace.Run("find");
+
+        Assert.Equal(
+            [".gitignore", "a.md", "build/deep/more.md", "build/out.md", "notes/b.md", "notes/debug.log", "only-logs/x.log"],
+            Lines(files.Stdout).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void Outside_a_repository_git_is_not_run_and_nothing_is_warned()
+    {
+        _workspace.Write(".gitignore", "*.log\n");
+        _workspace.Write("debug.log", "log");
+
+        var files = _workspace.Run("find");
+
+        Assert.Equal("", files.Stderr);
+        Assert.Equal([".gitignore", "debug.log"], Lines(files.Stdout).Order(StringComparer.Ordinal));
+    }
 }

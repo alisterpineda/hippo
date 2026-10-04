@@ -32,6 +32,7 @@ public class CliTests
     /// <c>--no-such-option</c> as its query, so it is given a bad limit.</summary>
     [Theory]
     [InlineData("", "--no-such-option", "Unrecognized command or argument '--no-such-option'")]
+    [InlineData("", "bogus", "Unrecognized command or argument 'bogus'")]
     [InlineData("init", "--no-such-option", "Unrecognized command or argument '--no-such-option'")]
     [InlineData("index", "--no-such-option", "Unrecognized command or argument '--no-such-option'")]
     [InlineData("status", "--no-such-option", "Unrecognized command or argument '--no-such-option'")]
@@ -56,6 +57,6 @@ public class CliTests
         Assert.Equal(2, lines.Length);
         Assert.StartsWith(expected, lines[0]);
         Assert.Equal($"Run '{string.Join(' ', ["hippo", .. words])} --help' for usage.", lines[1]);
-        Assert.DoesNotContain("Usage:", output.ToString());
+        Assert.Empty(output.ToString().Trim());
     }
 }

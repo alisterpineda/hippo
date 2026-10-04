@@ -7,8 +7,10 @@ namespace Hippo.Tests.Integration;
 /// <summary>
 /// A <see cref="WorkspaceFixture"/> where hippo's commands run in this process, reading the working directory,
 /// environment and clock from a <see cref="CliEnvironment"/> rather than the test process's own: the workspace as the
-/// working directory, and only <c>HIPPO_CACHE_DIR</c> set, pointing at the cache. The workspace is outside any repository, so hippo never runs git, which would see the test process's own
-/// environment; tests that need git are E2E tests.
+/// working directory, and only <c>HIPPO_CACHE_DIR</c> set, pointing at the cache. A test may make the workspace a
+/// repository with <see cref="WorkspaceFixture.Git"/>, but hippo must still never run git in-process, where git would see
+/// the test process's own environment: the workspace has <c>files.gitignore</c> off or is outside any repository. Tests
+/// that need hippo to run git are E2E tests.
 /// </summary>
 internal sealed class TestWorkspace : WorkspaceFixture
 {
@@ -84,7 +86,8 @@ internal sealed class TestWorkspace : WorkspaceFixture
         Invoke(workingDirectory, new Dictionary<string, string> { ["HIPPO_CACHE_DIR"] = CacheDir }, args);
 
     /// <summary>Runs hippo in the workspace with <paramref name="environment"/> as its only variables, in place of the
-    /// cache override.</summary>
+    /// cache override. Set <c>HIPPO_CACHE_DIR</c> or <c>HOME</c>/<c>LOCALAPPDATA</c>: with neither, hippo falls back to
+    /// the real user cache folder.</summary>
     public Result RunWith(IReadOnlyDictionary<string, string> environment, params string[] args) => Invoke(Root, environment, args);
 
     private Result Invoke(string workingDirectory, IReadOnlyDictionary<string, string> variables, string[] args)

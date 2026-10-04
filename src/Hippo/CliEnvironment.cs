@@ -6,9 +6,11 @@ namespace Hippo;
 
 /// <summary>
 /// What a command reads from the process it runs in: the working directory, environment variables, the clock, the
-/// mount points and whether standard output is a terminal. Tests pass their own to run commands in-process. Two reads
-/// stay with the real process: the user cache folder, used when <c>HIPPO_CACHE_DIR</c> is not set, and git, which hippo
-/// finds on the real <c>PATH</c> and runs with the real environment.
+/// mount points and whether standard output is a terminal. Tests pass their own to run commands in-process. The user
+/// cache folder, used when <c>HIPPO_CACHE_DIR</c> is not set, comes from these variables too (<c>HOME</c>,
+/// <c>LOCALAPPDATA</c>, <c>XDG_CACHE_HOME</c>); only when <c>HOME</c> or <c>LOCALAPPDATA</c> is unset or empty does
+/// it fall back to the real process's. git stays with the real process: hippo finds it on the real <c>PATH</c> and runs
+/// it with the real environment.
 /// </summary>
 /// <param name="OutputIsTerminal">Whether standard output is a terminal that shows ANSI styling. On Windows that is a
 /// console with virtual-terminal processing on, which <see cref="Process"/> turns on.</param>

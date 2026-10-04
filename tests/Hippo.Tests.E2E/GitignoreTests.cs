@@ -48,19 +48,6 @@ public sealed class GitignoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Turning_gitignore_off_lists_ignored_files()
-    {
-        WriteIgnoredTree();
-        _workspace.Write(".hippo/config.json", """{ "files": { "exclude": [".git/**"], "gitignore": false } }""");
-
-        var files = await _workspace.RunAsync("find");
-
-        Assert.Equal(
-            [".gitignore", "a.md", "build/deep/more.md", "build/out.md", "notes/b.md", "notes/debug.log", "only-logs/x.log"],
-            Lines(files.Stdout).Order(StringComparer.Ordinal));
-    }
-
-    [Fact]
     public async Task A_file_that_becomes_ignored_leaves_the_index()
     {
         _workspace.Git("init");
@@ -107,18 +94,6 @@ public sealed class GitignoreTests : IDisposable
 
         Assert.Equal("", files.Stderr);
         Assert.Equal(["a.md", "s/b.md"], Lines(files.Stdout).Order(StringComparer.Ordinal));
-    }
-
-    [Fact]
-    public async Task Outside_a_repository_git_is_not_run_and_nothing_is_warned()
-    {
-        _workspace.Write(".gitignore", "*.log\n");
-        _workspace.Write("debug.log", "log");
-
-        var files = await _workspace.RunAsync("find");
-
-        Assert.Equal("", files.Stderr);
-        Assert.Equal([".gitignore", "debug.log"], Lines(files.Stdout).Order(StringComparer.Ordinal));
     }
 
     [Fact]
