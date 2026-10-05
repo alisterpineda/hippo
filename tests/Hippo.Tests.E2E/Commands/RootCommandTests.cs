@@ -1,13 +1,15 @@
 using System.Reflection;
 
-namespace Hippo.Tests.E2E;
+namespace Hippo.Tests.E2E.Commands;
 
-public class ProcessTests
+/// <summary>The flags of <c>hippo</c> itself, which only the real process answers: in-process, <c>--version</c>
+/// reports the test exe's version and the help names the test host.</summary>
+public class RootCommandTests
 {
     [Fact]
     public async Task Version_flag_prints_the_version()
     {
-        var expected = typeof(ProcessTests).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+        var expected = typeof(RootCommandTests).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
             .Single(a => a.Key == "HippoVersion").Value;
 
         var result = await HippoProcess.RunAsync("--version");

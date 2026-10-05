@@ -79,6 +79,7 @@ public sealed class InitCommandTests : IDisposable
 
         Assert.Equal(0, result.ExitCode);
         Assert.True(File.Exists(Config));
+        Assert.Contains($"Created {Config}.", result.Stdout);
     }
 
     [Fact]

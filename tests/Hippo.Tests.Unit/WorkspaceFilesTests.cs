@@ -2,7 +2,7 @@ using Hippo.Workspaces;
 
 namespace Hippo.Tests.Unit;
 
-/// <summary>Which files a workspace holds. git's part is in the E2E <c>GitignoreTests</c>, which run a real git.</summary>
+/// <summary>Which files a workspace holds. git's part is in the E2E <c>FindCommandTests</c>, under the Gitignore topic, which run a real git.</summary>
 public sealed class WorkspaceFilesTests : IDisposable
 {
     private readonly TempDirectory _workspace = new();

@@ -3,25 +3,48 @@ using System.Reflection;
 namespace Hippo.Tests.E2E;
 
 /// <summary>
-/// Keeps the smoke tests in step with the command tree: every leaf command the binary lists in its help must be claimed
-/// by a running (not skipped) test marked <see cref="CoversAttribute"/>, and every claim must name a command the
-/// binary still has.
+/// Keeps the command tests in step with the command tree: every leaf command the binary lists in its help must have a
+/// class named from its words, <c>cache list</c> -> <c>CacheListCommandTests</c>, holding exactly one running (not
+/// skipped) test with the <see cref="Traits.Smoke"/> trait, and every smoke test must sit in such a class.
 /// </summary>
 public class CommandCoverageTests
 {
     [Fact]
-    public async Task Every_leaf_command_has_a_test_that_runs_it()
+    public async Task Every_leaf_command_has_a_class_with_one_smoke_test()
     {
-        var leaves = await Leaves([]);
-        var claimed = typeof(CoversAttribute).Assembly.GetTypes()
-            .SelectMany(type => type.GetMethods())
-            .Where(method => method.GetCustomAttribute<FactAttribute>() is { Skip: null })
-            .SelectMany(method => method.GetCustomAttributes<CoversAttribute>())
-            .Select(covers => string.Join(' ', covers.Command))
-            .Distinct();
+        var classes = (await Leaves([])).ToDictionary(ClassName);
+        var types = typeof(CommandCoverageTests).Assembly.GetTypes();
+        var tests = types
+            .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            .Where(method => method.GetCustomAttribute<FactAttribute>() is not null && method.GetCustomAttributes<TraitAttribute>()
+                .Any(trait => trait.Name == Traits.Category && trait.Value == Traits.Smoke))
+            .ToList();
 
-        Assert.Equal(leaves.Order(StringComparer.Ordinal), claimed.Order(StringComparer.Ordinal));
+        var problems = new List<string>();
+        foreach (var (name, leaf) in classes)
+        {
+            var type = types.SingleOrDefault(type => type.Name == name);
+            var count = tests.Count(test => test.DeclaringType == type && test.GetCustomAttribute<FactAttribute>()!.Skip is null);
+            if (type is null)
+            {
+                problems.Add($"'{leaf}' has no class {name}");
+            }
+            else if (count != 1)
+            {
+                problems.Add($"{name} has {count} running smoke tests, not 1");
+            }
+        }
+        foreach (var test in tests.Where(test => !classes.ContainsKey(test.DeclaringType!.Name)))
+        {
+            problems.Add($"{test.DeclaringType!.Name}.{test.Name} is a smoke test outside a leaf command's class");
+        }
+
+        Assert.True(problems.Count == 0, string.Join('\n', problems));
     }
+
+    /// <summary>The test class for <paramref name="leaf"/>: its words in PascalCase, then <c>CommandTests</c>.</summary>
+    private static string ClassName(string leaf) =>
+        string.Concat(leaf.Split(' ').Select(word => char.ToUpperInvariant(word[0]) + word[1..])) + "CommandTests";
 
     /// <summary>The leaf commands under <paramref name="path"/>, each as its words joined by a space.</summary>
     private static async Task<List<string>> Leaves(string[] path)
