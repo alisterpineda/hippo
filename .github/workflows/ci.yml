@@ -62,7 +62,9 @@ jobs:
             rid: osx-x64
             exe: hippo
             command: hippo
-          - os: ubuntu-latest
+          # Pinned, not ubuntu-latest: the binary links against this image's glibc, and the README gives that
+          # version as the oldest the binary runs on. Moving the image can raise it, so move it on purpose.
+          - os: ubuntu-24.04
             rid: linux-x64
             exe: hippo
             command: hippo
