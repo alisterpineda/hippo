@@ -22,6 +22,10 @@ internal static class IndexMeta
     /// recorded, which the runner trusts.</summary>
     public const string Schema = "schema";
 
+    /// <summary>Set by the migration runner when a schema change ran, cleared when a rebuild commits; while present the
+    /// sweep rebuilds.</summary>
+    public const string RebuildPending = "rebuild";
+
     // Internal, not private: the code Dapper.AOT generates must reach it.
     internal sealed record MetaRow(string Key, string Value);
 
@@ -33,6 +37,9 @@ internal static class IndexMeta
             INSERT INTO meta (key, value) VALUES (@Key, @Value)
             ON CONFLICT (key) DO UPDATE SET value = excluded.value
             """, new MetaRow(key, value), transaction);
+
+    public static void Delete(SqliteConnection db, string key, SqliteTransaction? transaction = null) =>
+        db.Execute("DELETE FROM meta WHERE key = @key", new { key }, transaction);
 
     /// <summary>Records <paramref name="root"/> as the index's workspace, with the mount point it is on, writing only
     /// when they are not recorded already. <paramref name="findVolume"/> is called with <paramref name="root"/> only

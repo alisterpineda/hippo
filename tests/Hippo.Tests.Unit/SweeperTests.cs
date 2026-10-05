@@ -396,6 +396,131 @@ public sealed class SweeperTests : IDisposable
     }
 
     [Fact]
+    public void A_rebuild_commits_without_the_rebuild_marker()
+    {
+        _workspace.Write("a.md", "# A\n");
+        Sweep();
+        IndexMeta.Set(_db, IndexMeta.RebuildPending, "1");
+
+        Sweep(rebuild: true);
+
+        Assert.Null(IndexMeta.Get(_db, IndexMeta.RebuildPending));
+    }
+
+    /// <summary>A new database's migration leaves the marker, and its first sweep, which has nothing to re-read, clears
+    /// it.</summary>
+    [Fact]
+    public void The_first_sweep_clears_the_rebuild_marker_the_migration_left()
+    {
+        _workspace.Write("a.md", "# A\n");
+        Assert.Equal("1", IndexMeta.Get(_db, IndexMeta.RebuildPending));
+
+        var result = Sweep();
+
+        Assert.False(result.RereadEveryFile);
+        Assert.Null(IndexMeta.Get(_db, IndexMeta.RebuildPending));
+    }
+
+    [Fact]
+    public void A_sweep_rebuilds_while_the_rebuild_marker_is_set_and_clears_it()
+    {
+        _workspace.Write("a.md", "# A\n");
+        Sweep();
+        IndexMeta.Set(_db, IndexMeta.RebuildPending, "1");
+
+        var result = Sweep();
+
+        Assert.True(result.RereadEveryFile);
+        Assert.Null(IndexMeta.Get(_db, IndexMeta.RebuildPending));
+        Assert.False(Sweep().Rebuilt);
+    }
+
+    /// <summary>The marker is cleared in the rebuild's transaction, so a rebuild that fails before it commits leaves the
+    /// marker for the next run.</summary>
+    [Fact]
+    public void A_rebuild_that_fails_before_it_commits_leaves_the_rebuild_marker()
+    {
+        _workspace.Write("a.md", "# A\n");
+        Sweep();
+        IndexMeta.Set(_db, IndexMeta.RebuildPending, "1");
+        _db.Execute("CREATE TRIGGER interrupt BEFORE INSERT ON files BEGIN SELECT RAISE(ABORT, 'interrupted'); END");
+
+        Assert.Throws<SqliteException>(() => Sweep(rebuild: true));
+
+        Assert.Equal("1", IndexMeta.Get(_db, IndexMeta.RebuildPending));
+    }
+
+    /// <summary>A rebuild that could not read a file still commits, and the marker goes with it; the file keeps its old
+    /// row, as an ordinary sweep keeps it.</summary>
+    [Fact]
+    [UnsupportedOSPlatform("windows")] // MakeUnreadable skips the test there.
+    public void A_rebuild_over_an_unreadable_file_still_clears_the_rebuild_marker()
+    {
+        var path = _workspace.Write("locked.md", "# Locked\n");
+        Sweep();
+        IndexMeta.Set(_db, IndexMeta.RebuildPending, "1");
+        MakeUnreadable(path);
+
+        try
+        {
+            Sweep(rebuild: true);
+
+            Assert.Null(IndexMeta.Get(_db, IndexMeta.RebuildPending));
+        }
+        finally
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    /// <summary>Once the rebuild has committed, a file that becomes readable with the stats it had is never read again,
+    /// so the rebuild's warning says how to read it. A file with no row is read by the next sweep, so its warning does
+    /// not.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [UnsupportedOSPlatform("windows")] // MakeUnreadable skips the test there.
+    public void An_unreadable_files_warning_says_to_rebuild_only_after_a_rebuild(bool rebuild)
+    {
+        var path = _workspace.Write("locked.md", "# Locked\n");
+        Sweep();
+        MakeUnreadable(path);
+        File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddMinutes(1));
+
+        try
+        {
+            var warning = Assert.Single(Sweep(rebuild).Warnings);
+
+            Assert.StartsWith("cannot read locked.md: ", warning);
+            Assert.Equal(rebuild, warning.EndsWith("; run hippo index --rebuild once it can be read", StringComparison.Ordinal));
+        }
+        finally
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    [Fact]
+    [UnsupportedOSPlatform("windows")] // MakeUnreadable skips the test there.
+    public void An_unreadable_file_with_no_row_gets_no_rebuild_hint()
+    {
+        var path = _workspace.Write("locked.md", "# Locked\n");
+        MakeUnreadable(path);
+
+        try
+        {
+            var warning = Assert.Single(Sweep(rebuild: true).Warnings);
+
+            Assert.StartsWith("cannot read locked.md: ", warning);
+            Assert.DoesNotContain("--rebuild", warning);
+        }
+        finally
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    [Fact]
     public void Changes_to_more_files_than_one_batch_are_all_written()
     {
         const int count = 450;

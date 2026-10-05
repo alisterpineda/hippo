@@ -61,7 +61,7 @@ public sealed class CacheCommandTests : IDisposable
     private string Unrecorded()
     {
         var database = Path.Combine(_workspace.CacheDir, new string('a', 64), CacheLocation.DatabaseName);
-        IndexDatabase.Open(database, out _).Dispose();
+        IndexDatabase.Open(database).Dispose();
         return database;
     }
 
@@ -220,7 +220,7 @@ public sealed class CacheCommandTests : IDisposable
     public void An_index_without_a_recorded_mount_point_gets_one_on_the_next_command()
     {
         var root = Index(_workspace.Root);
-        using (var db = IndexDatabase.Open(Path.Combine(_workspace.CacheDir, CacheLocation.FolderName(root), CacheLocation.DatabaseName), out _))
+        using (var db = IndexDatabase.Open(Path.Combine(_workspace.CacheDir, CacheLocation.FolderName(root), CacheLocation.DatabaseName)))
         {
             using var command = db.CreateCommand();
             command.CommandText = "DELETE FROM meta WHERE key = 'volume'";
@@ -474,7 +474,7 @@ public sealed class CacheCommandTests : IDisposable
         var database = Path.Combine(_workspace.CacheDir, CacheLocation.FolderName(orphan), CacheLocation.DatabaseName);
 
         TestWorkspace.Result result;
-        using (IndexDatabase.Open(database, out _))
+        using (IndexDatabase.Open(database))
         {
             result = _workspace.Run("cache", "prune");
         }

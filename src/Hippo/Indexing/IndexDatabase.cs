@@ -5,8 +5,9 @@ namespace Hippo.Indexing;
 internal static class IndexDatabase
 {
     /// <summary>Opens (creating if needed) the index at <paramref name="path"/> and migrates it to this binary's
-    /// schema. <paramref name="scriptsApplied"/> is nonzero when the schema changed, which calls for a full reindex.</summary>
-    public static SqliteConnection Open(string path, out int scriptsApplied)
+    /// schema. A schema change calls for a full reindex, so the migration runner leaves
+    /// <see cref="IndexMeta.RebuildPending"/> set until one commits.</summary>
+    public static SqliteConnection Open(string path)
     {
         // The index holds every path and all frontmatter, so only the user may read it.
         var directory = Path.GetDirectoryName(path)!;
@@ -28,7 +29,7 @@ internal static class IndexDatabase
         try
         {
             connection.Open();
-            scriptsApplied = MigrationRunner.Migrate(connection);
+            MigrationRunner.Migrate(connection);
             return connection;
         }
         catch

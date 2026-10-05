@@ -122,6 +122,9 @@ internal static class Sweeper
         var settings = new PageSettings(workspace.Config.Bundles, workspace.Config.Links, okfBundles.Select(b => b.Root).ToList());
         var linkSettings = settings.Fingerprint;
         var relink = IndexMeta.Get(db, IndexMeta.LinkSettings) != linkSettings;
+        // A schema change may alter what the sweep stores for unchanged files, so the migration runner leaves a marker
+        // and every sweep rebuilds until one commits, which clears it.
+        var pending = !rebuild && IndexMeta.Get(db, IndexMeta.RebuildPending) is not null;
         // A page that cannot be read keeps its old links, so the new settings are recorded only once every page was
         // read under them; until then each sweep parses the pages again.
         var unreadPage = false;
@@ -130,8 +133,14 @@ internal static class Sweeper
         // bodies however large the workspace. A rebuild or relink writes them all in one transaction, so a reader never
         // sees a half-built index; it takes the write lock before reading the first file, and other writers wait for it
         // while the files are read. Readers do not: under WAL they go on seeing the index as it was.
-        var bulk = rebuild || relink;
+        var bulk = rebuild || pending || relink;
         using var transaction = bulk ? db.BeginTransaction(deferred: false) : null;
+        if (pending)
+        {
+            // Read again with the write lock held: another process that saw the marker too may have rebuilt and cleared
+            // it while this one waited for the lock, and then this sweep is an ordinary one, not a second full re-read.
+            rebuild = IndexMeta.Get(db, IndexMeta.RebuildPending, transaction) is not null;
+        }
         var rows = transaction is null
             ? new Batches<ParsedFile>(BatchSize, batch => InTransaction(db, t => Write(db, batch, overwrite: false, t)))
             // Each re-read row (every file on a rebuild, the pages and changed files on a relink) is rewritten in
@@ -176,8 +185,11 @@ internal static class Sweeper
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // Its row, if any, stays as it was until the file can be read again.
-                warnings.Add($"cannot read {file.Path}: {ex.Message}");
+                // Its row, if any, stays as it was until the file can be read again. After a rebuild, which commits
+                // even so, a row it had is not read again while its stats stay the same, and the relink that an unread
+                // page forces keeps a page's search row; a file with no row is read by the next sweep, as any new file is.
+                var hint = rebuild && previous is not null ? "; run hippo index --rebuild once it can be read" : "";
+                warnings.Add($"cannot read {file.Path}: {ex.Message}{hint}");
                 seen.Add(file.Path);
                 unreadPage |= Workspace.IsMarkdown(file.Path);
                 continue;
@@ -233,6 +245,12 @@ internal static class Sweeper
             // to the old ones, as when a bundle's root index.md cannot be read for one sweep, and the pages this sweep
             // parsed under the new ones must still be parsed again.
             IndexMeta.Set(db, IndexMeta.LinkSettings, unreadPage ? "" : linkSettings, transaction);
+            if (rebuild)
+            {
+                // Cleared with the rows, so an interrupted rebuild leaves the marker for the next run, and cleared even
+                // with a file unread, which keeps its old row as it would in any sweep.
+                IndexMeta.Delete(db, IndexMeta.RebuildPending, transaction);
+            }
             transaction.Commit();
         }
         else

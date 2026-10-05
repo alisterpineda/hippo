@@ -11,7 +11,7 @@ public sealed class TestDatabase : IDisposable
     public string Path => _dir.Combine("index.db");
 
     /// <summary>Opens the index through hippo, which migrates it.</summary>
-    internal SqliteConnection Open() => IndexDatabase.Open(Path, out _);
+    internal SqliteConnection Open() => IndexDatabase.Open(Path);
 
     /// <summary>A plain connection, with no migration applied.</summary>
     public SqliteConnection Connect() => Connect(Path);

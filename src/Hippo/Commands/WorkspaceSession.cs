@@ -36,10 +36,9 @@ internal sealed record WorkspaceSession(
             var workspace = Workspace.Open(environment.WorkingDirectory);
             var canonicalRoot = CanonicalPath.Of(workspace.Root);
             var databasePath = CacheLocation.DatabasePath(canonicalRoot, environment.GetVariable);
-            using var db = IndexDatabase.Open(databasePath, out var scriptsApplied);
+            using var db = IndexDatabase.Open(databasePath);
             IndexMeta.RecordRoot(db, canonicalRoot, root => MountPoints.Containing(root, environment.GetMountPoints()));
-            // A schema change may alter what the sweep stores for unchanged files, so it re-reads them all.
-            var sweep = Sweeper.Run(workspace, db, rebuild || scriptsApplied > 0, environment.Clock);
+            var sweep = Sweeper.Run(workspace, db, rebuild, environment.Clock);
             Warn(error, sweep.Warnings);
 
             var session = new WorkspaceSession(workspace, environment.WorkingDirectory, databasePath, db, sweep,

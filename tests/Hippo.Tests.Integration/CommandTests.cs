@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Hippo.Indexing;
+using Microsoft.Data.Sqlite;
 
 namespace Hippo.Tests.Integration;
 
@@ -91,6 +93,45 @@ public sealed class CommandTests : IDisposable
 
         Assert.Equal(0, result.ExitCode);
         Assert.Matches(@"^Rebuilt the index from 1 files in \d+ ms\.$", result.Stdout.TrimEnd());
+    }
+
+    /// <summary>A migration whose first sweep was interrupted leaves its marker behind, and the next run rebuilds as the
+    /// interrupted one would have, then clears it.</summary>
+    [Fact]
+    public void Index_rebuilds_an_index_left_marked_for_a_rebuild_and_then_clears_the_marker()
+    {
+        _workspace.Write("a.md", "# A\n");
+        _workspace.Settle();
+        _workspace.Run("index");
+        var database = Json(_workspace.Run("status", "--json")).GetProperty("database").GetString()!;
+        using (var connection = Connect(database))
+        {
+            using var insert = connection.CreateCommand();
+            insert.CommandText = "INSERT OR REPLACE INTO meta (key, value) VALUES (@key, '1')";
+            insert.Parameters.AddWithValue("@key", IndexMeta.RebuildPending);
+            insert.ExecuteNonQuery();
+        }
+
+        var rebuilt = _workspace.Run("index");
+        var again = _workspace.Run("index");
+
+        Assert.Equal(0, rebuilt.ExitCode);
+        Assert.Matches(@"^Rebuilt the index from 1 files in \d+ ms\.$", rebuilt.Stdout.TrimEnd());
+        Assert.Matches("^Indexed ", again.Stdout);
+        using (var connection = Connect(database))
+        {
+            using var count = connection.CreateCommand();
+            count.CommandText = "SELECT count(*) FROM meta WHERE key = @key";
+            count.Parameters.AddWithValue("@key", IndexMeta.RebuildPending);
+            Assert.Equal(0L, count.ExecuteScalar());
+        }
+    }
+
+    private static SqliteConnection Connect(string database)
+    {
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = database, Pooling = false }.ToString());
+        connection.Open();
+        return connection;
     }
 
     [Fact]

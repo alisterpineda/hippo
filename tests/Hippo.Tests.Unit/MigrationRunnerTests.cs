@@ -20,6 +20,19 @@ public class MigrationRunnerTests
         Assert.Equal(1, connection.ExecuteScalar<long>("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'files'"));
     }
 
+    /// <summary>A schema change may alter what the sweep stores for unchanged files, so the runner leaves a marker that
+    /// has every command rebuild until one rebuild commits.</summary>
+    [Fact]
+    public void A_new_database_is_left_marked_for_a_rebuild()
+    {
+        using var db = new TestDatabase();
+        using var connection = db.Connect();
+
+        MigrationRunner.Migrate(connection);
+
+        Assert.Equal("1", IndexMeta.Get(connection, IndexMeta.RebuildPending));
+    }
+
     [Fact]
     public void The_database_is_left_in_wal_mode_with_foreign_keys_on()
     {
@@ -33,6 +46,8 @@ public class MigrationRunnerTests
         Assert.Equal(1, connection.ExecuteScalar<long>("PRAGMA foreign_keys"));
     }
 
+    /// <summary>Nothing to run is no schema change, so a current database whose rebuild has committed is not marked for
+    /// another.</summary>
     [Fact]
     public void A_current_database_gets_nothing()
     {
@@ -40,10 +55,12 @@ public class MigrationRunnerTests
         using (var first = db.Connect())
         {
             MigrationRunner.Migrate(first);
+            first.Execute("DELETE FROM meta WHERE key = @RebuildPending", new { IndexMeta.RebuildPending });
         }
         using var connection = db.Connect();
 
         Assert.Equal(0, MigrationRunner.Migrate(connection));
+        Assert.Null(IndexMeta.Get(connection, IndexMeta.RebuildPending));
     }
 
     /// <summary>
@@ -81,17 +98,18 @@ public class MigrationRunnerTests
         MigrationRunner.Migrate(connection);
 
         Assert.Equal(before, FirstSchemaRows(connection));
+        Assert.Equal("1", IndexMeta.Get(connection, IndexMeta.RebuildPending));
     }
 
     /// <summary>Every row of every table, reading only the columns the first schema had, so a later added column does
-    /// not count as a change, and leaving out the fingerprint the runner records.</summary>
+    /// not count as a change, and leaving out the fingerprint and the rebuild marker the runner records.</summary>
     private static List<string> FirstSchemaRows(SqliteConnection connection)
     {
         string[] queries =
         [
             "SELECT 'files', id, path, mtime, size, hash, hashed_at, kind, frontmatter, parse_error FROM files ORDER BY id",
             "SELECT 'links', id, source_id, line, kind, type, raw, target FROM links ORDER BY id",
-            $"SELECT 'meta', key, value FROM meta WHERE key != '{IndexMeta.Schema}' ORDER BY key",
+            $"SELECT 'meta', key, value FROM meta WHERE key NOT IN ('{IndexMeta.Schema}', '{IndexMeta.RebuildPending}') ORDER BY key",
         ];
         var rows = new List<string>();
         foreach (var query in queries)

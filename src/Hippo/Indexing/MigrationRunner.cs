@@ -34,7 +34,8 @@ internal static class MigrationRunner
     /// checksums of scripts 1 to <paramref name="version"/>, so it changes when any of them does.</summary>
     public static string Fingerprint(int version) => Hash(string.Join('\n', Scripts.Take(version).Select(s => s.Checksum)));
 
-    /// <summary>Applies every newer script and returns how many ran.</summary>
+    /// <summary>Applies every newer script and returns how many ran. When any ran, it leaves
+    /// <see cref="IndexMeta.RebuildPending"/> set, in the transaction that records the new version.</summary>
     public static int Migrate(SqliteConnection connection)
     {
         Execute(connection, null, "PRAGMA busy_timeout = 30000");
@@ -71,6 +72,12 @@ internal static class MigrationRunner
                 Execute(connection, transaction, script.Sql);
                 Execute(connection, transaction, $"PRAGMA user_version = {script.Version}");
                 applied++;
+            }
+            if (applied > 0)
+            {
+                // Committed with the version, so an index whose first sweep after the change is interrupted still
+                // rebuilds on the next run.
+                IndexMeta.Set(connection, IndexMeta.RebuildPending, "1", transaction);
             }
             IndexMeta.Set(connection, IndexMeta.Schema, Fingerprint(LatestVersion), transaction);
 
