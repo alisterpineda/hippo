@@ -28,8 +28,12 @@ jobs:
         with:
           global-json-file: global.json
 
+      # Only the projects this job tests: building E2E would publish a native AOT binary nothing here runs.
       - name: Build
-        run: dotnet build -c Release
+        shell: bash
+        run: |
+          dotnet build tests/Hippo.Tests.Unit -c Release
+          dotnet build tests/Hippo.Tests.Integration -c Release
 
       - name: Unit tests
         run: dotnet test tests/Hippo.Tests.Unit -c Release --no-build
@@ -93,6 +97,11 @@ jobs:
       - name: Pack native tool package
         shell: bash
         run: dotnet pack src/Hippo -c Release -r ${{ matrix.rid }} -o artifacts/nupkg -p:PublishDir="$GITHUB_WORKSPACE/artifacts/publish/${{ matrix.rid }}/"
+
+      # Without HIPPO_EXE, as a contributor runs them: the build publishes a native binary for this machine and the
+      # tests run it. The pack above has already compiled hippo for this RID, so the publish reuses its native compile and link.
+      - name: Test as a local run does
+        run: dotnet test tests/Hippo.Tests.E2E -c Release
 
       # The README gives 2.38 as the oldest glibc the linux-x64 binary runs on, set by the runner image it links against.
       - name: Check the glibc the binary needs

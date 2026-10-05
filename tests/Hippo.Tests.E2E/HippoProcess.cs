@@ -3,9 +3,9 @@ using System.Diagnostics;
 namespace Hippo.Tests.E2E;
 
 /// <summary>
-/// Runs hippo as a separate process. Set HIPPO_EXE to the absolute path of a published binary to test that binary;
-/// otherwise the build output beside the tests runs under the dotnet host. hippo inherits the test runner's
-/// environment without its <c>GIT_</c> variables, so git, run by hippo, acts only on the test's workspace.
+/// Runs hippo as a separate process. Set HIPPO_EXE to the absolute path of a binary to test that binary; otherwise the
+/// native AOT binary the build publishes into aot/ beside the tests runs, as CI tests one. hippo inherits the test
+/// runner's environment without its <c>GIT_</c> variables, so git, run by hippo, acts only on the test's workspace.
 /// </summary>
 public static class HippoProcess
 {
@@ -20,8 +20,7 @@ public static class HippoProcess
     /// removed.</summary>
     public static async Task<Result> RunAsync(string? workingDirectory, IReadOnlyDictionary<string, string> environment, params string[] args)
     {
-        var exe = Environment.GetEnvironmentVariable("HIPPO_EXE");
-        var start = new ProcessStartInfo
+        var start = new ProcessStartInfo(Exe)
         {
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
@@ -35,15 +34,6 @@ public static class HippoProcess
         foreach (var (name, value) in environment)
         {
             start.Environment[name] = value;
-        }
-        if (string.IsNullOrEmpty(exe))
-        {
-            start.FileName = "dotnet";
-            start.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "hippo.dll"));
-        }
-        else
-        {
-            start.FileName = exe;
         }
         foreach (var arg in args)
         {
@@ -66,5 +56,26 @@ public static class HippoProcess
             throw;
         }
         return new Result(process.ExitCode, await stdout, await stderr);
+    }
+
+    /// <summary>HIPPO_EXE when set, otherwise the binary the build publishes, which must exist.</summary>
+    private static string Exe
+    {
+        get
+        {
+            var exe = Environment.GetEnvironmentVariable("HIPPO_EXE");
+            if (!string.IsNullOrEmpty(exe))
+            {
+                return exe;
+            }
+            var published = Path.Combine(AppContext.BaseDirectory, "aot", OperatingSystem.IsWindows() ? "hippo.exe" : "hippo");
+            if (!File.Exists(published))
+            {
+                throw new FileNotFoundException(
+                    $"No hippo binary at {published}. Building the E2E tests with HIPPO_EXE unset publishes it there; set HIPPO_EXE to test another binary.",
+                    published);
+            }
+            return published;
+        }
     }
 }

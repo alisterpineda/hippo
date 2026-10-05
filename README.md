@@ -219,7 +219,7 @@ dotnet build -c Release
 dotnet test -c Release
 ```
 
-The E2E tests run the build output under the dotnet host. To run them against a published binary instead, set `HIPPO_EXE` to its absolute path:
+Building the E2E tests publishes hippo as native AOT for this machine into `aot/` beside them, and the tests run that binary, so a build that includes them needs what a native AOT publish needs (see [Distribution](#distribution)). To run them against another binary instead, set `HIPPO_EXE` to its absolute path when building and testing; the build then skips the publish:
 
 ```sh
 dotnet publish src/Hippo -c Release -r osx-arm64 -o artifacts/publish/osx-arm64

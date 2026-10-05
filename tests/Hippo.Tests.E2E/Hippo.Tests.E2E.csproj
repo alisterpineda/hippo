@@ -21,33 +21,30 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Only so hippo.dll and its dependencies land beside the tests, which run it as a process. E2E must not call
-         into hippo, and without the reference assembly the compiler enforces that. -->
+    <!-- Builds hippo first, so its JIT launcher in src/Hippo/bin is current when HIPPO_EXE points at it. E2E must not
+         call into hippo, and without the reference assembly the compiler enforces that. -->
     <ProjectReference Include="..\..\src\Hippo\Hippo.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\Hippo.Tests.Shared\Hippo.Tests.Shared.csproj" />
   </ItemGroup>
 
-  <!-- Without the reference assembly the build copies hippo's apphost, deps.json and runtimeconfig but not hippo.dll,
-       and NuGet drops hippo's packages from this project, so the dll, its packages and the native SQLite libraries
-       come from hippo's own build output instead. FileWrites keeps incremental clean from deleting them.
-       Only the top-level files, the satellite resources and runtimes/ are taken: the same folder also holds the
-       <rid>/ and publish/ folders that `dotnet build/pack/publish -r` leave behind, hundreds of MB the tests never run. -->
-  <Target Name="CopyHippoOutput" AfterTargets="CopyFilesToOutputDirectory">
-    <MSBuild Projects="..\..\src\Hippo\Hippo.csproj" Targets="GetTargetPath">
-      <Output TaskParameter="TargetOutputs" ItemName="_HippoTargetPath" />
-    </MSBuild>
+  <!-- Publishes hippo as native AOT for this machine into aot/, which HippoProcess runs, so a local run tests what CI
+       tests. Skipped when HIPPO_EXE names the binary to test. Its restore, which adds the runtime identifier, writes to
+       its own folder: in hippo's obj it would replace the restore of every other build, and the build would go on
+       reading the copy it loaded first. The runtime identifier is the portable one `dotnet publish` picks for this
+       machine, since a distro-built SDK's own identifier has no runtime or ILCompiler packs on nuget.org.
+       _IsPublishing is what `dotnet publish` sets, and the SDK keys native AOT settings on it, such as building no JIT
+       apphost; the restore gets it too, so both evaluate hippo as `dotnet publish -r` would. The new
+       MSBuildRestoreSessionId is what `msbuild -restore` passes, so the restore's evaluation of hippo is its own and
+       no later call reuses it. -->
+  <Target Name="PublishHippoAot" AfterTargets="Build" Condition="'$(HIPPO_EXE)' == ''">
     <PropertyGroup>
-      <_HippoOutDir>@(_HippoTargetPath->'%(RootDir)%(Directory)')</_HippoOutDir>
+      <_HippoAotRestorePath>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '$(BaseIntermediateOutputPath)', 'hippo-aot'))</_HippoAotRestorePath>
+      <_HippoAotProperties>Configuration=$(Configuration);RuntimeIdentifier=$(NETCoreSdkPortableRuntimeIdentifier);_IsPublishing=true;MSBuildProjectExtensionsPath=$(_HippoAotRestorePath)</_HippoAotProperties>
     </PropertyGroup>
-    <ItemGroup>
-      <_HippoOutput Include="$(_HippoOutDir)*;$(_HippoOutDir)*\*.resources.dll;$(_HippoOutDir)runtimes\**" />
-      <_HippoOutput>
-        <Destination>$(OutDir)$([MSBuild]::MakeRelative($(_HippoOutDir), %(FullPath)))</Destination>
-      </_HippoOutput>
-    </ItemGroup>
-    <Copy SourceFiles="@(_HippoOutput)" DestinationFiles="@(_HippoOutput->'%(Destination)')" SkipUnchangedFiles="true">
-      <Output TaskParameter="DestinationFiles" ItemName="FileWrites" />
-    </Copy>
+    <MSBuild Projects="..\..\src\Hippo\Hippo.csproj" Targets="Restore"
+             Properties="$(_HippoAotProperties);MSBuildRestoreSessionId=$([System.Guid]::NewGuid())" />
+    <MSBuild Projects="..\..\src\Hippo\Hippo.csproj" Targets="Publish"
+             Properties="$(_HippoAotProperties);PublishDir=$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '$(OutDir)', 'aot'))" />
   </Target>
 
 </Project>
