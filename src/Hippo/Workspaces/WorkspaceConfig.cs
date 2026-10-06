@@ -55,8 +55,8 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
 
     /// <summary>What <c>hippo init</c> writes: every file but the ones git ignores and the usual tool folders, with
     /// <c>bundles</c> and the <c>links</c> and <c>lint</c> sections shown commented out. It sets only what differs from
-    /// <see cref="Default"/>; the annotated example in README.md spells out every key, so change both together. A unit
-    /// test parses the commented sections to catch stale syntax.</summary>
+    /// <see cref="Default"/>; the annotated example in docs/config.md spells out every key, so change both together. A
+    /// unit test parses the commented sections to catch stale syntax.</summary>
     public const string Starter = """
         {
           "files": {

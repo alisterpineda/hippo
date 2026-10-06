@@ -1,6 +1,6 @@
 # Architecture
 
-How the code inside `src/Hippo` is laid out and why, for someone reading it for the first time. The README's Layout section lists the projects and the test tiers; this page is about the folders inside the one project that ships.
+How the code inside `src/Hippo` is laid out and why, for someone reading it for the first time. The Layout section of [building.md](building.md) lists the projects and the test tiers; this page is about the folders inside the one project that ships.
 
 ## The shape in one sentence
 
@@ -50,7 +50,7 @@ Everything that reads the workspace on disk and understands what it finds, with 
 
 Everything about one workspace's index:
 
-- `IndexDatabase` opens the file and `MigrationRunner` brings its schema up to date, from the SQL scripts embedded under `Migrations/`. The README's Migrations section says how those scripts are authored.
+- `IndexDatabase` opens the file and `MigrationRunner` brings its schema up to date, from the SQL scripts embedded under `Migrations/`. [migrations.md](migrations.md) says how those scripts are authored.
 - `Sweeper` is the one writer. It lists the workspace, stats every file, re-hashes only what changed, re-parses only what the hash says changed, and writes the rows in batches through `Batches`. Every write is idempotent, so two processes may sweep at once.
 - The `*Queries` classes are the readers: `FileQueries`, `LinkQueries`, `FindingQueries` and `SearchIndex`, each a set of static methods taking a connection and returning records. `IndexMeta` is the key-value table that records whose index this is and what built it.
 
@@ -90,5 +90,5 @@ The Open Knowledge Format checks, kept apart because they are a spec hippo follo
 - A new option on an existing command: that command's file in `Commands/`, and its `*Output` record if the JSON changes, with the matching test in `OutputJsonTests`.
 - A new command: a new file in `Commands/`, registered in `Cli.Build`. If it needs the index, it opens a `WorkspaceSession`; if it does not, it runs under `Guard` directly, as `init` and `cache` do. Give it an options record and a `Run` method as `find` has by the rule above, once its action is past a screen, and a folder once it has helpers of its own.
 - A new question to ask the index: a method on the fitting `*Queries` class, with a unit test against `TestDatabase`.
-- A new fact to store per file: a migration (see the README), a column on the sweep's row records, and the parse in `Workspaces/Page`.
+- A new fact to store per file: a migration (see [migrations.md](migrations.md)), a column on the sweep's row records, and the parse in `Workspaces/Page`.
 - A new lint rule: its description in `LintRules`, and its name there too, or in `OkfRules` if it is an OKF rule. An OKF rule that judges a file alone goes in `OkfChecks`, which runs only inside OKF bundles. Any other rule is a worked rule in `LintCommand`, reading what the sweep stored, as `frontmatter-syntax` does from `FileQueries.ParseErrors`.

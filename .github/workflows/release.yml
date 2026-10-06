@@ -142,7 +142,8 @@ jobs:
       # A tag push has no inputs, so it always publishes.
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
       # The RIDs with a native binary, win-x64 aside, which ships hippo.exe in a zip. Must match the `native` matrix in
-      # ci.yml, ToolPackageRuntimeIdentifiers in src/Hippo/Hippo.csproj and the Distribution section of README.md.
+      # ci.yml, ToolPackageRuntimeIdentifiers in src/Hippo/Hippo.csproj and the Distribution section of
+      # docs/dev/releasing.md.
       NATIVE_RIDS: osx-arm64 osx-x64 linux-x64 linux-musl-x64
     steps:
       # gh release create reads the repository from the checkout; setup-dotnet reads global.json from it.
