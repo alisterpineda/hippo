@@ -41,10 +41,13 @@ internal static class BackrefsCommand
 
             var links = LinkQueries.Backrefs(session.Db, relative, kind, sourceFiles)
                 .Select(l => new BackrefOutput(l.Source, l.Line, l.Kind, l.Raw, l.Text)).ToList();
+            var width = links.Count == 0 ? 0 : links.Max(link => Location(link).Length);
             session.EmitList(links, OutputJson.Default.ListBackrefOutput, link =>
-                $"{Format.Safe(link.Source)}:{link.Line}  {link.Kind,-11}  {Format.Safe(link.Raw)}{Format.LinkText(link.Text)}");
+                $"{Location(link).PadRight(width)}  {link.Kind,-11}  {Format.Safe(link.Raw)}{Format.LinkText(link.Text)}");
             return ExitCode.Clean;
         }));
         return command;
     }
+
+    private static string Location(BackrefOutput link) => $"{Format.Safe(link.Source)}:{link.Line}";
 }

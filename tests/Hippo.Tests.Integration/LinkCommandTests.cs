@@ -138,6 +138,33 @@ public sealed class LinkCommandTests : IDisposable
     }
 
     [Fact]
+    public void Backrefs_text_pads_each_location_to_the_longest()
+    {
+        _workspace.Write("a.md", "[B](b.md)\n");
+        _workspace.Write("notes/long.md", "\n\n\n\n\n\n\n\n\n[B](../b.md)\n");
+        _workspace.Write("b.md", "# B\n");
+
+        var backrefs = _workspace.Run("backrefs", "b.md");
+
+        Assert.Equal(
+            ["a.md:1            body         b.md  [B]", "notes/long.md:10  body         ../b.md  [B]"],
+            Lines(backrefs.Stdout));
+    }
+
+    [Fact]
+    public void Backrefs_of_a_file_nothing_links_to_is_empty()
+    {
+        _workspace.Write("a.md", "# A\n");
+
+        var text = _workspace.Run("backrefs", "a.md");
+        var json = _workspace.Run("backrefs", "a.md", "--json");
+
+        Assert.True(text.ExitCode == 0, text.Stderr);
+        Assert.Equal("", text.Stdout);
+        Assert.Equal(0, Json(json).GetArrayLength());
+    }
+
+    [Fact]
     public void An_index_from_before_link_text_existed_has_every_links_text_after_migrating()
     {
         _workspace.Write("a.md", "[the b page](b.md)\n");
@@ -247,9 +274,9 @@ public sealed class LinkCommandTests : IDisposable
         var notOther = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--from", "!wiki/other.md");
         var both = _workspace.Run("backrefs", "raw/journal/2026-09-01.md", "--from", "wiki/**", "--link-kind", "body");
 
-        Assert.Equal(["wiki/other.md:1  body         ../raw/journal/2026-09-01.md  [day]", "wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md"],
+        Assert.Equal(["wiki/other.md:1         body         ../raw/journal/2026-09-01.md  [day]", "wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md"],
             Lines(wiki.Stdout));
-        Assert.Equal(["raw/journal/2026-09-02.md:1  body         2026-09-01.md  [yesterday]", "wiki/topics/topic.md:5  frontmatter  ../raw/journal/2026-09-01.md"],
+        Assert.Equal(["raw/journal/2026-09-02.md:1  body         2026-09-01.md  [yesterday]", "wiki/topics/topic.md:5       frontmatter  ../raw/journal/2026-09-01.md"],
             Lines(notOther.Stdout));
         Assert.Equal(["wiki/other.md:1  body         ../raw/journal/2026-09-01.md  [day]"], Lines(both.Stdout));
     }
@@ -353,7 +380,7 @@ public sealed class LinkCommandTests : IDisposable
         var fromFolder = _workspace.RunIn(_workspace.Combine("wiki"), "backrefs", "..");
         var transitive = _workspace.Run("backrefs", ".", "--transitive");
 
-        Assert.Equal(["index.md:1  body         ./  [home]", "wiki/a.md:1  body         ../  [home]"], Lines(fromRoot.Stdout));
+        Assert.Equal(["index.md:1   body         ./  [home]", "wiki/a.md:1  body         ../  [home]"], Lines(fromRoot.Stdout));
         Assert.Equal(fromRoot.Stdout, fromFolder.Stdout);
         Assert.Equal(["index.md", "wiki/a.md"], Lines(transitive.Stdout));
     }
