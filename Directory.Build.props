@@ -6,7 +6,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- The version local builds and CI runs on main carry. A release passes the version its tag names in the
+         HippoReleaseVersion environment variable, which .github/workflows/ci.yml sets from its `version` input, and
+         that replaces this one in every build, pack and test of the run. -->
     <Version>0.1.0</Version>
+    <Version Condition="'$(HippoReleaseVersion)' != ''">$(HippoReleaseVersion)</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 </Project>

@@ -7,10 +7,18 @@ on:
   workflow_dispatch:
   # The release workflow runs this whole pipeline and publishes the packages and binaries it uploads.
   workflow_call:
+    inputs:
+      version:
+        description: The version to build, from the release tag; empty keeps Version in Directory.Build.props
+        type: string
+        default: ''
 
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
+  # MSBuild reads environment variables as properties, so every build, pack and test below, and each
+  # `dotnet msbuild -getProperty:Version`, takes the release's version from here. Empty outside a release.
+  HippoReleaseVersion: ${{ inputs.version }}
 
 jobs:
   test:

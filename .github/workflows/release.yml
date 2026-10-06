@@ -18,6 +18,10 @@ on:
         description: Print what would be published instead of publishing it
         type: boolean
         default: true
+      version:
+        description: The version to build, such as 0.1.0-rc.1; required to publish, and a dry run defaults to Version
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -28,13 +32,14 @@ env:
 
 jobs:
   check:
-    # A tag whose name differs from the version in Directory.Build.props would ship packages and a release that
-    # disagree, so the tag must be exactly v<Version>. A dispatch has no tag and takes its name from the version; one
-    # that publishes must not find that tag already pushed, since gh release create would then bind this run's packages
-    # and archives to whatever commit the old tag names. A rehearsal is free to run at any version. The release takes
-    # its notes from a CHANGELOG.md section, so one must exist: the version's own for a stable version, and for a
-    # prerelease (a version with a "-", such as 0.1.0-rc.1) its own if there is one, else "Unreleased", so prereleases
-    # need no section of their own. A rehearsal checks this too, so it catches a missing section before the tag does.
+    # The tag names the version: v0.1.0-rc.1 builds, packs and publishes 0.1.0-rc.1, whatever Version in
+    # Directory.Build.props says, so releasing needs no commit to bump it. A dispatch has no tag: one that publishes
+    # names its version in the `version` input and must not find its tag already pushed, since gh release create
+    # would then bind this run's packages and archives to whatever commit the old tag names; a rehearsal defaults to
+    # Version in Directory.Build.props and is free to run at any version. The release takes its notes from a
+    # CHANGELOG.md section, so one must exist: the version's own for a stable version, and for a prerelease (a version
+    # with a "-", such as 0.1.0-rc.1) its own if there is one, else "Unreleased", so prereleases need no section of
+    # their own. A rehearsal checks this too, so it catches a missing section before the tag does.
     name: Check version
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -50,21 +55,33 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Check the tag matches the version
+      - name: Work out the version from the tag
         id: version
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          version=$(dotnet msbuild src/Hippo -getProperty:Version | tr -d '\r')
-          tag="v$version"
-          if [ "$EVENT_NAME" = push ] && [ "$REF_NAME" != "$tag" ]; then
-            echo "::error::Tag $REF_NAME does not match the version $version in Directory.Build.props; expected $tag."
+          if [ "$EVENT_NAME" = push ]; then
+            version=${REF_NAME#v}
+          elif [ -n "$INPUT_VERSION" ]; then
+            version=$INPUT_VERSION
+          elif [ "$DRY_RUN" = true ]; then
+            version=$(dotnet msbuild src/Hippo -getProperty:Version | tr -d '\r')
+          else
+            echo "::error::A dispatch that publishes needs the version input."
             exit 1
           fi
+          # SemVer without build metadata: NuGet drops what follows a "+", so a package and its tag would disagree.
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          if ! [[ "$version" =~ $semver ]]; then
+            echo "::error::\"$version\" is not a version such as 0.1.0 or 0.1.0-rc.1; tag v<version>."
+            exit 1
+          fi
+          tag="v$version"
           if [ "$EVENT_NAME" != push ] && [ "$DRY_RUN" != true ] \
             && git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
             echo "::error::Tag $tag already exists; a dispatch publishes only a version that has not been tagged yet."
@@ -103,6 +120,8 @@ jobs:
     name: CI
     needs: check
     uses: ./.github/workflows/ci.yml
+    with:
+      version: ${{ needs.check.outputs.version }}
 
   publish:
     name: Publish
