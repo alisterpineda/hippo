@@ -1,0 +1,174 @@
+name: Release
+
+# Credentials: NUGET_API_KEY is a secret on the `release` environment holding an nuget.org API key scoped to push the
+# hippo* package IDs. It is an environment secret, not a repository one, so it reaches only a job that the environment's
+# required reviewer approved; a repository secret would reach any workflow on any branch. The user adds it, and creates
+# the environment with its reviewer, before the first release (phase 5). Trusted publishing (the NuGet/login action, no
+# long-lived key) was considered and not chosen.
+
+on:
+  push:
+    tags: ['v*']
+  # Rehearses a release: with dry_run left on, the whole pipeline runs and the publish job prints what it would push
+  # and release instead of doing it.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print what would be published instead of publishing it
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  check:
+    # A tag whose name differs from the version in Directory.Build.props would ship packages and a release that
+    # disagree, so the tag must be exactly v<Version>. A dispatch has no tag and takes its name from the version; one
+    # that publishes must not find that tag already pushed, since gh release create would then bind this run's packages
+    # and archives to whatever commit the old tag names. A rehearsal is free to run at any version.
+    name: Check version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Check the tag matches the version
+        id: version
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          version=$(dotnet msbuild src/Hippo -getProperty:Version | tr -d '\r')
+          tag="v$version"
+          if [ "$EVENT_NAME" = push ] && [ "$REF_NAME" != "$tag" ]; then
+            echo "::error::Tag $REF_NAME does not match the version $version in Directory.Build.props; expected $tag."
+            exit 1
+          fi
+          if [ "$EVENT_NAME" != push ] && [ "$DRY_RUN" != true ] \
+            && git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "::error::Tag $tag already exists; a dispatch publishes only a version that has not been tagged yet."
+            exit 1
+          fi
+          echo "Version $version, tag $tag"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  ci:
+    # The same pipeline as on main, so every package and binary published here was packed, installed and E2E-tested.
+    name: CI
+    needs: check
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish
+    needs: [check, ci]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The required reviewer on this environment approves each publish, a rehearsal included.
+    environment: release
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      TAG: ${{ needs.check.outputs.tag }}
+      # A tag push has no inputs, so it always publishes.
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      # The RIDs with a native binary, win-x64 aside, which ships hippo.exe in a zip. Must match the `native` matrix in
+      # ci.yml, ToolPackageRuntimeIdentifiers in src/Hippo/Hippo.csproj and the Distribution section of README.md.
+      NATIVE_RIDS: osx-arm64 osx-x64 linux-x64 linux-musl-x64
+    steps:
+      # gh release create reads the repository from the checkout; setup-dotnet reads global.json from it.
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: tool-package
+          path: artifacts/nupkg
+
+      # Each binary lands in artifacts/bin/hippo-<rid>/.
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: hippo-*
+          path: artifacts/bin
+
+      # Artifacts do not keep file modes, so the binaries are made executable again before they are archived. Each
+      # archive holds the binary alone, at its root, so unpacking it gives the command directly.
+      - name: Archive the binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release
+          for rid in $NATIVE_RIDS; do
+            test -f "artifacts/bin/hippo-$rid/hippo" || { echo "::error::No hippo binary for $rid."; exit 1; }
+            chmod +x "artifacts/bin/hippo-$rid/hippo"
+            tar -czf "artifacts/release/hippo-$VERSION-$rid.tar.gz" -C "artifacts/bin/hippo-$rid" hippo
+          done
+          test -f artifacts/bin/hippo-win-x64/hippo.exe || { echo "::error::No hippo.exe binary for win-x64."; exit 1; }
+          zip -j "artifacts/release/hippo-$VERSION-win-x64.zip" artifacts/bin/hippo-win-x64/hippo.exe
+
+      # The package users install names the native packages and hippo.any, and installing it fails until the one the
+      # CLI picks is on nuget.org, so it goes last. Every file is checked before the first push, so a missing one stops
+      # the run before a partial push. --skip-duplicate lets a rerun after a partial failure resume.
+      - name: Push the packages to nuget.org
+        shell: bash
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          files=()
+          for id in $NATIVE_RIDS win-x64 any; do
+            files+=("artifacts/nupkg/hippo.$id.$VERSION.nupkg")
+          done
+          files+=("artifacts/nupkg/hippo.$VERSION.nupkg")
+          for file in "${files[@]}"; do
+            test -f "$file" || { echo "::error::$file is missing."; exit 1; }
+          done
+          if [ "$DRY_RUN" = true ]; then
+            echo "Dry run: would push, in this order:"
+            printf '  %s\n' "${files[@]}"
+            exit 0
+          fi
+          for file in "${files[@]}"; do
+            echo "Pushing $file"
+            dotnet nuget push "$file" --source https://api.nuget.org/v3/index.json \
+              --api-key "$NUGET_API_KEY" --skip-duplicate
+          done
+
+      # --target matters only on a dispatch, where the tag does not exist yet: gh would otherwise tag the default
+      # branch rather than the commit this run tested.
+      - name: Create the GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          archives=()
+          for rid in $NATIVE_RIDS; do
+            archives+=("artifacts/release/hippo-$VERSION-$rid.tar.gz")
+          done
+          archives+=("artifacts/release/hippo-$VERSION-win-x64.zip")
+          if [ "$DRY_RUN" = true ]; then
+            echo "Dry run: would create release $TAG titled \"hippo $VERSION\" with:"
+            printf '  %s\n' "${archives[@]}"
+            exit 0
+          fi
+          gh release create "$TAG" --title "hippo $VERSION" --generate-notes --target "$GITHUB_SHA" "${archives[@]}"
