@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using Hippo.Okf;
 
 namespace Hippo.Workspaces;
 
@@ -28,6 +27,11 @@ internal sealed record LinkSettings(IReadOnlyList<FrontmatterLinkField> Frontmat
 {
     public static LinkSettings Default { get; } = new([]);
 }
+
+/// <summary>An entry in <c>lint.off</c>: it turns off <see cref="Rules"/>, or every rule when that is null, on the files
+/// <see cref="Paths"/> match, or on every file when that is null. <c>--rule</c> brings back the rules an entry names, but
+/// not the files an entry without <see cref="Rules"/> leaves out.</summary>
+internal sealed record LintOff(IReadOnlyList<string>? Rules, IReadOnlyList<string>? Paths);
 
 /// <summary>How the search table splits text into terms: <see cref="Porter"/>, FTS5's <c>porter unicode61</c>, matches
 /// whole words and their other forms; <see cref="Trigram"/> matches any run of three or more characters, inside words
@@ -72,8 +76,11 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
           //   ]
           // },
           // "lint": {
-          //   "off": ["okf-footnote"],            // rules to leave unchecked; OKF MUST rules are always checked
-          //   "exclude": ["archive/**"]           // files whose findings lint leaves out; they stay indexed and linkable
+          //   "off": [                            // what lint leaves unchecked
+          //     "okf-footnote",                   // a rule everywhere; * matches any run of characters, as in okf-*
+          //     { "rules": ["okf-index"], "paths": ["wiki/drafts/**"] },  // rules on the files the globs match
+          //     { "paths": ["archive/**"] }       // every rule, whatever --rule names; the files stay indexed and linkable
+          //   ]
           // },
           // "search": {
           //   "tokenizer": "trigram"              // porter (whole words and their forms, the default) or trigram (any substring)
@@ -102,12 +109,8 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
 
     public LinkSettings Links { get; init; } = LinkSettings.Default;
 
-    /// <summary>The rules <c>lint.off</c> turns off.</summary>
-    public IReadOnlyList<string> LintOff { get; init; } = [];
-
-    /// <summary>The globs <c>lint.exclude</c> lists: <c>lint</c> leaves out the findings on files they match, and the
-    /// sweep does not warn about their frontmatter or links failing to parse. The files stay indexed.</summary>
-    public IReadOnlyList<string> LintExclude { get; init; } = [];
+    /// <summary>The entries of <c>lint.off</c>, each with its rule patterns read as the rules they match.</summary>
+    public IReadOnlyList<LintOff> LintOff { get; init; } = [];
 
     public SearchTokenizer SearchTokenizer { get; init; } = SearchTokenizer.Porter;
 
@@ -246,40 +249,69 @@ internal sealed record WorkspaceConfig(IReadOnlyList<string> Include, IReadOnlyL
 
     private static WorkspaceConfig ParseLint(WorkspaceConfig config, JsonElement element)
     {
-        foreach (var (key, value) in Object("lint", element, "off", "exclude"))
+        foreach (var (_, value) in Object("lint", element, "off"))
         {
-            config = key switch
-            {
-                "off" => config with { LintOff = ParseLintOff(value) },
-                "exclude" => config with { LintExclude = Patterns("lint.exclude", value) },
-                _ => throw new UnreachableException(key),
-            };
+            config = config with { LintOff = ParseLintOff(value) };
         }
         return config;
     }
 
-    /// <summary>The rules <c>lint.off</c> names. An OKF MUST rule cannot be turned off: with every MUST rule on, a run
-    /// that reports none of them means the bundle is conformant (§11).</summary>
-    private static List<string> ParseLintOff(JsonElement value)
+    /// <summary>The entries <c>lint.off</c> lists: a rule pattern, which turns its rules off everywhere, or an object
+    /// whose <c>paths</c> say where, with <c>rules</c> saying which, or every rule when it has none.</summary>
+    private static List<LintOff> ParseLintOff(JsonElement value)
     {
+        const string usage = "lint.off must be an array of rule names and objects with paths";
         if (value.ValueKind != JsonValueKind.Array)
         {
-            throw Error("lint.off must be an array of rule names");
+            throw Error(usage);
         }
-        var off = new List<string>();
+        var off = new List<LintOff>();
         foreach (var item in value.EnumerateArray())
         {
-            var name = String(item) ?? throw Error("lint.off must be an array of rule names");
-            var rule = LintRules.Find(name)
-                ?? throw Error($"lint.off: unknown rule {name}; expected one of {string.Join(", ", LintRules.Names)}");
-            if (!rule.CanTurnOff)
+            if (item.ValueKind == JsonValueKind.Object)
             {
-                throw Error($"lint.off: {name} cannot be turned off; it is a MUST rule in OKF v{OkfBundle.SpecVersion}");
+                IReadOnlyList<string>? rules = null;
+                IReadOnlyList<string>? paths = null;
+                foreach (var (key, field) in Object("lint.off[]", item, "rules", "paths"))
+                {
+                    switch (key)
+                    {
+                        case "rules":
+                            rules = Rules(field);
+                            break;
+                        case "paths":
+                            paths = Patterns("lint.off[].paths", field);
+                            break;
+                        default:
+                            throw new UnreachableException(key);
+                    }
+                }
+                off.Add(new LintOff(rules, paths is { Count: > 0 } ? paths : throw Error("lint.off[].paths must be an array of glob patterns")));
             }
-            off.Add(name);
+            else
+            {
+                off.Add(new LintOff(Rule("lint.off", String(item) ?? throw Error(usage)), null));
+            }
         }
         return off;
     }
+
+    private static List<string> Rules(JsonElement element)
+    {
+        const string usage = "lint.off[].rules must be an array of rule names";
+        if (element.ValueKind != JsonValueKind.Array || element.GetArrayLength() == 0)
+        {
+            throw Error(usage);
+        }
+        return element.EnumerateArray()
+            .SelectMany(item => Rule("lint.off[].rules", String(item) ?? throw Error(usage)))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    /// <summary>The rules <paramref name="pattern"/> matches, at least one, or a config error that names them all.</summary>
+    private static List<string> Rule(string key, string pattern) =>
+        LintRules.Match(pattern) is { Count: > 0 } rules ? rules : throw Error($"{key}: {LintRules.NoMatch(pattern)}");
 
     private static SearchTokenizer ParseSearch(JsonElement element)
     {

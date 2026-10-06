@@ -15,10 +15,10 @@ Nothing was released before 0.1.0 and its prereleases.
 - `hippo show` shows what the index holds for one file.
 - `hippo refs` lists the links out of a file, body and frontmatter, and whether each target exists.
 - `hippo backrefs` lists the links into a file or folder, filtered by link kind or source, and with `--transitive` every file that reaches it.
-- `hippo lint` reports broken links, frontmatter that fails to parse and where OKF bundles depart from OKF v0.2, and exits 1 when there are findings; `lint.off` and `lint.exclude` in the config turn rules off and leave files out.
+- `hippo lint` reports broken links, frontmatter that fails to parse and where OKF bundles depart from OKF v0.2, and exits 1 when there are findings; `lint.off` in the config turns rules off, everywhere or on the files its globs match, and `*` in a rule name, as in `okf-*`, names several.
 - `hippo cache list` lists every index in the cache with its state, size and workspace root.
 - `hippo cache prune` removes the indexes of workspaces that were deleted, moved or renamed, with `--dry-run` and `--include-unreachable`.
-- OKF v0.2 checks: a folder listed in `bundles` whose root `index.md` declares `okf_version` is an OKF bundle, its path fields are links, and `lint` checks it with the rules `okf-type`, `okf-index-frontmatter`, `okf-log-date`, `okf-source-resource`, `okf-footnote`, `okf-timestamp`, `okf-actor`, `okf-status` and `okf-index`; the three MUST rules cannot be turned off.
+- OKF v0.2 checks: a folder listed in `bundles` whose root `index.md` declares `okf_version` is an OKF bundle, its path fields are links, and `lint` checks it with the rules `okf-type`, `okf-index-frontmatter`, `okf-log-date`, `okf-source-resource`, `okf-footnote`, `okf-timestamp`, `okf-actor`, `okf-status`, `okf-index` and `okf-version`.
 - Full-text search: `hippo find "<query>"` finds the pages holding every word and phrase of the query in their title, description, path or body, ranks them by BM25 and shows a snippet of each, with the `porter` tokenizer by default or `trigram` for substrings.
 - `--json` on every command but `init` prints JSON instead of text.
 - `hippo --version` prints the version and the commit it was built from, such as `0.1.0+d9d09f6`.

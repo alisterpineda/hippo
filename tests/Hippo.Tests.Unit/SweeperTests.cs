@@ -792,6 +792,24 @@ public sealed class SweeperTests : IDisposable
     }
 
     [Fact]
+    public void An_index_whose_pages_were_parsed_by_an_older_hippo_parses_them_again_once()
+    {
+        _workspace.Write(".hippo/config.json", """{ "bundles": ["kb"] }""");
+        _workspace.Write("kb/index.md", "---\nokf_version: \"0.3\"\n---\n# KB\n");
+        Sweep();
+        _db.Execute("DELETE FROM findings");
+        // What a hippo before ParseVersion recorded: the same settings without it.
+        var fingerprint = IndexMeta.Get(_db, IndexMeta.LinkSettings)!;
+        IndexMeta.Set(_db, IndexMeta.LinkSettings, fingerprint.Replace($"\"parse\":{PageSettings.ParseVersion},", "", StringComparison.Ordinal));
+
+        var reparsed = Sweep();
+
+        Assert.True(reparsed.Rebuilt);
+        Assert.Equal(1, FindingCount());
+        Assert.False(Sweep().Rebuilt);
+    }
+
+    [Fact]
     [UnsupportedOSPlatform("windows")] // MakeUnreadable skips the test there.
     public void An_unreadable_root_index_makes_a_plain_bundle_until_readable_and_then_its_findings_come_back()
     {
@@ -835,9 +853,9 @@ public sealed class SweeperTests : IDisposable
     }
 
     [Fact]
-    public void Files_lint_exclude_matches_do_not_warn_that_their_frontmatter_or_links_fail_to_parse()
+    public void Files_lint_off_leaves_out_on_every_rule_do_not_warn_that_their_frontmatter_or_links_fail_to_parse()
     {
-        _workspace.Write(".hippo/config.json", """{ "lint": { "exclude": ["archive/**"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "lint": { "off": [{ "paths": ["archive/**"] }] } }""");
         _workspace.Write("archive/bad.md", "---\n- not\n- a mapping\n---\n");
         _workspace.Write("archive/deep.md", new string('>', 200) + " x\n");
         _workspace.Write("notes/bad.md", "---\n- not\n- a mapping\n---\n");
@@ -850,11 +868,27 @@ public sealed class SweeperTests : IDisposable
         Assert.Equal("frontmatter is not a mapping", Row("archive/bad.md").ParseError);
     }
 
+    [Theory]
+    [InlineData("""["frontmatter-syntax"]""", "cannot read the links in notes/deep.md")]
+    [InlineData("""[{ "rules": ["frontmatter-syntax"], "paths": ["notes/**"] }]""", "cannot read the links in notes/deep.md")]
+    [InlineData("""["broken-link"]""", "cannot read the frontmatter in notes/bad.md")]
+    [InlineData("""[{ "rules": ["broken-link"], "paths": ["notes/**"] }]""", "cannot read the frontmatter in notes/bad.md")]
+    public void A_parse_warning_is_silenced_where_lint_off_turns_off_the_rule_that_reports_it(string off, string warning)
+    {
+        _workspace.Write(".hippo/config.json", $$"""{ "lint": { "off": {{off}} } }""");
+        _workspace.Write("notes/bad.md", "---\n- not\n- a mapping\n---\n");
+        _workspace.Write("notes/deep.md", new string('>', 200) + " x\n");
+
+        var result = Sweep();
+
+        Assert.Equal([warning], result.Warnings.Select(w => w[..w.IndexOf(':')]));
+    }
+
     [Fact]
     [UnsupportedOSPlatform("windows")] // MakeUnreadable skips the test there.
-    public void A_file_lint_exclude_matches_still_warns_when_it_cannot_be_read()
+    public void A_file_lint_off_leaves_out_still_warns_when_it_cannot_be_read()
     {
-        _workspace.Write(".hippo/config.json", """{ "lint": { "exclude": ["archive/**"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "lint": { "off": [{ "paths": ["archive/**"] }] } }""");
         var path = _workspace.Write("archive/locked.md", "# Locked\n");
         MakeUnreadable(path);
 

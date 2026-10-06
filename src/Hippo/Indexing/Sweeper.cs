@@ -112,10 +112,11 @@ internal static class Sweeper
         var warnings = new List<string>();
         SearchIndex.UseTokenizer(db, workspace.Config.SearchTokenizer);
         var listed = workspace.ListFiles(warnings);
-        // The parse warnings report what a frontmatter-syntax finding does, so lint.exclude silences both. The globs are
-        // matched only once a file fails to parse, so a sweep without parse errors does no glob work.
-        HashSet<string>? quiet = null;
-        bool Quiet(string path) => (quiet ??= workspace.LintExcluded(listed.Select(f => f.Path))).Contains(path);
+        // A parse warning reports what a lint rule would, frontmatter-syntax for frontmatter and broken-link for links,
+        // so lint.off turning that rule off on the file silences both. The globs are matched only once a file fails to
+        // parse, so a sweep without parse errors does no glob work.
+        Func<string, string, bool>? off = null;
+        bool Quiet(string rule, string path) => (off ??= workspace.LintOff(listed.Select(f => f.Path)))(rule, path);
         var okfBundles = OkfBundle.Find(workspace, listed.Select(f => f.Path).ToHashSet(StringComparer.Ordinal));
         // Links extracted and findings made under other settings would differ now, so every page is parsed again. Only
         // pages have links and findings, so every other file is still skipped when its stats show it unchanged.
@@ -222,11 +223,11 @@ internal static class Sweeper
                 // A page re-read for a relink has the title, path and body it had, so its search row stays as it is.
                 parsed = parsed with { Search = null };
             }
-            if (parsed.Row.ParseError is not null && !Quiet(file.Path))
+            if (parsed.Row.ParseError is not null && !Quiet(LintRules.FrontmatterSyntax, file.Path))
             {
                 warnings.Add($"cannot read the frontmatter in {file.Path}: {parsed.Row.ParseError}");
             }
-            if (bodyError is not null && !Quiet(file.Path))
+            if (bodyError is not null && !Quiet(LintRules.BrokenLink, file.Path))
             {
                 warnings.Add($"cannot read the links in {file.Path}: {bodyError}");
             }

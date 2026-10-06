@@ -64,21 +64,36 @@ internal sealed record Workspace(string Root, WorkspaceConfig Config)
     public HashSet<string> Match(Matcher matcher, IEnumerable<string> fullPaths) =>
         matcher.Match(Root, fullPaths).Files.Select(match => Key(match.Path)).ToHashSet(StringComparer.Ordinal);
 
-    /// <summary>The keys among <paramref name="keys"/> that <c>lint.exclude</c> matches: <c>lint</c> leaves out the
-    /// findings on these files. The globs are exclude patterns, as <c>files.exclude</c>'s are, so one that matches a
-    /// folder covers everything under it.</summary>
-    public HashSet<string> LintExcluded(IEnumerable<string> keys)
+    /// <summary>The rules <c>lint.off</c> turns off on every file, which <c>lint</c> does not check at all.</summary>
+    public IEnumerable<string> LintOffEverywhere() =>
+        Config.LintOff.Where(entry => entry.Paths is null).SelectMany(entry => entry.Rules ?? LintRules.Names).Distinct(StringComparer.Ordinal);
+
+    /// <summary>Whether <c>lint.off</c> turns off a rule on a file, for files among <paramref name="keys"/>, as a test of
+    /// the rule's name and the file's key. With <paramref name="named"/>, as when <c>--rule</c> names the rules to
+    /// check, only the entries without rules apply. An entry's globs are exclude patterns, as <c>files.exclude</c>'s are,
+    /// so one that matches a folder covers everything under it; they match the file a finding is on.</summary>
+    public Func<string, string, bool> LintOff(IEnumerable<string> keys, bool named = false)
     {
-        if (Config.LintExclude.Count == 0)
+        var entries = Config.LintOff.Where(entry => !named || entry.Rules is null).ToList();
+        if (entries.Count == 0)
         {
-            return [];
+            return (_, _) => false;
         }
         var all = keys.ToList();
+        var covered = entries.Select(entry => (entry.Rules, Files: entry.Paths is null ? null : Covered(entry.Paths, all))).ToList();
+        return (rule, key) => covered.Any(entry =>
+            (entry.Rules is null || entry.Rules.Contains(rule)) && (entry.Files is null || entry.Files.Contains(key)));
+    }
+
+    /// <summary>The keys among <paramref name="keys"/> that the exclude patterns <paramref name="patterns"/> leave
+    /// out.</summary>
+    private HashSet<string> Covered(IReadOnlyList<string> patterns, List<string> keys)
+    {
         var matcher = new Matcher(StringComparison.Ordinal);
         matcher.AddInclude("**");
-        matcher.AddExcludePatterns(Config.LintExclude);
-        var kept = Match(matcher, all.Select(FullPath));
-        return all.Where(key => !kept.Contains(key)).ToHashSet(StringComparer.Ordinal);
+        matcher.AddExcludePatterns(patterns);
+        var kept = Match(matcher, keys.Select(FullPath));
+        return keys.Where(key => !kept.Contains(key)).ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>The keys among <paramref name="keys"/> that any of the globs <paramref name="patterns"/>, taken relative

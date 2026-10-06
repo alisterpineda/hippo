@@ -42,7 +42,7 @@ public sealed class LintCommandTests : IDisposable
         [attributed](attributed.md) and [lifecycle](lifecycle.md).
         """;
 
-    /// <summary>An OKF bundle that breaks every rule exactly once, beside pages that break none.</summary>
+    /// <summary>An OKF bundle that breaks every rule but okf-version exactly once, beside pages that break none.</summary>
     private void WriteBundle()
     {
         WriteConfig();
@@ -127,7 +127,7 @@ public sealed class LintCommandTests : IDisposable
     }
 
     [Fact]
-    public void Lint_off_hides_a_should_rule()
+    public void Lint_off_hides_a_rule()
     {
         WriteBundle();
         WriteConfig(""", "lint": { "off": ["okf-footnote", "okf-status"] }""");
@@ -165,41 +165,111 @@ public sealed class LintCommandTests : IDisposable
     }
 
     [Fact]
-    public void Lint_off_naming_a_must_rule_is_refused()
+    public void Lint_off_turns_off_an_okf_must_rule_as_any_other()
     {
         WriteBundle();
-        WriteConfig(""", "lint": { "off": ["okf-type"] }""");
+        WriteConfig(""", "lint": { "off": ["okf-type", "okf-index-frontmatter", "okf-log-date"] }""");
+
+        Assert.Equal(
+            [
+                "okf-actor kb/attributed.md:3",
+                "okf-timestamp kb/dated.md:3",
+                "okf-footnote kb/footnoted.md:6",
+                "okf-index kb/index.md:6",
+                "okf-status kb/lifecycle.md:3",
+                "okf-source-resource kb/sourced.md:4",
+            ],
+            Findings(1));
+    }
+
+    [Fact]
+    public void A_star_in_lint_off_turns_off_every_rule_it_matches()
+    {
+        WriteBundle();
+        _workspace.Write("notes/free.md", "[gone](gone.md)\n");
+        WriteConfig(""", "lint": { "off": ["okf-*"] }""");
 
         var result = _workspace.Run("lint");
 
-        Assert.Equal(2, result.ExitCode);
-        Assert.Contains("lint.off: okf-type cannot be turned off; it is a MUST rule in OKF v0.2", result.Stderr);
+        Assert.Equal(["notes/free.md:1  broken-link  gone.md -> notes/gone.md"], Lines(result.Stdout));
+        Assert.Equal("", result.Stderr);
     }
 
     [Fact]
-    public void A_bundle_that_declares_another_version_is_read_as_0_2_with_a_note()
+    public void Lint_off_turning_off_every_okf_rule_says_nothing_of_a_bundle_that_declares_no_okf_version()
     {
         WriteBundle();
-        _workspace.Write("kb/index.md", "---\nokf_version: \"0.3\"\n---\n# KB\n");
+        _workspace.Write("kb/index.md", "# KB\n");
+        _workspace.Write("notes/free.md", "[gone](gone.md)\n");
+        WriteConfig(""", "lint": { "off": ["okf-*"] }""");
 
-        var result = _workspace.Run("lint", "--rule", "okf-type");
+        var result = _workspace.Run("lint");
 
         Assert.Equal(1, result.ExitCode);
-        Assert.Equal(["kb/untyped.md  okf-type  its frontmatter has no type"], Lines(result.Stdout));
-        Assert.Equal("hippo: warning: kb declares okf_version 0.3; hippo reads it as OKF 0.2", result.Stderr.Trim());
+        Assert.Equal(["notes/free.md:1  broken-link  gone.md -> notes/gone.md"], Lines(result.Stdout));
+        Assert.Equal("", result.Stderr);
     }
 
     [Fact]
-    public void A_bundle_that_declares_a_version_that_is_not_a_value_is_read_as_0_2_with_a_note()
+    public void A_star_in_rule_checks_every_rule_it_matches()
+    {
+        WriteBundle();
+        _workspace.Write("notes/free.md", "[gone](gone.md)\n");
+
+        Assert.Equal(["okf-index kb/index.md:6", "okf-index-frontmatter kb/metrics/index.md:1"], Findings(1, "--rule", "okf-index*"));
+    }
+
+    [Fact]
+    public void Lint_off_with_paths_turns_its_rules_off_on_the_files_they_match_only()
+    {
+        WriteBundle();
+        _workspace.Write("kb/more.md", "---\ntype: Topic\nstatus: final\n---\n");
+        WriteConfig(""", "lint": { "off": [{ "rules": ["okf-status", "okf-index"], "paths": ["kb/lifecycle.md", "kb/index.md"] }] }""");
+
+        Assert.Equal(["okf-index kb/more.md:", "okf-status kb/more.md:3"],
+            Findings(1).Where(f => f.StartsWith("okf-status ", StringComparison.Ordinal) || f.StartsWith("okf-index ", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void A_bundle_that_declares_another_version_is_read_as_0_2_with_an_okf_version_finding()
+    {
+        WriteBundle();
+        _workspace.Write("kb/index.md", "---\ntitle: KB\nokf_version: \"0.3\"\n---\n# KB\n");
+
+        var result = _workspace.Run("lint", "--rule", "okf-type", "--rule", "okf-version");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(
+            [
+                "kb/index.md:3  okf-version  okf_version 0.3; hippo reads the bundle as OKF 0.2",
+                "kb/untyped.md  okf-type  its frontmatter has no type",
+            ],
+            Lines(result.Stdout));
+        Assert.Equal("", result.Stderr);
+    }
+
+    [Fact]
+    public void A_bundle_that_declares_a_version_that_is_not_a_value_is_read_as_0_2_with_an_okf_version_finding()
     {
         WriteBundle();
         _workspace.Write("kb/index.md", "---\nokf_version: [0.2]\n---\n# KB\n");
 
-        var result = _workspace.Run("lint", "--rule", "okf-type");
+        var result = _workspace.Run("lint", "--rule", "okf-version");
 
         Assert.Equal(1, result.ExitCode);
-        Assert.Equal(["kb/untyped.md  okf-type  its frontmatter has no type"], Lines(result.Stdout));
-        Assert.Equal("hippo: warning: kb declares an okf_version that is not a version; hippo reads it as OKF 0.2", result.Stderr.Trim());
+        Assert.Equal(["kb/index.md:2  okf-version  okf_version is not a version; hippo reads the bundle as OKF 0.2"], Lines(result.Stdout));
+        Assert.Equal("", result.Stderr);
+    }
+
+    [Fact]
+    public void Lint_off_turns_off_okf_version_on_the_bundles_it_matches()
+    {
+        WriteBundle();
+        _workspace.Write("kb/index.md", "---\nokf_version: \"0.3\"\n---\n# KB\n");
+        WriteConfig(""", "lint": { "off": [{ "rules": ["okf-version"], "paths": ["kb/index.md"] }] }""");
+
+        Assert.DoesNotContain(Findings(1), f => f.StartsWith("okf-version ", StringComparison.Ordinal));
+        Assert.Equal(["okf-version kb/index.md:2"], Findings(1, "--rule", "okf-version"));
     }
 
     [Theory]
@@ -810,16 +880,17 @@ public sealed class LintCommandTests : IDisposable
         Assert.Equal((0, ""), (result.ExitCode, result.Stderr));
     }
 
-    /// <summary>A frozen archive whose page breaks two rules, and a note that links into it.</summary>
+    /// <summary>A frozen archive whose page breaks two rules, left out by a <c>lint.off</c> entry without rules, and a
+    /// note that links into it.</summary>
     private void WriteArchive(string note)
     {
-        _workspace.Write(".hippo/config.json", """{ "lint": { "exclude": ["archive/**"] } }""");
+        _workspace.Write(".hippo/config.json", """{ "lint": { "off": [{ "paths": ["archive/**"] }] } }""");
         _workspace.Write("archive/old.md", "---\n- not\n- a mapping\n---\n[gone](gone.md)\n");
         _workspace.Write("notes/a.md", note);
     }
 
     [Fact]
-    public void Lint_exclude_leaves_out_the_findings_on_files_it_matches_but_not_on_links_into_them()
+    public void Lint_off_without_rules_leaves_out_the_findings_on_files_it_matches_but_not_on_links_into_them()
     {
         WriteArchive("[old](../archive/old.md)\n[missing](../archive/missing.md)\n");
 
@@ -827,7 +898,7 @@ public sealed class LintCommandTests : IDisposable
     }
 
     [Fact]
-    public void A_file_lint_exclude_matches_stays_indexed_and_a_link_target()
+    public void A_file_lint_off_leaves_out_stays_indexed_and_a_link_target()
     {
         WriteArchive("[old](../archive/old.md)\n");
 
@@ -838,7 +909,7 @@ public sealed class LintCommandTests : IDisposable
     }
 
     [Fact]
-    public void Findings_lint_exclude_leaves_out_do_not_count_toward_the_exit_status()
+    public void Findings_lint_off_leaves_out_do_not_count_toward_the_exit_status()
     {
         WriteArchive("# A\n");
 
@@ -848,10 +919,10 @@ public sealed class LintCommandTests : IDisposable
     }
 
     [Fact]
-    public void Lint_exclude_leaves_out_stored_and_worked_okf_findings_on_files_it_matches()
+    public void Lint_off_without_rules_leaves_out_stored_and_worked_okf_findings_on_files_it_matches()
     {
         WriteBundle();
-        WriteConfig(""", "lint": { "exclude": ["kb/metrics/**", "kb/log.md", "kb/index.md"] }""");
+        WriteConfig(""", "lint": { "off": [{ "paths": ["kb/metrics/**", "kb/log.md", "kb/index.md"] }] }""");
 
         Assert.Equal(
             [
@@ -869,9 +940,9 @@ public sealed class LintCommandTests : IDisposable
     [InlineData("archive")]
     [InlineData("archive/*")]
     [InlineData("**/archive")]
-    public void A_lint_exclude_glob_that_matches_a_folder_covers_everything_under_it_as_in_files_exclude(string glob)
+    public void A_lint_off_glob_that_matches_a_folder_covers_everything_under_it_as_in_files_exclude(string glob)
     {
-        _workspace.Write(".hippo/config.json", $$"""{ "lint": { "exclude": ["{{glob}}"] } }""");
+        _workspace.Write(".hippo/config.json", $$"""{ "lint": { "off": [{ "paths": ["{{glob}}"] }] } }""");
         _workspace.Write("archive/old.md", "[gone](gone.md)\n");
         _workspace.Write("archive/sub/deep.md", "[gone](gone.md)\n");
 
@@ -879,15 +950,27 @@ public sealed class LintCommandTests : IDisposable
     }
 
     [Fact]
-    public void Rule_still_leaves_out_the_findings_lint_exclude_matches()
+    public void Rule_still_leaves_out_the_findings_lint_off_without_rules_matches()
     {
         WriteArchive("# A\n");
 
         Assert.Empty(Findings(0, "--rule", "frontmatter-syntax"));
     }
 
+    [Theory]
+    [InlineData("frontmatter-syntax")]
+    [InlineData("*")]
+    public void Rule_brings_back_the_files_a_lint_off_entry_with_rules_leaves_out(string rules)
+    {
+        _workspace.Write(".hippo/config.json", $$"""{ "lint": { "off": [{ "rules": ["{{rules}}"], "paths": ["archive/**"] }] } }""");
+        _workspace.Write("archive/old.md", "---\n- not\n- a mapping\n---\n");
+
+        Assert.Empty(Findings(0));
+        Assert.Equal(["frontmatter-syntax archive/old.md:"], Findings(1, "--rule", "frontmatter-syntax"));
+    }
+
     [Fact]
-    public void A_change_to_lint_exclude_applies_on_the_next_run_without_parsing_pages_again()
+    public void A_change_to_lint_off_applies_on_the_next_run_without_parsing_pages_again()
     {
         WriteArchive("# A\n");
         Assert.Empty(Findings(0));
@@ -907,7 +990,7 @@ public sealed class LintCommandTests : IDisposable
         string[] rules =
         [
             "okf-type", "okf-index-frontmatter", "okf-log-date", "okf-source-resource", "okf-footnote", "okf-timestamp",
-            "okf-actor", "okf-status", "okf-index", "broken-link", "frontmatter-syntax",
+            "okf-actor", "okf-status", "okf-index", "okf-version", "broken-link", "frontmatter-syntax",
         ];
 
         var lines = Lines(_workspace.Run("lint", "--help").Stdout);
@@ -917,14 +1000,6 @@ public sealed class LintCommandTests : IDisposable
             // The rule's name, then its description on the same line.
             Assert.Single(lines, line => line.StartsWith(rule + " ", StringComparison.Ordinal) && line.Length > rule.Length + 20);
         }
-    }
-
-    [Fact]
-    public void Help_says_which_rules_lint_off_can_turn_off()
-    {
-        var text = Words(_workspace.Run("lint", "--help").Stdout);
-
-        Assert.Contains("lint.off can turn off every rule but okf-type, okf-index-frontmatter and okf-log-date", text);
     }
 
     [Fact]
@@ -946,7 +1021,6 @@ public sealed class LintCommandTests : IDisposable
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain("Rules:", result.Stdout);
-        Assert.DoesNotContain("lint.off can turn off", result.Stdout);
     }
 
     [Fact]
@@ -955,12 +1029,9 @@ public sealed class LintCommandTests : IDisposable
         var result = _workspace.Run("lint", "--rule", "no-such-rule");
 
         Assert.Equal(2, result.ExitCode);
-        Assert.Contains("Argument 'no-such-rule' not recognized", result.Stderr);
+        Assert.Contains("--rule: no rule matches no-such-rule; expected one of okf-type, ", result.Stderr);
         Assert.Equal("Run 'hippo lint --help' for usage.", Lines(result.Stderr)[^1]);
         Assert.DoesNotContain("Usage:", result.Stdout + result.Stderr);
         Assert.DoesNotContain("Options:", result.Stdout + result.Stderr);
     }
-
-    /// <summary>Help text with each run of whitespace read as one space, so where it wraps does not matter.</summary>
-    private static string Words(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 }

@@ -1,15 +1,14 @@
 using System.Text;
 using Hippo.Workspaces;
-using YamlDotNet.RepresentationModel;
 
 namespace Hippo.Okf;
 
 /// <summary>
-/// A bundle from <c>bundles</c> whose root <c>index.md</c> declares <c>okf_version</c> in its frontmatter (§12).
-/// <see cref="Version"/> is the declared value as written, or null when it is not a plain value. hippo reads every OKF
-/// bundle as <see cref="SpecVersion"/>, whatever it declares.
+/// A bundle from <c>bundles</c> whose root <c>index.md</c> declares <c>okf_version</c> in its frontmatter (§12). hippo
+/// reads every OKF bundle as <see cref="SpecVersion"/>, whatever it declares; <c>okf-version</c> reports one that
+/// declares another.
 /// </summary>
-internal sealed record OkfBundle(string Root, string? Version)
+internal sealed record OkfBundle(string Root)
 {
     public const string SpecVersion = "0.2";
 
@@ -51,7 +50,7 @@ internal sealed record OkfBundle(string Root, string? Version)
             if (Frontmatter.Read(text).Root is { } frontmatter && Frontmatter.Field(frontmatter, VersionKey) is { } declared
                 && !Frontmatter.IsNull(declared.Value))
             {
-                bundles.Add(new OkfBundle(root, declared.Value is YamlScalarNode version ? version.Value : null));
+                bundles.Add(new OkfBundle(root));
             }
         }
         return bundles;

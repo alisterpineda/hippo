@@ -13,4 +13,5 @@ internal static class OkfRules
     public const string Actor = "okf-actor";
     public const string Status = "okf-status";
     public const string Index = "okf-index";
+    public const string Version = "okf-version";
 }

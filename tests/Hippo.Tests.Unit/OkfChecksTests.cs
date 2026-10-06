@@ -116,6 +116,29 @@ public class OkfChecksTests
     }
 
     [Theory]
+    [InlineData("0.2")]
+    [InlineData("\"0.2\"")]
+    public void The_root_index_may_declare_okf_version_0_2_quoted_or_not(string version)
+    {
+        Assert.Empty(Findings("kb/index.md", $"---\nokf_version: {version}\n---\n# Index\n"));
+    }
+
+    [Theory]
+    [InlineData("\"0.3\"", "okf_version 0.3; hippo reads the bundle as OKF 0.2")]
+    [InlineData("[0.2]", "okf_version is not a version; hippo reads the bundle as OKF 0.2")]
+    public void A_root_index_that_declares_another_okf_version_gets_okf_version(string version, string message)
+    {
+        Assert.Equal([$"2 okf-version: {message}"], Lines("kb/index.md", $"---\nokf_version: {version}\n---\n# Index\n"));
+    }
+
+    [Fact]
+    public void Only_the_root_index_gets_okf_version()
+    {
+        Assert.Equal(["1 okf-index-frontmatter: an index.md below the bundle root has frontmatter"],
+            Lines("kb/sub/index.md", "---\nokf_version: \"0.3\"\n---\n# Sub\n"));
+    }
+
+    [Theory]
     [InlineData("---\ntitle: Sub\n---\n# Sub\n")]
     [InlineData("---\n---\n# Sub\n")]
     [InlineData("---\ntitle: [a\n---\n# Sub\n")]

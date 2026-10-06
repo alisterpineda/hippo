@@ -19,8 +19,11 @@
     ]
   },
   "lint": {
-    "off": ["okf-footnote"],            // rules to leave unchecked; OKF MUST rules are always checked
-    "exclude": ["archive/**"]           // files whose findings lint leaves out; they stay indexed and linkable
+    "off": [                            // what lint leaves unchecked
+      "okf-footnote",                   // a rule everywhere; * matches any run of characters, as in okf-*
+      { "rules": ["okf-index"], "paths": ["wiki/drafts/**"] },  // rules on the files the globs match
+      { "paths": ["archive/**"] }       // every rule, whatever --rule names; the files stay indexed and linkable
+    ]
   },
   "search": {
     "tokenizer": "porter"               // porter (whole words and their forms, the default) or trigram (any substring)

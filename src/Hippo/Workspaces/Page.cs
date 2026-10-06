@@ -29,8 +29,13 @@ internal sealed record Link(int Line, string Kind, string Type, string Raw, stri
 /// </summary>
 internal sealed record PageSettings(IReadOnlyList<string> Bundles, LinkSettings Links, IReadOnlyList<string> OkfBundles)
 {
-    /// <summary>These settings as one string. The index keeps the value its pages were parsed under, and parses them all
-    /// again when it differs.</summary>
+    /// <summary>The version of what <see cref="Page.Parse(string, string, PageSettings)"/> derives from a page: raise it
+    /// when the same page under the same settings would give other links, findings or index entries, as a new or changed
+    /// OKF check does, so every index parses its pages again.</summary>
+    public const int ParseVersion = 1;
+
+    /// <summary>These settings and <see cref="ParseVersion"/> as one string. The index keeps the value its pages were
+    /// parsed under, and parses them all again when it differs.</summary>
     public string Fingerprint
     {
         get
@@ -39,6 +44,7 @@ internal sealed record PageSettings(IReadOnlyList<string> Bundles, LinkSettings 
             using (var writer = new Utf8JsonWriter(buffer))
             {
                 writer.WriteStartObject();
+                writer.WriteNumber("parse", ParseVersion);
                 writer.WriteStartArray("bundles");
                 foreach (var bundle in Bundles)
                 {

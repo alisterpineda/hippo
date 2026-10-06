@@ -12,10 +12,19 @@ internal static class LintCommand
     {
         var rule = new Option<string[]>("--rule")
         {
-            Description = "Only this rule, even one lint.off turns off; repeatable",
+            Description = "Only this rule, even one lint.off turns off; * matches any run of characters, as in okf-*; repeatable",
             HelpName = "name",
         };
-        rule.AcceptOnlyFromAmong(LintRules.Names);
+        rule.Validators.Add(result =>
+        {
+            foreach (var pattern in result.GetValueOrDefault<string[]>() ?? [])
+            {
+                if (LintRules.Match(pattern).Count == 0)
+                {
+                    result.AddError($"--rule: {LintRules.NoMatch(pattern)}");
+                }
+            }
+        });
         var command = new Command("lint", "List broken links, frontmatter that fails to parse, and where OKF bundles depart from OKF v0.2; exits 1 when there are any findings")
         {
             rule,
@@ -23,23 +32,16 @@ internal static class LintCommand
         };
         command.SetAction(result => WorkspaceSession.Run(result, environment, rebuild: false, session =>
         {
-            var rules = result.GetValue(rule) is { Length: > 0 } named
-                ? named.ToHashSet(StringComparer.Ordinal)
-                : LintRules.Names.Except(session.Workspace.Config.LintOff).ToHashSet(StringComparer.Ordinal);
+            var named = result.GetValue(rule) is { Length: > 0 } patterns ? patterns : null;
+            var rules = named is not null
+                ? named.SelectMany(LintRules.Match).ToHashSet(StringComparer.Ordinal)
+                : LintRules.Names.Except(session.Workspace.LintOffEverywhere()).ToHashSet(StringComparer.Ordinal);
 
             var bundles = session.Sweep.OkfBundles;
-            if (LintRules.All.Any(r => r.IsOkf && rules.Contains(r.Name)))
+            // A workspace that lists no bundles never asked for OKF, so only one that lists some hears that none declares it.
+            if (bundles.Count == 0 && session.Workspace.Config.Bundles.Count > 0 && LintRules.All.Any(r => r.IsOkf && rules.Contains(r.Name)))
             {
-                // A workspace that lists no bundles never asked for OKF, so only one that lists some hears that none declares it.
-                if (bundles.Count == 0 && session.Workspace.Config.Bundles.Count > 0)
-                {
-                    session.Warn("no bundle in bundles declares okf_version in its root index.md, so there is no OKF bundle to check");
-                }
-                foreach (var bundle in bundles.Where(b => b.Version != OkfBundle.SpecVersion))
-                {
-                    var declared = bundle.Version is null ? "an okf_version that is not a version" : $"okf_version {bundle.Version}";
-                    session.Warn($"{bundle.Root} declares {declared}; hippo reads it as OKF {OkfBundle.SpecVersion}");
-                }
+                session.Warn("no bundle in bundles declares okf_version in its root index.md, so there is no OKF bundle to check");
             }
 
             var stored = FindingQueries.List(session.Db)
@@ -62,10 +64,10 @@ internal static class LintCommand
                 worked.AddRange(FileQueries.ParseErrors(session.Db)
                     .Select(f => new FindingOutput(LintRules.FrontmatterSyntax, f.Path, null, f.ParseError, [])));
             }
-            // lint.exclude matches the file a finding is on, and applies whatever --rule names.
+            // --rule brings back the rules it names, but not the files an entry without rules leaves out.
             var merged = FindingQueries.Merge(stored, worked, f => f.Path, f => f.Line);
-            var excluded = session.Workspace.LintExcluded(merged.Select(f => f.Path).Distinct(StringComparer.Ordinal));
-            var output = merged.Where(f => !excluded.Contains(f.Path)).ToList();
+            var off = session.Workspace.LintOff(merged.Select(f => f.Path).Distinct(StringComparer.Ordinal), named is not null);
+            var output = merged.Where(f => !off(f.Rule, f.Path)).ToList();
 
             session.EmitList(output, OutputJson.Default.ListFindingOutput, finding =>
             {
@@ -77,8 +79,8 @@ internal static class LintCommand
         return command;
     }
 
-    /// <summary>What <c>hippo lint --help</c> ends with: every rule and what it reports, laid out as the options are,
-    /// then which rules <c>lint.off</c> can turn off.</summary>
+    /// <summary>What <c>hippo lint --help</c> ends with: every rule and what it reports, laid out as the options
+    /// are.</summary>
     public static void WriteRules(TextWriter output)
     {
         var width = LintRules.All.Max(r => r.Name.Length);
@@ -87,10 +89,6 @@ internal static class LintCommand
         {
             output.WriteLine($"  {rule.Name.PadRight(width)}  {rule.Description}");
         }
-        output.WriteLine();
-        var always = LintRules.All.Where(r => !r.CanTurnOff).Select(r => r.Name).ToList();
-        output.WriteLine(
-            $"  lint.off can turn off every rule but {string.Join(", ", always[..^1])} and {always[^1]}, the MUST rules of OKF v{OkfBundle.SpecVersion}.");
         output.WriteLine();
     }
 }

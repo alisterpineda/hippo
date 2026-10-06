@@ -39,7 +39,8 @@ internal static partial class OkfChecks
         return findings;
     }
 
-    /// <summary>§8: an index has no frontmatter, but the bundle root's may declare <c>okf_version</c> (§12).</summary>
+    /// <summary>§8: an index has no frontmatter, but the bundle root's may declare <c>okf_version</c> (§12), which hippo
+    /// reads as <see cref="OkfBundle.SpecVersion"/> whatever it says.</summary>
     private static void CheckIndex(List<Finding> findings, bool atRoot, FrontmatterBlock block)
     {
         if (!atRoot)
@@ -50,12 +51,21 @@ internal static partial class OkfChecks
             }
             return;
         }
-        foreach (var key in block.Root?.Children.Keys ?? [])
+        foreach (var (key, value) in block.Root?.Children ?? Enumerable.Empty<KeyValuePair<YamlNode, YamlNode>>())
         {
-            if (key is YamlScalarNode { Value: { } name } && name != OkfBundle.VersionKey)
+            if (key is not YamlScalarNode { Value: { } name })
+            {
+                continue;
+            }
+            if (name != OkfBundle.VersionKey)
             {
                 findings.Add(new(OkfRules.IndexFrontmatter, Line(key),
                     $"the bundle root's index.md may hold only {OkfBundle.VersionKey} in its frontmatter, not {name}"));
+            }
+            else if (value is not YamlScalarNode { Value: OkfBundle.SpecVersion })
+            {
+                var declared = value is YamlScalarNode { Value: { } version } ? $"{OkfBundle.VersionKey} {version}" : $"{OkfBundle.VersionKey} is not a version";
+                findings.Add(new(OkfRules.Version, Line(key), $"{declared}; hippo reads the bundle as OKF {OkfBundle.SpecVersion}"));
             }
         }
     }
