@@ -30,7 +30,8 @@ internal static class LintCommand
             var bundles = session.Sweep.OkfBundles;
             if (LintRules.All.Any(r => r.IsOkf && rules.Contains(r.Name)))
             {
-                if (bundles.Count == 0)
+                // A workspace that lists no bundles never asked for OKF, so only one that lists some hears that none declares it.
+                if (bundles.Count == 0 && session.Workspace.Config.Bundles.Count > 0)
                 {
                     session.Warn("no bundle in bundles declares okf_version in its root index.md, so there is no OKF bundle to check");
                 }

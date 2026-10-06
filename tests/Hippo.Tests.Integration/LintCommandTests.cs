@@ -699,6 +699,19 @@ public sealed class LintCommandTests : IDisposable
     }
 
     [Fact]
+    public void A_plain_lint_of_a_workspace_with_no_bundles_says_nothing_about_okf()
+    {
+        _workspace.Write(".hippo/config.json", "");
+        _workspace.Write("notes/fine.md", "# Fine\n");
+
+        var result = _workspace.Run("lint");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("", result.Stdout);
+        Assert.Equal("", result.Stderr);
+    }
+
+    [Fact]
     public void Frontmatter_that_fails_to_parse_outside_any_bundle_is_one_finding_and_exits_1()
     {
         _workspace.Write(".hippo/config.json", "");
