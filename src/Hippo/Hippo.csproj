@@ -67,6 +67,20 @@
     <InternalsVisibleTo Include="Hippo.Tests.Integration" />
   </ItemGroup>
 
+  <!-- The version flag prints the informational version, and this adds the commit hippo was built from, shortened
+       to 7 characters, as SemVer build metadata: 0.1.0-rc.1+d9d09f6. The SDK's own
+       IncludeSourceRevisionInInformationalVersion stays off in Directory.Build.props, since it appends all 40;
+       SourceRevisionId itself is left whole, as the package's repository commit uses it. A build outside a git
+       repository has no commit and prints the bare version. -->
+  <Target Name="AddShortCommitToInformationalVersion"
+          BeforeTargets="GetAssemblyAttributes"
+          DependsOnTargets="GetAssemblyVersion;InitializeSourceControlInformation"
+          Condition="'$(SourceControlInformationFeatureSupported)' == 'true'">
+    <PropertyGroup Condition="'$(SourceRevisionId)' != '' and !$(InformationalVersion.Contains('+'))">
+      <InformationalVersion>$(InformationalVersion)+$(SourceRevisionId.Substring(0, 7))</InformationalVersion>
+    </PropertyGroup>
+  </Target>
+
   <!-- Links SQLite into the native AOT binary. -->
   <Import Project="Sqlite.targets" />
 

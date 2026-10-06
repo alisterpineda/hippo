@@ -23,9 +23,9 @@ public class CliTests
     }
 
     [Fact]
-    public void Version_is_the_package_version()
+    public void Version_is_the_package_version_and_commit()
     {
-        Assert.Matches(@"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$", Cli.Version);
+        Assert.Matches(@"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?\+[0-9a-f]{7}$", Cli.Version);
     }
 
     /// <summary>Each command, then arguments it refuses, and the start of the error. <c>find</c> takes a lone

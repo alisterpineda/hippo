@@ -137,7 +137,8 @@ jobs:
           dotnet tool install hippo --tool-path artifacts/tool --configfile local-feed.nuget.config --version "$version"
           output=$(artifacts/tool/${{ matrix.command }} --version | tr -d '\r')
           echo "$output"
-          test "$output" = "$version"
+          # The version, then the commit it was built from: 0.1.0+d9d09f6.
+          [[ "$output" =~ ^"$version"\+[0-9a-f]{7}$ ]]
           echo "HIPPO_VERSION=$version" >> "$GITHUB_ENV"
 
       # SQLite is linked into the binary, so the tests below pass only if that link works.
@@ -208,7 +209,7 @@ jobs:
           dotnet tool install hippo --tool-path artifacts/any/tool --configfile artifacts/any/local-feed.nuget.config --version "$version"
           output=$(artifacts/any/tool/hippo --version)
           echo "$output"
-          test "$output" = "$version"
+          [[ "$output" =~ ^"$version"\+[0-9a-f]{7}$ ]]
 
       - name: Test the framework-dependent tool
         run: dotnet test tests/Hippo.Tests.E2E -c Release

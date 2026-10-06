@@ -11,6 +11,7 @@
          that replaces this one in every build, pack and test of the run. -->
     <Version>0.1.0</Version>
     <Version Condition="'$(HippoReleaseVersion)' != ''">$(HippoReleaseVersion)</Version>
+    <!-- Would append the full 40-character commit; src/Hippo/Hippo.csproj appends a short one instead. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 </Project>
