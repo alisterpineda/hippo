@@ -1,10 +1,11 @@
 name: Release
 
-# Credentials: NUGET_API_KEY is a secret on the `release` environment holding an nuget.org API key scoped to push the
-# hippo* package IDs. It is an environment secret, not a repository one, so it reaches only a job that the environment's
-# required reviewer approved; a repository secret would reach any workflow on any branch. The user adds it, and creates
-# the environment with its reviewer, before the first release (phase 5). Trusted publishing (the NuGet/login action, no
-# long-lived key) was considered and not chosen.
+# Credentials: nuget.org trusted publishing. The publish job trades the run's GitHub OIDC token for an nuget.org API key
+# that lasts an hour, so no long-lived key is stored. It needs a trusted publishing policy on nuget.org for this
+# repository, the workflow file release.yml and the `release` environment, and NUGET_USER, a secret on that environment
+# holding the nuget.org profile name (not the email address) of the policy's owner. On a private repository the policy
+# is only temporarily active until its first publish, and lapses if nothing publishes within 7 days of creating or
+# restarting it.
 
 on:
   push:
@@ -92,6 +93,8 @@ jobs:
     environment: release
     permissions:
       contents: write
+      # Lets the job request the OIDC token that NuGet/login trades for an API key.
+      id-token: write
     env:
       VERSION: ${{ needs.check.outputs.version }}
       TAG: ${{ needs.check.outputs.tag }}
@@ -152,13 +155,21 @@ jobs:
             exit 1
           fi
 
+      # The key lasts an hour, so it is requested just before the push. A rehearsal publishes nothing and skips it.
+      - name: Log in to nuget.org
+        id: login
+        if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
       # The package users install names the native packages and hippo.any, and installing it fails until the one the
       # CLI picks is on nuget.org, so it goes last. Every file is checked before the first push, so a missing one stops
       # the run before a partial push. --skip-duplicate lets a rerun after a partial failure resume.
       - name: Push the packages to nuget.org
         shell: bash
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: |
           set -euo pipefail
           files=()
