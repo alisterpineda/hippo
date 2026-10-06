@@ -2,7 +2,21 @@
 
 A standalone CLI that indexes a markdown workspace into a local SQLite cache and answers structural questions about it: what links where, what is broken, where a bundle departs from the standard it follows, and where a phrase appears.
 
-Status: phase 5 (full-text search). hippo indexes every file in the workspace, the frontmatter of every markdown file, every link out of a markdown file, and the text of every markdown file; it checks [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md) bundles against the format, and finds pages by what they say.
+hippo indexes every file in the workspace, the frontmatter of every markdown file, every link out of a markdown file, and the text of every markdown file; it checks [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md) bundles against the format, and finds pages by what they say.
+
+## Install
+
+```sh
+dotnet tool install -g hippo
+```
+
+This needs the .NET SDK 10 or later. The .NET CLI installs the native binary for your platform where there is one: macOS on Apple silicon (`osx-arm64`) or Intel (`osx-x64`), Linux x64 with glibc (`linux-x64`) or musl, as on Alpine (`linux-musl-x64`), and Windows x64 (`win-x64`). Elsewhere it installs a framework-dependent build that runs on the .NET runtime. `dotnet tool update -g hippo` upgrades it.
+
+Without the .NET SDK, download the archive for your platform from the [GitHub Releases page](https://github.com/alisterpineda/hippo/releases), `hippo-<version>-<rid>.tar.gz`, or `hippo-<version>-win-x64.zip` for Windows, and put the `hippo` binary it holds (`hippo.exe` on Windows) on your `PATH`.
+
+The macOS binaries are not notarized, so macOS blocks one downloaded through a browser on its first run. Clear the quarantine flag with `xattr -d com.apple.quarantine hippo`, or download the archive with `curl -LO` instead.
+
+On Linux x64 the binary needs glibc 2.38 or newer, which Ubuntu 24.04, Debian 13, Fedora 39 and RHEL 10 have; on older distributions such as Ubuntu 22.04, Debian 12 and RHEL 8 and 9 the installed tool does not start.
 
 ## Commands
 
@@ -261,7 +275,7 @@ A migration keeps the data in the index:
 
 ## Distribution
 
-Native AOT binaries are built per platform (`osx-arm64`, `osx-x64`, `linux-x64`, `linux-musl-x64`, `win-x64`) with the publish command above. Native AOT cannot cross-compile between operating systems, so a Mac builds only the two macOS binaries; CI builds each binary on its own OS, the musl one in an Alpine container. The `linux-x64` binary links against the glibc of the Ubuntu CI builds on and needs glibc 2.38 or later (Ubuntu 23.10, Debian 13, RHEL 10); CI fails if that rises. On an older glibc it does not start, and `dotnet tool install` picks it there all the same; building it against an older glibc would widen that.
+Native AOT binaries are built per platform (`osx-arm64`, `osx-x64`, `linux-x64`, `linux-musl-x64`, `win-x64`) with the publish command above. Native AOT cannot cross-compile between operating systems, so a Mac builds only the two macOS binaries; CI builds each binary on its own OS, the musl one in an Alpine container. The `linux-x64` binary's glibc floor, given in [Install](#install), is set by the Ubuntu runner image CI links it on, and CI fails if it rises. On an older glibc, `dotnet tool install` still picks that binary; building it against an older glibc would lower the floor.
 
 Each binary is a single file with SQLite linked in. The publish downloads the SQLite amalgamation pinned in `src/Hippo/Sqlite.targets` from sqlite.org, checks its SHA-256, compiles it with the C compiler the native AOT link uses (clang or gcc, or Visual Studio's C++ tools on Windows), and leaves out the `e_sqlite3` library the SQLitePCLRaw package ships. Every other build, the tests and the framework-dependent tool package included, still loads that package library, so the two must be the same SQLite version; a unit test fails when they differ. The package decides the version: SQLitePCLRaw.bundle_e_sqlite3, which Microsoft.Data.Sqlite brings in. To move to a new SQLite, move that package, then update the version, URL and SHA-256 in `Sqlite.targets` to match; the version's [release log](https://sqlite.org/changes.html) gives the SHA3-256 of its `sqlite3.c` to check the download against.
 
@@ -275,7 +289,7 @@ dotnet pack src/Hippo -c Release -o artifacts/nupkg                             
 
 Every package carries the same version. When publishing to a feed, push the package users install last, since installing it fails until the one it picks is there. CI uploads them all as the `tool-package` artifact.
 
-To install from the local feed, use `local-feed.nuget.config`. The `hippo` IDs are not reserved on nuget.org, so it maps them to the local feed alone:
+To install from the local feed, use `local-feed.nuget.config`. It maps the `hippo` IDs to the local feed, so a local install never pulls the published package:
 
 ```sh
 dotnet tool install hippo --tool-path artifacts/tool --configfile local-feed.nuget.config \
@@ -284,3 +298,9 @@ artifacts/tool/hippo
 ```
 
 The feed needs the package users install and the one for this platform. A leftover `bin/Release/net10.0/<rid>/publish/` folder is packed as it is, stale files included, so delete it before packing on a machine that published before.
+
+## Releasing
+
+To release, bump `Version` in `Directory.Build.props` and add a `CHANGELOG.md` section for that version. Commit both, tag the commit with `git tag -a v<version> -m "hippo <version>"`, and push the tag with `git push origin v<version>`. The tag must equal `v` plus `Version`, or the `check` job fails. Watch the `Release` run it starts with `gh run watch` or in the Actions tab. The workflow runs the full CI, then waits for the reviewer on the `release` environment. Once approved, it pushes the packages to nuget.org with the `NUGET_API_KEY` secret, in the order the Distribution section gives, the package users install last. It then attaches `hippo-<version>-<rid>.tar.gz` for each platform, `.zip` for `win-x64`, to a GitHub Release whose notes are the version's `CHANGELOG.md` section.
+
+If a push fails after some packages went up, rerun the `publish` job; `--skip-duplicate` passes the packages already on nuget.org. To rehearse a release, run the workflow from the Actions tab with `dry_run` on. It runs everything, the approval included, but prints the files and their order instead of publishing them.

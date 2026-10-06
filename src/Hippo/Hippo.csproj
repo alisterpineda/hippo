@@ -28,6 +28,11 @@
     <Authors>Alister Pineda</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Description>Indexes a markdown workspace into a local SQLite cache and answers structural questions about it.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/alisterpineda/hippo</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/alisterpineda/hippo</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>markdown;cli;index;links;search;okf;sqlite</PackageTags>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -51,6 +56,10 @@
   <ItemGroup>
     <!-- Exported from Hippo.Migrations by scripts/add-migration.sh; the migration runner applies them in order. -->
     <EmbeddedResource Include="Migrations/*.sql" LogicalName="Hippo.Migrations.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
   <ItemGroup>
