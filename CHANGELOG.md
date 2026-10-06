@@ -2,9 +2,9 @@
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Versions before 0.1.0 were never released.
+Nothing was released before 0.1.0 and its prereleases.
 
-## 0.1.0 - 2026-10-05
+## Unreleased
 
 ### Added
 

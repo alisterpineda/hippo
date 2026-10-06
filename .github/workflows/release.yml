@@ -31,15 +31,18 @@ jobs:
     # A tag whose name differs from the version in Directory.Build.props would ship packages and a release that
     # disagree, so the tag must be exactly v<Version>. A dispatch has no tag and takes its name from the version; one
     # that publishes must not find that tag already pushed, since gh release create would then bind this run's packages
-    # and archives to whatever commit the old tag names. A rehearsal is free to run at any version. CHANGELOG.md must
-    # have a section for the version, since the release takes its notes from it; a rehearsal checks this too, so it
-    # catches a missing section before the tag does.
+    # and archives to whatever commit the old tag names. A rehearsal is free to run at any version. The release takes
+    # its notes from a CHANGELOG.md section, so one must exist: the version's own for a stable version, and for a
+    # prerelease (a version with a "-", such as 0.1.0-rc.1) its own if there is one, else "Unreleased", so prereleases
+    # need no section of their own. A rehearsal checks this too, so it catches a missing section before the tag does.
     name: Check version
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      notes_section: ${{ steps.version.outputs.notes_section }}
     steps:
       - uses: actions/checkout@v5
 
@@ -67,16 +70,33 @@ jobs:
             echo "::error::Tag $tag already exists; a dispatch publishes only a version that has not been tagged yet."
             exit 1
           fi
-          # A heading is "## <version>" or "## [<version>]", alone or followed by " - <date>". The version is compared
-          # as a string, not a pattern, so 0.1.0 matches neither 0.1.01 nor 0x1y0.
-          if ! awk -v v="$version" '$1 == "##" && ($2 == v || $2 == "[" v "]") && (NF == 2 || $3 == "-") { found = 1 }
-              END { exit !found }' CHANGELOG.md; then
-            echo "::error::CHANGELOG.md has no heading for $version; add a \"## $version - <date>\" section."
+          # A heading is "## <name>" or "## [<name>]", alone or followed by " - <date>". The name is compared as a
+          # string, not a pattern, so 0.1.0 matches neither 0.1.01 nor 0x1y0.
+          has_section() {
+            awk -v v="$1" '$1 == "##" && ($2 == v || $2 == "[" v "]") && (NF == 2 || $3 == "-") { found = 1 }
+              END { exit !found }' CHANGELOG.md
+          }
+          case "$version" in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+          if has_section "$version"; then
+            section=$version
+          elif [ "$prerelease" = true ] && has_section Unreleased; then
+            section=Unreleased
+          elif [ "$prerelease" = true ]; then
+            echo "::error::CHANGELOG.md has neither a heading for $version nor an \"## Unreleased\" section."
+            exit 1
+          else
+            echo "::error::CHANGELOG.md has no heading for $version;" \
+              "rename \"## Unreleased\" to \"## $version - <date>\"."
             exit 1
           fi
-          echo "Version $version, tag $tag"
+          echo "Version $version, tag $tag, prerelease $prerelease, notes from the \"$section\" section"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "notes_section=$section" >> "$GITHUB_OUTPUT"
 
   ci:
     # The same pipeline as on main, so every package and binary published here was packed, installed and E2E-tested.
@@ -98,6 +118,8 @@ jobs:
     env:
       VERSION: ${{ needs.check.outputs.version }}
       TAG: ${{ needs.check.outputs.tag }}
+      PRERELEASE: ${{ needs.check.outputs.prerelease }}
+      NOTES_SECTION: ${{ needs.check.outputs.notes_section }}
       # A tag push has no inputs, so it always publishes.
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
       # The RIDs with a native binary, win-x64 aside, which ships hippo.exe in a zip. Must match the `native` matrix in
@@ -137,21 +159,21 @@ jobs:
           test -f artifacts/bin/hippo-win-x64/hippo.exe || { echo "::error::No hippo.exe binary for win-x64."; exit 1; }
           zip -j "artifacts/release/hippo-$VERSION-win-x64.zip" artifacts/bin/hippo-win-x64/hippo.exe
 
-      # The release notes are the version's CHANGELOG.md section: the lines after its heading, matched as the check job
-      # matches it, up to the next "## " heading, with blank lines trimmed from both ends. They are written before the
-      # first push, so a section with no text stops the run before anything is published.
+      # The release notes are the CHANGELOG.md section the check job chose: the lines after its heading, matched as the
+      # check job matches it, up to the next "## " heading, with blank lines trimmed from both ends. They are written
+      # before the first push, so a section with no text stops the run before anything is published.
       - name: Write the release notes
         shell: bash
         run: |
           set -euo pipefail
-          awk -v v="$VERSION" '
+          awk -v v="$NOTES_SECTION" '
             $1 == "##" { if (found) exit; found = ($2 == v || $2 == "[" v "]") && (NF == 2 || $3 == "-"); next }
             !found { next }
             NF == 0 { if (started) blanks++; next }
             { for (; blanks > 0; blanks--) print ""; print; started = 1 }
           ' CHANGELOG.md > artifacts/release-notes.md
           if [ ! -s artifacts/release-notes.md ]; then
-            echo "::error::The CHANGELOG.md section for $VERSION is empty or missing; the release needs its notes."
+            echo "::error::The CHANGELOG.md section \"$NOTES_SECTION\" is empty; the release needs its notes."
             exit 1
           fi
 
@@ -192,7 +214,7 @@ jobs:
           done
 
       # --target matters only on a dispatch, where the tag does not exist yet: gh would otherwise tag the default
-      # branch rather than the commit this run tested.
+      # branch rather than the commit this run tested. A prerelease is marked as one, so it never becomes "Latest".
       - name: Create the GitHub release
         shell: bash
         env:
@@ -204,12 +226,16 @@ jobs:
             archives+=("artifacts/release/hippo-$VERSION-$rid.tar.gz")
           done
           archives+=("artifacts/release/hippo-$VERSION-win-x64.zip")
+          flags=()
+          if [ "$PRERELEASE" = true ]; then
+            flags+=(--prerelease)
+          fi
           if [ "$DRY_RUN" = true ]; then
-            echo "Dry run: would create release $TAG titled \"hippo $VERSION\" with:"
+            echo "Dry run: would create release $TAG titled \"hippo $VERSION\" (prerelease: $PRERELEASE) with:"
             printf '  %s\n' "${archives[@]}"
             echo "and these notes:"
             cat artifacts/release-notes.md
             exit 0
           fi
           gh release create "$TAG" --title "hippo $VERSION" --notes-file artifacts/release-notes.md \
-            --target "$GITHUB_SHA" "${archives[@]}"
+            --target "$GITHUB_SHA" ${flags[@]+"${flags[@]}"} "${archives[@]}"
