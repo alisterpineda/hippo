@@ -19,8 +19,9 @@
     <!-- A native AOT tool package per RID, packed on its own OS with `dotnet pack -r <rid>`, and a framework-dependent
          package for every other platform, packed with `dotnet pack -r any -p:PublishAot=false`. A plain `dotnet pack`
          makes the package users install, which lists the others. The native RIDs must match the `native` job's matrix in
-         .github/workflows/ci.yml, which packs them, NATIVE_RIDS in .github/workflows/release.yml, which archives and
-         pushes them, and the list in the Distribution section of docs/dev/releasing.md. -->
+         .github/workflows/ci.yml, which packs and archives them (each entry sets `archive`), NATIVE_RIDS in
+         .github/workflows/release.yml, which checks and publishes them, and the list in the Distribution section of
+         docs/dev/releasing.md. -->
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>hippo</ToolCommandName>
     <ToolPackageRuntimeIdentifiers>osx-arm64;osx-x64;linux-x64;linux-musl-x64;win-x64;any</ToolPackageRuntimeIdentifiers>
