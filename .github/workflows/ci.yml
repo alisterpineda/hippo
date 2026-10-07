@@ -34,6 +34,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The script is the same on every OS, so one lint is enough; the Ubuntu image ships shellcheck.
+      - name: Lint the install script
+        if: matrix.os == 'ubuntu-latest'
+        run: shellcheck install.sh
+
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
@@ -75,8 +80,8 @@ jobs:
             exe: hippo
             command: hippo
             archive: tar.gz
-          # Pinned, not ubuntu-latest: the binary links against this image's glibc, and the README gives that
-          # version as the oldest the binary runs on. Moving the image can raise it, so move it on purpose.
+          # Pinned, not ubuntu-latest: the binary links against this image's glibc, and the README and install.sh
+          # give that version as the oldest the binary runs on. Moving the image can raise it, so move it on purpose.
           - os: ubuntu-24.04
             rid: linux-x64
             exe: hippo
@@ -97,10 +102,11 @@ jobs:
     container: ${{ matrix.container }}
     timeout-minutes: 30
     steps:
-      # The native AOT prerequisites, bash for the steps below, and git, which checkout and the E2E tests use.
+      # The native AOT prerequisites, bash for the steps below, git, which checkout and the E2E tests use, and curl and
+      # python3 for the install script's test: the script downloads with curl, and python3 serves it the archive.
       - name: Install Alpine packages
         if: matrix.container != ''
-        run: apk add --no-cache bash clang build-base zlib-dev git
+        run: apk add --no-cache bash clang build-base zlib-dev git curl python3
 
       - uses: actions/checkout@v5
 
@@ -121,7 +127,8 @@ jobs:
       - name: Test as a local run does
         run: dotnet test tests/Hippo.Tests.E2E -c Release
 
-      # The README gives 2.38 as the oldest glibc the linux-x64 binary runs on, set by the runner image it links against.
+      # The README gives 2.38 as the oldest glibc the linux-x64 binary runs on, set by the runner image it links against,
+      # and install.sh refuses an older one; a change to the floor changes both.
       - name: Check the glibc the binary needs
         if: matrix.rid == 'linux-x64'
         run: |
@@ -182,6 +189,102 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force artifacts/release | Out-Null
           Compress-Archive -Path artifacts/publish/${{ matrix.rid }}/${{ matrix.exe }} -DestinationPath "artifacts/release/hippo-$env:HIPPO_VERSION-${{ matrix.rid }}.zip"
+
+      # install.sh installs the archive as a user would, from a local server laid out as a release is. The server runs
+      # in this step because one started in a step is not guaranteed to outlive it. Not tested here, since both need a
+      # published release: the latest-release lookup, and the HTTPS download from GitHub that HIPPO_DOWNLOAD_BASE
+      # replaces. Both are checked by hand after a release.
+      #
+      # The checks use `case` and `if`, not `[[ ]]`: under set -e, the macOS runners' bash 3.2 carries on past a
+      # failing `[[ ]]`.
+      - name: Install from the archive
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          archive=hippo-$HIPPO_VERSION-${{ matrix.rid }}.tar.gz
+          serve=artifacts/serve/v$HIPPO_VERSION
+          mkdir -p "$serve"
+          cp "artifacts/release/$archive" "$serve/"
+          # macOS has shasum; Linux has sha256sum. Both write the same format.
+          if command -v sha256sum >/dev/null; then sha256=sha256sum; else sha256='shasum -a 256'; fi
+          sum=$(cd "$serve" && $sha256 "$archive")
+          hash=${sum%% *}
+          # SHA256SUMS as the release has it, a line per archive, with this archive's line neither first nor last.
+          # With no argument, it has no line for this archive.
+          write_sums() {
+            {
+              echo "$(printf '%064d' 0)  hippo-$HIPPO_VERSION-other-x64.tar.gz"
+              if [ -n "${1:-}" ]; then echo "$1  $archive"; fi
+              echo "$(printf '%064d' 0)  hippo-$HIPPO_VERSION-win-x64.zip"
+            } > "$serve/SHA256SUMS"
+            cat "$serve/SHA256SUMS"
+          }
+          write_sums "$hash"
+
+          python3 -m http.server 8000 --bind 127.0.0.1 --directory artifacts/serve &
+          server=$!
+          trap 'kill "$server"' EXIT
+          for _ in {1..50}; do
+            curl -fsS -o /dev/null "http://127.0.0.1:8000/v$HIPPO_VERSION/SHA256SUMS" 2>/dev/null && break
+            sleep 0.2
+          done
+
+          export HIPPO_DOWNLOAD_BASE=http://127.0.0.1:8000
+          installed=$GITHUB_WORKSPACE/artifacts/installed
+          refused=$GITHUB_WORKSPACE/artifacts/refused
+
+          check_version() {
+            output=$("$installed/hippo" --version)
+            case $output in
+              "$HIPPO_VERSION+"*) ;;
+              *) echo "::error::The installed hippo printed '$output', not $HIPPO_VERSION+<commit>."; exit 1 ;;
+            esac
+          }
+
+          # Runs install.sh with the given variables, and checks that it fails with the given message and installs
+          # nothing.
+          check_refused() {
+            message=$1
+            shift
+            if env HIPPO_INSTALL_DIR="$refused" "$@" sh install.sh 2> artifacts/refused.err; then
+              echo "::error::install.sh succeeded with $*; it should have refused with: $message"
+              exit 1
+            fi
+            cat artifacts/refused.err
+            if ! grep -qF "$message" artifacts/refused.err; then
+              echo "::error::install.sh failed without saying: $message"
+              exit 1
+            fi
+            if [ -e "$refused/hippo" ]; then
+              echo "::error::install.sh refused but installed $refused/hippo."
+              exit 1
+            fi
+          }
+
+          HIPPO_INSTALL_DIR=$installed sh install.sh
+          check_version
+
+          # A rerun is how a user updates, so it must replace the binary already there, here a stand-in, and accept
+          # a version with a leading v.
+          printf '#!/bin/sh\necho old\n' > "$installed/hippo"
+          HIPPO_INSTALL_DIR=$installed HIPPO_VERSION=v$HIPPO_VERSION sh install.sh
+          check_version
+          # The staging directory beside the binary is gone.
+          if [ "$(ls -A "$installed")" != hippo ]; then
+            echo "::error::$installed holds more than hippo: $(ls -A "$installed")"
+            exit 1
+          fi
+
+          # A version with no release names the asset it looked for, since a typo in HIPPO_VERSION is the likely cause.
+          check_refused "has no hippo-0.0.0-missing-${{ matrix.rid }}.tar.gz" HIPPO_VERSION=0.0.0-missing
+
+          write_sums
+          check_refused "has no line for $archive"
+
+          # One changed digit in the published checksum must stop the install.
+          case $hash in 0*) bad=1${hash#?} ;; *) bad=0${hash#?} ;; esac
+          write_sums "$bad"
+          check_refused "did not match the published checksum"
 
       # The archive, which the publish job in release.yml attaches to the release.
       - uses: actions/upload-artifact@v7

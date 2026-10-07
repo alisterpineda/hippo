@@ -2,7 +2,7 @@
 
 ## Distribution
 
-Native AOT binaries are built per platform (`osx-arm64`, `osx-x64`, `linux-x64`, `linux-musl-x64`, `win-x64`) with the publish command in [Build and test](building.md#build-and-test). Native AOT cannot cross-compile between operating systems, so a Mac builds only the two macOS binaries; CI builds each binary on its own OS, the musl one in an Alpine container. The `linux-x64` binary's glibc floor, given in [Install](../../README.md#install), is set by the Ubuntu runner image CI links it on, and CI fails if it rises. On an older glibc, `dotnet tool install` still picks that binary; building it against an older glibc would lower the floor.
+Native AOT binaries are built per platform (`osx-arm64`, `osx-x64`, `linux-x64`, `linux-musl-x64`, `win-x64`) with the publish command in [Build and test](building.md#build-and-test). Native AOT cannot cross-compile between operating systems, so a Mac builds only the two macOS binaries; CI builds each binary on its own OS, the musl one in an Alpine container. The `linux-x64` binary's glibc floor, given in [Install](../../README.md#install) and checked by `install.sh` before it downloads, is set by the Ubuntu runner image CI links it on, and CI fails if it rises. On an older glibc, `dotnet tool install` still picks that binary; building it against an older glibc would lower the floor.
 
 CI also archives each binary in the `native` job, once it has passed its tests, on the OS that built it. Each archive holds the binary alone, at its root. The `publish` job in the release workflow writes `SHA256SUMS` over the archives and attaches everything to the GitHub Release in one call. The release's assets are:
 
