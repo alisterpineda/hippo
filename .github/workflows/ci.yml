@@ -265,8 +265,11 @@ jobs:
           check_version
 
           # A rerun is how a user updates, so it must replace the binary already there, here a stand-in, and accept
-          # a version with a leading v.
-          printf '#!/bin/sh\necho old\n' > "$installed/hippo"
+          # a version with a leading v. The stand-in is renamed over the binary, as install.sh does, because writing
+          # into it can fail with "Text file busy" on Linux while a process still has it open to run.
+          printf '#!/bin/sh\necho old\n' > "$installed/hippo.stand-in"
+          chmod +x "$installed/hippo.stand-in"
+          mv -f "$installed/hippo.stand-in" "$installed/hippo"
           HIPPO_INSTALL_DIR=$installed HIPPO_VERSION=v$HIPPO_VERSION sh install.sh
           check_version
           # The staging directory beside the binary is gone.
