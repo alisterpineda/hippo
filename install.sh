@@ -137,8 +137,9 @@ main() {
         die "$asset did not match the published checksum in SHA256SUMS; nothing was installed"
 
     dir=${HIPPO_INSTALL_DIR:-$HOME/.local/bin}
-    mkdir -p "$dir" 2>/dev/null && [ -w "$dir" ] ||
+    if ! mkdir -p "$dir" 2>/dev/null || [ ! -w "$dir" ]; then
         die "cannot write to $dir; set HIPPO_INSTALL_DIR to a directory you can write to"
+    fi
     # Absolute, for the PATH checks and the line printed below.
     dir=$(cd "$dir" && pwd)
 
