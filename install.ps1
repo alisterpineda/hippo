@@ -30,7 +30,7 @@
         switch ($arch) {
             'AMD64' { $rid = 'win-x64' }
             'ARM64' { throw 'hippo has no Windows arm64 binary yet; install it as a .NET tool: dotnet tool install -g hippo' }
-            default { throw "hippo has no binary for Windows $arch; see Install in the README for other ways to get it: $repo#install" }
+            default { throw "hippo has no binary for Windows $arch; see $repo/blob/main/docs/install.md for other ways to get it" }
         }
 
         # The latest release is read from the redirect GitHub answers releases/latest with, which ends in its tag.

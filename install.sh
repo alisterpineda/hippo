@@ -84,11 +84,11 @@ main() {
             die "hippo has no Linux arm64 binary yet; install it as a .NET tool: dotnet tool install -g hippo"
             ;;
         *)
-            die "hippo has no binary for $os $arch; see Install in the README for other ways to get it: $repo#install"
+            die "hippo has no binary for $os $arch; see $repo/blob/main/docs/install.md for other ways to get it"
             ;;
     esac
 
-    # The linux-x64 binary links against the glibc of the image CI builds it on, and the README gives the same floor.
+    # The linux-x64 binary links against the glibc of the image CI builds it on, and docs/install.md gives the same floor.
     # Without getconf, the binary's own error on its first run is the fallback.
     glibc_floor=2.38
     if [ "$rid" = linux-x64 ] && libc=$(getconf GNU_LIBC_VERSION 2>/dev/null); then

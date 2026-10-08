@@ -87,7 +87,7 @@ jobs:
             exe: hippo
             command: hippo
             archive: tar.gz
-          # Pinned, not ubuntu-latest: the binary links against this image's glibc, and the README and install.sh
+          # Pinned, not ubuntu-latest: the binary links against this image's glibc, and docs/install.md and install.sh
           # give that version as the oldest the binary runs on. Moving the image can raise it, so move it on purpose.
           - os: ubuntu-24.04
             rid: linux-x64
@@ -134,7 +134,7 @@ jobs:
       - name: Test as a local run does
         run: dotnet test tests/Hippo.Tests.E2E -c Release
 
-      # The README gives 2.38 as the oldest glibc the linux-x64 binary runs on, set by the runner image it links against,
+      # docs/install.md gives 2.38 as the oldest glibc the linux-x64 binary runs on, set by the runner image it links against,
       # and install.sh refuses an older one; a change to the floor changes both.
       - name: Check the glibc the binary needs
         if: matrix.rid == 'linux-x64'
@@ -142,7 +142,7 @@ jobs:
           needed=$(objdump -T artifacts/publish/linux-x64/hippo | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
           echo "$needed"
           if [ "$(printf '%s\n' "$needed" GLIBC_2.38 | sort -V | tail -1)" != GLIBC_2.38 ]; then
-            echo "::error::The binary needs $needed, newer than the 2.38 the README gives."
+            echo "::error::The binary needs $needed, newer than the 2.38 docs/install.md gives."
             exit 1
           fi
 
