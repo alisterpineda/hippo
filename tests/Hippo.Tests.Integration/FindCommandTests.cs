@@ -164,7 +164,7 @@ public sealed class FindCommandTests : IDisposable
         var json = _workspace.Run("find", "--glob", "*.txt", "--json");
 
         Assert.Equal((0, ""), (text.ExitCode, text.Stdout));
-        Assert.Equal((0, "{\n  \"files\": []\n}"), (json.ExitCode, json.Stdout.Trim().ReplaceLineEndings("\n")));
+        Assert.Equal((0, "{\n  \"files\": [],\n  \"truncated\": false\n}"), (json.ExitCode, json.Stdout.Trim().ReplaceLineEndings("\n")));
     }
 
     [Fact]
@@ -334,7 +334,7 @@ public sealed class FindCommandTests : IDisposable
         var json = _workspace.Run("find", "kestrel", "--json");
 
         Assert.Equal((0, ""), (text.ExitCode, text.Stdout));
-        Assert.Equal((0, "{\n  \"files\": []\n}"), (json.ExitCode, json.Stdout.Trim().ReplaceLineEndings("\n")));
+        Assert.Equal((0, "{\n  \"files\": [],\n  \"truncated\": false\n}"), (json.ExitCode, json.Stdout.Trim().ReplaceLineEndings("\n")));
     }
 
     [Fact]
@@ -1117,6 +1117,146 @@ public sealed class FindCommandTests : IDisposable
         }
 
         Assert.Equal(Enumerable.Range(0, 20).Select(i => $"p{i:d2}.md"), Paths("heron"));
+    }
+
+    /// <summary>The whole object <c>find --json</c> prints, which holds <c>truncated</c> beside <c>files</c>.</summary>
+    private JsonElement Found(params string[] args)
+    {
+        var result = _workspace.Run(["find", .. args, "--json"]);
+        Assert.True(result.ExitCode == 0, $"exit {result.ExitCode}: {result.Stderr}");
+        Assert.Equal("", result.Stderr);
+        return JsonDocument.Parse(result.Stdout).RootElement;
+    }
+
+    private void WritePages(int count, string word, string folder = "")
+    {
+        for (var i = 0; i < count; i++)
+        {
+            _workspace.Write($"{folder}p{i:d2}.md", $"{word}\n");
+        }
+    }
+
+    [Fact]
+    public void A_query_cut_off_at_the_default_limit_is_truncated()
+    {
+        WritePages(21, "heron");
+
+        var found = Found("heron");
+
+        Assert.Equal(20, found.GetProperty("files").GetArrayLength());
+        Assert.True(found.GetProperty("truncated").GetBoolean());
+    }
+
+    [Fact]
+    public void A_query_cut_off_in_text_says_so_on_stderr_and_leaves_stdout_alone()
+    {
+        WritePages(21, "heron");
+
+        var result = _workspace.Run("find", "heron");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(40, Lines(result.Stdout).Length);
+        Assert.DoesNotContain("hippo:", result.Stdout);
+        Assert.Equal("hippo: showing the first 20 matches; --limit raises the cap\n", result.Stderr.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void A_query_with_exactly_as_many_matches_as_the_limit_is_not_truncated()
+    {
+        WritePages(20, "heron");
+
+        var found = Found("heron");
+        var text = _workspace.Run("find", "heron");
+
+        Assert.Equal(20, found.GetProperty("files").GetArrayLength());
+        Assert.False(found.GetProperty("truncated").GetBoolean());
+        Assert.Equal((0, ""), (text.ExitCode, text.Stderr));
+    }
+
+    [Fact]
+    public void A_listing_cut_off_by_limit_is_truncated()
+    {
+        WritePages(3, "heron");
+
+        var found = Found("--limit", "2");
+
+        Assert.Equal(["p00.md", "p01.md"], found.GetProperty("files").EnumerateArray().Select(f => f.GetProperty("path").GetString()));
+        Assert.True(found.GetProperty("truncated").GetBoolean());
+    }
+
+    [Fact]
+    public void A_listing_cut_off_in_text_says_so_on_stderr()
+    {
+        WritePages(3, "heron");
+
+        var result = _workspace.Run("find", "--limit", "2");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["p00.md", "p01.md"], Lines(result.Stdout));
+        Assert.Equal("hippo: showing the first 2 files; --limit raises the cap\n", result.Stderr.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void A_listing_with_exactly_as_many_kept_files_as_the_limit_is_not_truncated()
+    {
+        WritePages(3, "heron", "wiki/");
+        WritePages(2, "heron", "raw/");
+
+        var found = Found("--glob", "wiki/**", "--limit", "3");
+        var text = _workspace.Run("find", "--glob", "wiki/**", "--limit", "3");
+
+        Assert.Equal(3, found.GetProperty("files").GetArrayLength());
+        Assert.False(found.GetProperty("truncated").GetBoolean());
+        Assert.Equal((0, ""), (text.ExitCode, text.Stderr));
+    }
+
+    [Fact]
+    public void A_query_cut_off_by_limit_is_truncated()
+    {
+        WritePages(3, "heron");
+
+        var found = Found("heron", "--limit", "2");
+        var text = _workspace.Run("find", "heron", "--limit", "2");
+
+        Assert.Equal(2, found.GetProperty("files").GetArrayLength());
+        Assert.True(found.GetProperty("truncated").GetBoolean());
+        Assert.Equal("hippo: showing the first 2 matches; --limit raises the cap\n", text.Stderr.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void A_query_within_a_limit_above_the_default_is_not_truncated()
+    {
+        WritePages(25, "heron");
+
+        var found = Found("heron", "--limit", "30");
+        var text = _workspace.Run("find", "heron", "--limit", "30");
+
+        Assert.Equal(25, found.GetProperty("files").GetArrayLength());
+        Assert.False(found.GetProperty("truncated").GetBoolean());
+        Assert.Equal((0, ""), (text.ExitCode, text.Stderr));
+    }
+
+    [Fact]
+    public void A_listing_without_limit_is_never_truncated()
+    {
+        WritePages(30, "heron");
+
+        var found = Found();
+
+        Assert.Equal(30, found.GetProperty("files").GetArrayLength());
+        Assert.False(found.GetProperty("truncated").GetBoolean());
+    }
+
+    [Fact]
+    public void Truncated_counts_only_what_the_filters_keep()
+    {
+        WritePages(20, "heron", "wiki/");
+        WritePages(10, "heron", "raw/");
+
+        var found = Found("heron", "--glob", "wiki/**");
+
+        Assert.Equal(20, found.GetProperty("files").GetArrayLength());
+        Assert.False(found.GetProperty("truncated").GetBoolean());
     }
 
     [Theory]

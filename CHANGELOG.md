@@ -11,7 +11,7 @@ Nothing was released before 0.1.0 and its prereleases.
 - `hippo init` makes the current folder a workspace by writing a starter `.hippo/config.json`, which chooses the files indexed, the bundles, the frontmatter fields read as links, the lint settings and the search tokenizer.
 - `hippo index` brings the workspace's index, a local SQLite cache, up to date; every workspace command does this first, and `--rebuild` re-reads every file.
 - `hippo status` shows the workspace root, the database path, file counts and the last sweep.
-- `hippo find` lists the indexed files, filtered by path glob, kind, frontmatter condition (`--where`) or links in and out (`--no-refs`, `--no-backrefs`), and shows frontmatter fields with `--field`.
+- `hippo find` lists the indexed files, filtered by path glob, kind, frontmatter condition (`--where`) or links in and out (`--no-refs`, `--no-backrefs`), and shows frontmatter fields with `--field`; `--limit` caps the results, and `find` says when it cut them, in the JSON's `truncated` and on stderr.
 - `hippo show` shows what the index holds for one file.
 - `hippo refs` lists the links out of a file, body and frontmatter, and whether each target exists.
 - `hippo backrefs` lists the links into a file or folder, filtered by link kind or source, and with `--transitive` every file that reaches it.

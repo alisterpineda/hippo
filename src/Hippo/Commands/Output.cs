@@ -27,7 +27,8 @@ internal sealed record FindOutput(
     public string? Snippet => Marked?.Text;
 }
 
-internal sealed record FindListOutput(List<FindOutput> Files);
+/// <summary>What <c>find</c> lists. <see cref="Truncated"/> says the limit left out files that every filter kept.</summary>
+internal sealed record FindListOutput(List<FindOutput> Files, bool Truncated);
 
 internal sealed record ShowOutput(
     string Path, string Kind, long Size, DateTimeOffset Modified, string Hash, JsonElement? Frontmatter, string? ParseError);

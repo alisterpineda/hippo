@@ -122,6 +122,12 @@ internal static class FindCommand
             // Only JSON carries the title, and reading one reads its page's whole search row.
             var found = Run(options, session.Workspace, session.Db, titles: session.Json);
             session.Emit(found, OutputJson.Default.FindListOutput, (writer, results) => WriteText(writer, results.Files, options, session.Styled));
+            // Stdout stays the results alone, and under --json the field says it.
+            if (found.Truncated && !session.Json)
+            {
+                session.Error.WriteLine(
+                    $"hippo: showing the first {found.Files.Count} {(options.Query is null ? "files" : "matches")}; --limit raises the cap");
+            }
             return ExitCode.Clean;
         }));
         return command;
@@ -129,9 +135,10 @@ internal static class FindCommand
 
     /// <summary>
     /// What <c>find</c> lists for <paramref name="options"/>, as the records <c>--json</c> prints: without a query,
-    /// every indexed file in path order, and with one, the pages holding it, best match first, each with its snippet.
-    /// <paramref name="titles"/> says whether a listing carries each page's title, which costs reading its whole search
-    /// row; a query's results always carry it. Throws a <see cref="HippoException"/> for a query with no word in it.
+    /// every indexed file in path order, and with one, the pages holding it, best match first, each with its snippet,
+    /// and whether the limit left any out. <paramref name="titles"/> says whether a listing carries each page's title,
+    /// which costs reading its whole search row; a query's results always carry it. Throws a
+    /// <see cref="HippoException"/> for a query with no word in it.
     /// </summary>
     internal static FindListOutput Run(FindOptions options, Workspace workspace, SqliteConnection db, bool titles)
     {
@@ -144,10 +151,11 @@ internal static class FindCommand
             using var listing = db.BeginTransaction(deferred: true);
             var files = Keep(FileQueries.List(db, titles, readFrontmatter, listing), options, workspace, db, listing);
             listing.Commit();
-            return new FindListOutput(files.Take(options.Limit ?? int.MaxValue)
+            var cap = options.Limit ?? int.MaxValue;
+            return new FindListOutput(files.Take(cap)
                 .Select(f => new FindOutput(f.Path, f.Kind, f.Size, Format.Modified(f.Mtime), f.Title, f.ParseError, null,
                     Fields(options, f)))
-                .ToList());
+                .ToList(), files.Count > cap);
         }
 
         var search = SearchIndex.Query(text, workspace.Config.SearchTokenizer)
@@ -156,14 +164,15 @@ internal static class FindCommand
         // One read transaction, so the rows the matches name are still those rows when their snippets are read.
         using var transaction = db.BeginTransaction(deferred: true);
         var matches = Keep(SearchIndex.Matches(db, transaction, search, readFrontmatter), options, workspace, db, transaction);
-        var found = matches.Take(options.Limit ?? QueryLimit).Select(m =>
+        var limit = options.Limit ?? QueryLimit;
+        var found = matches.Take(limit).Select(m =>
         {
             var page = SearchIndex.Text(db, transaction, search, m.Id);
             return new FindOutput(m.Path, m.Kind, m.Size, Format.Modified(m.Mtime), page.Title, m.ParseError, page.Snippet,
                 Fields(options, m));
         }).ToList();
         transaction.Commit();
-        return new FindListOutput(found);
+        return new FindListOutput(found, matches.Count > limit);
     }
 
     /// <summary>The rows of <paramref name="rows"/> that every filter in <paramref name="options"/> keeps. The filters

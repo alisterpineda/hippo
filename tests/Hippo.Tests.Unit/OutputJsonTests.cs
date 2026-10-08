@@ -74,13 +74,14 @@ public class OutputJsonTests
               "parseError": "line 1: bad",
               "snippet": null
             }
-          ]
+          ],
+          "truncated": true
         }
         """,
         new FindListOutput([
             new FindOutput("wiki/heron.md", "markdown", 40, Time, "Herons", null, new SearchSnippet("The grey heron waits...", [])),
             new FindOutput("raw/day.md", "markdown", 4, Time, null, "line 1: bad", null),
-        ]),
+        ], Truncated: true),
         OutputJson.Default.FindListOutput);
 
     [Fact]
@@ -113,7 +114,8 @@ public class OutputJsonTests
               "snippet": null,
               "fields": {}
             }
-          ]
+          ],
+          "truncated": false
         }
         """,
         new FindListOutput([
@@ -124,7 +126,7 @@ public class OutputJsonTests
                 ["tags"] = JsonDocument.Parse("""["a"]""").RootElement,
             }),
             new FindOutput("raw/day.md", "markdown", 4, Time, null, "line 1: bad", null, []),
-        ]),
+        ], Truncated: false),
         OutputJson.Default.FindListOutput);
 
     [Fact]
