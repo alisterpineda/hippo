@@ -39,6 +39,13 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: shellcheck install.sh
 
+      # The same for install.ps1 with PSScriptAnalyzer, which the Windows image ships. Write-Host is how a script run by
+      # `irm | iex` talks to the user without its output landing in the pipeline, so that rule is off.
+      - name: Lint the install script
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: Invoke-ScriptAnalyzer -Path install.ps1 -ExcludeRule PSAvoidUsingWriteHost -EnableExit
+
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
@@ -292,6 +299,193 @@ jobs:
           case $hash in 0*) bad=1${hash#?} ;; *) bad=0${hash#?} ;; esac
           write_sums "$bad"
           check_refused "did not match the published checksum"
+
+      # install.ps1 installs the zip as the step above installs a tarball, under both Windows PowerShell 5.1, where
+      # `irm | iex` usually lands, and pwsh 7, run as a file and through `iex`. The server is stopped in a finally, in
+      # this step, for the same reason, and the same two paths are left to a check by hand after a release.
+      #
+      # The script adds each install directory to the runner's user PATH, as it would a user's; the runner is discarded
+      # with the job. A failing native command does not stop a pwsh step, so every run's exit code is checked.
+      - name: Install from the archive
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $release = $env:HIPPO_VERSION
+          $archive = "hippo-$release-${{ matrix.rid }}.zip"
+          $serve = "artifacts/serve/v$release"
+          New-Item -ItemType Directory -Force $serve | Out-Null
+          Copy-Item "artifacts/release/$archive" $serve
+          $hash = (Get-FileHash -Algorithm SHA256 "$serve/$archive").Hash.ToLowerInvariant()
+          $bad = $(if ($hash.StartsWith('0')) { '1' } else { '0' }) + $hash.Substring(1)
+          # SHA256SUMS as the release has it, a line per archive, with this archive's line neither first nor last, and
+          # the LF line endings sha256sum writes. With no argument, it has no line for this archive.
+          function Write-Sums($sum) {
+            $zero = '0' * 64
+            $lines = @("$zero  hippo-$release-other-x64.tar.gz")
+            if ($sum) { $lines += "$sum  $archive" }
+            $lines += "$zero  hippo-$release-osx-arm64.tar.gz"
+            [IO.File]::WriteAllText((Join-Path $PWD "$serve/SHA256SUMS"), ($lines -join "`n") + "`n")
+            Get-Content "$serve/SHA256SUMS"
+          }
+
+          # A release whose binary cannot start: its checksum matches, so only the script's own run of the binary can
+          # stop it replacing the installed one.
+          $broken = "hippo-0.0.0-broken-${{ matrix.rid }}.zip"
+          New-Item -ItemType Directory -Force artifacts/serve/v0.0.0-broken, artifacts/broken | Out-Null
+          Set-Content artifacts/broken/hippo.exe 'not a program'
+          Compress-Archive -Force -Path artifacts/broken/hippo.exe -DestinationPath "artifacts/serve/v0.0.0-broken/$broken"
+          $sum = (Get-FileHash -Algorithm SHA256 "artifacts/serve/v0.0.0-broken/$broken").Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $PWD artifacts/serve/v0.0.0-broken/SHA256SUMS), "$sum  $broken`n")
+
+          function Fail($message) {
+            Write-Host "::error::$message"
+            exit 1
+          }
+
+          # Runs install.ps1 under the given shell, as a file or, given a command, as that command runs it, and returns
+          # its exit code. Its output is kept in artifacts/install.out and its errors in artifacts/install.err.
+          function Invoke-Install($shell, $dir, $version, $command) {
+            $previous = $env:HIPPO_INSTALL_DIR, $env:HIPPO_VERSION
+            $env:HIPPO_INSTALL_DIR = $dir
+            $env:HIPPO_VERSION = $version
+            $run = if ($command) { '-Command', $command } else { '-File', 'install.ps1' }
+            try {
+              & $shell -NoProfile -ExecutionPolicy Bypass @run > artifacts/install.out 2> artifacts/install.err
+              $code = $LASTEXITCODE
+            } finally {
+              $env:HIPPO_INSTALL_DIR, $env:HIPPO_VERSION = $previous
+            }
+            Get-Content artifacts/install.out, artifacts/install.err | Out-Host
+            $code
+          }
+
+          function Assert-Installed($shell, $dir, $version = $release, $command) {
+            $code = Invoke-Install $shell $dir $version $command
+            if ($code -ne 0) { Fail "install.ps1 under $shell exited with $code." }
+            $output = & "$dir/hippo.exe" --version
+            if (-not "$output".StartsWith("$release+")) {
+              Fail "The installed hippo printed '$output', not $release+<commit>."
+            }
+          }
+
+          function Get-Hash($path) {
+            if (Test-Path $path) { (Get-FileHash -Algorithm SHA256 $path).Hash }
+          }
+
+          # Checks that install.ps1 refuses with the given message and leaves the directory's hippo.exe as it was, or
+          # absent. Run as a file, it must exit non-zero; through `iex`, the session must carry on past it.
+          function Assert-Refused($shell, $dir, $message, $version = $release, $command) {
+            $before = Get-Hash "$dir/hippo.exe"
+            $code = Invoke-Install $shell $dir $version $command
+            if ($command) {
+              if (-not "$(Get-Content -Raw artifacts/install.out)".Contains('still-alive')) {
+                Fail "install.ps1 through iex under $shell ended the session when it refused."
+              }
+            } elseif ($code -eq 0) {
+              Fail "install.ps1 under $shell succeeded; it should have refused with: $message"
+            }
+            if (-not "$(Get-Content -Raw artifacts/install.err)".Contains($message)) {
+              Fail "install.ps1 under $shell failed without saying: $message"
+            }
+            if ((Get-Hash "$dir/hippo.exe") -ne $before) { Fail "install.ps1 under $shell refused but changed $dir/hippo.exe." }
+          }
+
+          function Assert-Holds($dir, $expected) {
+            $names = (Get-ChildItem -Force $dir | Sort-Object Name).Name -join ' '
+            if ($names -ne $expected) { Fail "$dir holds $names, not $expected." }
+          }
+
+          # The user PATH as a new profile has it: REG_EXPAND_SZ, with an entry that names a variable. The script must
+          # add to it without expanding that entry or changing the kind, and add each directory once.
+          $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+          $seeded = @("$($key.GetValue('Path', '', 'DoNotExpandEnvironmentNames'))" -split ';' | Where-Object { $_ }) + '%SystemRoot%\hippo-ci'
+          $key.SetValue('Path', $seeded -join ';', 'ExpandString')
+          $key.Dispose()
+          $added = @()
+
+          $iex = 'Get-Content -Raw install.ps1 | Invoke-Expression'
+          $server = Start-Process python -ArgumentList '-m', 'http.server', '8000', '--bind', '127.0.0.1', '--directory', 'artifacts/serve' -NoNewWindow -PassThru
+          try {
+            Write-Sums $hash
+            for ($i = 0; $i -lt 50; $i++) {
+              try {
+                Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8000/v$release/SHA256SUMS" | Out-Null
+                break
+              } catch {
+                Start-Sleep -Milliseconds 200
+              }
+            }
+            $env:HIPPO_DOWNLOAD_BASE = 'http://127.0.0.1:8000'
+
+            foreach ($shell in 'powershell', 'pwsh') {
+              $installed = "$env:GITHUB_WORKSPACE/artifacts/installed-$shell"
+              $iexed = "$env:GITHUB_WORKSPACE/artifacts/iex-$shell"
+              $refused = "$env:GITHUB_WORKSPACE/artifacts/refused-$shell"
+              $added += [IO.Path]::GetFullPath($installed), [IO.Path]::GetFullPath($iexed)
+              Write-Sums $hash
+              Assert-Installed $shell $installed
+
+              # A rerun is how a user updates, so it must replace the binary already there, here a stand-in, and
+              # accept a version with a leading v.
+              Set-Content "$installed/hippo.exe" 'stand-in'
+              Assert-Installed $shell $installed "v$release"
+              # Nothing the script unpacked is left beside the binary.
+              Assert-Holds $installed hippo.exe
+
+              # Windows renames a running exe but will not overwrite it, so a rerun moves it aside to hippo.exe.old. A
+              # handle that shares reading and renaming, but not writing, holds the binary as a running hippo does.
+              $held = [IO.File]::Open("$installed/hippo.exe", 'Open', 'Read', 'Read, Delete')
+              try {
+                Assert-Installed $shell $installed
+              } finally {
+                $held.Close()
+              }
+              Assert-Holds $installed 'hippo.exe hippo.exe.old'
+              # Once nothing holds it, the next run deletes it.
+              Assert-Installed $shell $installed
+              Assert-Holds $installed hippo.exe
+
+              Assert-Refused $shell $installed 'did not run on this system' 0.0.0-broken
+
+              # `irm | iex` runs the script in the user's session, where hippo must then run by name.
+              Assert-Installed $shell $iexed -command "$iex; (Get-Command hippo).Source"
+              $found = @(Get-Content artifacts/install.out)[-1]
+              if ($found -ne [IO.Path]::GetFullPath("$iexed/hippo.exe")) {
+                Fail "After install.ps1 through iex under $shell, hippo runs $found, not $iexed/hippo.exe."
+              }
+
+              # A version with no release names the asset it looked for, since a typo in HIPPO_VERSION is the likely
+              # cause.
+              Assert-Refused $shell $refused "has no hippo-0.0.0-missing-${{ matrix.rid }}.zip" 0.0.0-missing
+
+              Write-Sums
+              Assert-Refused $shell $refused "has no line for $archive"
+
+              # One changed digit in the published checksum must stop the install.
+              Write-Sums $bad
+              Assert-Refused $shell $refused 'did not match the published checksum'
+              # Through iex, exit would close the user's terminal, so a refusal must leave the session running.
+              Assert-Refused $shell $refused 'did not match the published checksum' -command "$iex; 'still-alive'"
+            }
+          } finally {
+            Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
+          }
+
+          $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
+          $kind = $key.GetValueKind('Path')
+          $entries = @($key.GetValue('Path', '', 'DoNotExpandEnvironmentNames') -split ';')
+          $key.Dispose()
+          if ($kind -ne 'ExpandString') { Fail "The user PATH is $kind after the installs, not ExpandString." }
+          foreach ($entry in $seeded) {
+            if ($entry -notin $entries) { Fail "The installs dropped or changed '$entry' in the user PATH: $($entries -join ';')" }
+          }
+          foreach ($dir in $added) {
+            $count = @($entries | Where-Object { $_ -eq $dir }).Count
+            if ($count -ne 1) { Fail "The user PATH holds $dir $count times, not once: $($entries -join ';')" }
+          }
+
+          # GitHub ends a pwsh step with `exit $LASTEXITCODE`, which the last refusal left at 1.
+          exit 0
 
       # The archive, which the publish job in release.yml attaches to the release.
       - uses: actions/upload-artifact@v7
