@@ -128,7 +128,7 @@ reading-list.md  status=active
 
 ## Configuration
 
-`.hippo/config.json` chooses which files are indexed, which folders are bundles, which frontmatter fields are links, which lint rules run, and how search matches words. The starter `hippo init` writes indexes every file but those git ignores and the `.git`, `.obsidian` and `.trash` folders, and shows the other settings commented out. [docs/config.md](https://github.com/alisterpineda/hippo/blob/main/docs/config.md) describes every key.
+`.hippo/config.json` chooses which files are indexed, which folders are bundles, which frontmatter fields are links, which lint rules run, and how search matches words. A bundle is a folder whose pages treat it as their root, so a leading `/` in a link on one of them resolves against the bundle rather than the workspace root; a bundle whose root `index.md` declares `okf_version` is an OKF bundle. The starter `hippo init` writes indexes every file but those git ignores and the `.git`, `.obsidian` and `.trash` folders, and shows the other settings commented out. [docs/config.md](https://github.com/alisterpineda/hippo/blob/main/docs/config.md) describes every key.
 
 ## Documentation
 
