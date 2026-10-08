@@ -54,10 +54,11 @@ internal sealed record WorkspaceSession(
     /// writes it. Both print the one value, so the two forms say the same.</summary>
     public void Emit<T>(T value, JsonTypeInfo<T> json, Action<TextWriter, T> text) => Emit(Output, Json, value, json, text);
 
-    /// <summary>Prints <paramref name="items"/> as a JSON array under <c>--json</c>, and otherwise one
-    /// <paramref name="line"/> per item.</summary>
-    public void EmitList<T>(List<T> items, JsonTypeInfo<List<T>> json, Func<T, string> line) =>
-        EmitList(Output, Json, items, json, line);
+    /// <summary>Prints <paramref name="value"/>, an object holding a list, as JSON under <c>--json</c>, and otherwise one
+    /// <paramref name="line"/> per item of the list <paramref name="items"/> picks out of it. Both print the one value,
+    /// so the two forms say the same.</summary>
+    public void EmitList<T, TItem>(T value, JsonTypeInfo<T> json, Func<T, List<TItem>> items, Func<TItem, string> line) =>
+        EmitList(Output, Json, value, json, items, line);
 
     /// <summary><see cref="Emit{T}(T, JsonTypeInfo{T}, Action{TextWriter, T})"/> for a command that opens no
     /// session.</summary>
@@ -73,12 +74,13 @@ internal sealed record WorkspaceSession(
         }
     }
 
-    /// <summary><see cref="EmitList{T}(List{T}, JsonTypeInfo{List{T}}, Func{T, string})"/> for a command that opens no
-    /// session.</summary>
-    public static void EmitList<T>(TextWriter output, bool asJson, List<T> items, JsonTypeInfo<List<T>> json, Func<T, string> line) =>
-        Emit(output, asJson, items, json, (writer, list) =>
+    /// <summary><see cref="EmitList{T, TItem}(T, JsonTypeInfo{T}, Func{T, List{TItem}}, Func{TItem, string})"/> for a
+    /// command that opens no session.</summary>
+    public static void EmitList<T, TItem>(
+        TextWriter output, bool asJson, T value, JsonTypeInfo<T> json, Func<T, List<TItem>> items, Func<TItem, string> line) =>
+        Emit(output, asJson, value, json, (writer, v) =>
         {
-            foreach (var item in list)
+            foreach (var item in items(v))
             {
                 writer.WriteLine(line(item));
             }

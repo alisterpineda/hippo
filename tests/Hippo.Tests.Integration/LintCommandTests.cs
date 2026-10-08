@@ -8,10 +8,12 @@ public sealed class LintCommandTests : IDisposable
 
     public void Dispose() => _workspace.Dispose();
 
-    private static JsonElement Json(TestWorkspace.Result result, int exitCode)
+    /// <summary>The list a command's JSON holds under <paramref name="key"/>: <c>lint</c>'s findings unless another
+    /// is named.</summary>
+    private static JsonElement Json(TestWorkspace.Result result, int exitCode, string key = "findings")
     {
         Assert.True(result.ExitCode == exitCode, $"exit {result.ExitCode}: {result.Stderr}");
-        return JsonDocument.Parse(result.Stdout).RootElement;
+        return JsonDocument.Parse(result.Stdout).RootElement.GetProperty(key);
     }
 
     private static string[] Lines(string text) => text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -482,7 +484,7 @@ public sealed class LintCommandTests : IDisposable
     }
 
     private List<string> Refs(string path) =>
-        Json(_workspace.Run("refs", path, "--json"), 0).EnumerateArray()
+        Json(_workspace.Run("refs", path, "--json"), 0, "links").EnumerateArray()
             .Select(l => $"{l.GetProperty("line").GetInt32()} {l.GetProperty("kind").GetString()} {l.GetProperty("type").GetString()} {l.GetProperty("target").GetString()}")
             .ToList();
 
@@ -861,7 +863,7 @@ public sealed class LintCommandTests : IDisposable
         _workspace.Write("notes/a.md", "---\na: [\n---\n");
         _workspace.Write("notes/b.md", "---\n- not\n- a mapping\n---\n");
 
-        var errors = Json(_workspace.Run("find", "--errors", "--json"), 0).EnumerateArray().Select(f => f.GetProperty("path").GetString()).ToList();
+        var errors = Json(_workspace.Run("find", "--errors", "--json"), 0, "files").EnumerateArray().Select(f => f.GetProperty("path").GetString()).ToList();
         var findings = Json(_workspace.Run("lint", "--rule", "frontmatter-syntax", "--json"), 1).EnumerateArray()
             .Select(f => f.GetProperty("path").GetString()).ToList();
 
@@ -902,7 +904,7 @@ public sealed class LintCommandTests : IDisposable
     {
         WriteArchive("[old](../archive/old.md)\n");
 
-        var refs = Json(_workspace.Run("refs", "notes/a.md", "--json"), 0);
+        var refs = Json(_workspace.Run("refs", "notes/a.md", "--json"), 0, "links");
 
         Assert.Equal("file", Assert.Single(refs.EnumerateArray()).GetProperty("type").GetString());
         Assert.Equal(["archive/old.md", "notes/a.md"], Lines(_workspace.Run("find").Stdout));

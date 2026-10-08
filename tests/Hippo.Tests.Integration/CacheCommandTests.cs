@@ -14,10 +14,12 @@ public sealed class CacheCommandTests : IDisposable
 
     public void Dispose() => _workspace.Dispose();
 
-    private static JsonElement Json(TestWorkspace.Result result)
+    /// <summary>The JSON a command printed, or with <paramref name="key"/> the list it holds under that key.</summary>
+    private static JsonElement Json(TestWorkspace.Result result, string? key = null)
     {
         Assert.True(result.ExitCode == ExitCode.Clean, $"exit {result.ExitCode}: {result.Stderr}");
-        return JsonDocument.Parse(result.Stdout).RootElement;
+        var json = JsonDocument.Parse(result.Stdout).RootElement;
+        return key is null ? json : json.GetProperty(key);
     }
 
     private static List<(string? Root, string State)> Entries(JsonElement json) =>
@@ -27,7 +29,7 @@ public sealed class CacheCommandTests : IDisposable
     private static List<(string? Root, string State)> InListOrder(params (string? Root, string State)[] entries) =>
         entries.OrderBy(e => e.Root is null).ThenBy(e => e.Root, StringComparer.Ordinal).ToList();
 
-    private List<(string? Root, string State)> List() => Entries(Json(_workspace.Run("cache", "list", "--json")));
+    private List<(string? Root, string State)> List() => Entries(Json(_workspace.Run("cache", "list", "--json"), "indexes"));
 
     /// <summary>Runs a command in the workspace at <paramref name="root"/>, so the cache holds its index, and returns
     /// the root as the index records it.</summary>
@@ -70,7 +72,7 @@ public sealed class CacheCommandTests : IDisposable
     {
         var database = DatabaseOf(_workspace.Root);
 
-        var index = Assert.Single(Json(_workspace.Run("cache", "list", "--json")).EnumerateArray());
+        var index = Assert.Single(Json(_workspace.Run("cache", "list", "--json"), "indexes").EnumerateArray());
         Assert.Equal(CanonicalPath.Of(_workspace.Root), index.GetProperty("root").GetString());
         Assert.Equal("live", index.GetProperty("state").GetString());
         Assert.Equal(database, index.GetProperty("database").GetString());
@@ -86,8 +88,8 @@ public sealed class CacheCommandTests : IDisposable
         CopyFolder(_workspace.Root, copy);
         File.WriteAllText(Path.Combine(copy, "b.md"), "# B\n");
 
-        var original = Json(_workspace.Run("find", "--json")).EnumerateArray().Select(f => f.GetProperty("path").GetString());
-        var copied = Json(_workspace.RunIn(copy, "find", "--json")).EnumerateArray().Select(f => f.GetProperty("path").GetString());
+        var original = Json(_workspace.Run("find", "--json"), "files").EnumerateArray().Select(f => f.GetProperty("path").GetString());
+        var copied = Json(_workspace.RunIn(copy, "find", "--json"), "files").EnumerateArray().Select(f => f.GetProperty("path").GetString());
 
         Assert.Equal(["a.md"], original);
         Assert.Equal(["a.md", "b.md"], copied);
@@ -177,7 +179,7 @@ public sealed class CacheCommandTests : IDisposable
         Unmount(drive);
 
         Assert.Equal([(root, "unreachable")], List());
-        Assert.Empty(Json(_workspace.Run("cache", "prune", "--json")).EnumerateArray());
+        Assert.Empty(Json(_workspace.Run("cache", "prune", "--json"), "removed").EnumerateArray());
         Assert.Equal([(root, "unreachable")], List());
     }
 
@@ -243,7 +245,7 @@ public sealed class CacheCommandTests : IDisposable
         var empty = Path.Combine(_workspace.CacheDir, new string('c', 64));
         Directory.CreateDirectory(empty);
 
-        var json = Json(_workspace.Run("cache", "list", "--json"));
+        var json = Json(_workspace.Run("cache", "list", "--json"), "indexes");
 
         Assert.All(Entries(json), i => Assert.Equal((null, "unknown"), i));
         Assert.Equal(
@@ -266,7 +268,7 @@ public sealed class CacheCommandTests : IDisposable
         var result = _workspace.RunWith(
             new Dictionary<string, string> { ["HIPPO_CACHE_DIR"] = _workspace.Beside("nowhere") }, "cache", "list", "--json");
 
-        Assert.Empty(Json(result).EnumerateArray());
+        Assert.Empty(Json(result, "indexes").EnumerateArray());
         Assert.False(Directory.Exists(_workspace.Beside("nowhere")));
     }
 
@@ -297,9 +299,10 @@ public sealed class CacheCommandTests : IDisposable
         var orphanDatabase = Path.Combine(_workspace.CacheDir, CacheLocation.FolderName(orphan), CacheLocation.DatabaseName);
         Assert.True(File.Exists(orphanDatabase));
 
-        var removed = Json(_workspace.Run("cache", "prune", "--json"));
+        var json = Json(_workspace.Run("cache", "prune", "--json"));
 
-        Assert.Equal([(orphan, "orphaned")], Entries(removed));
+        Assert.False(json.GetProperty("dryRun").GetBoolean());
+        Assert.Equal([(orphan, "orphaned")], Entries(json.GetProperty("removed")));
         Assert.False(Directory.Exists(Path.GetDirectoryName(orphanDatabase)));
         Assert.Equal(InListOrder((live, "live"), (unreachable, "unreachable"), (null, "unknown")), List());
         Assert.DoesNotContain(Directory.EnumerateDirectories(_workspace.CacheDir), folder => folder.EndsWith(".removing", StringComparison.Ordinal));
@@ -310,10 +313,11 @@ public sealed class CacheCommandTests : IDisposable
     {
         var orphan = Orphan("gone");
 
-        var removed = Json(_workspace.Run("cache", "prune", "--dry-run", "--json"));
+        var json = Json(_workspace.Run("cache", "prune", "--dry-run", "--json"));
         var text = _workspace.Run("cache", "prune", "--dry-run");
 
-        Assert.Equal([(orphan, "orphaned")], Entries(removed));
+        Assert.True(json.GetProperty("dryRun").GetBoolean());
+        Assert.Equal([(orphan, "orphaned")], Entries(json.GetProperty("removed")));
         Assert.Contains($"Would remove {orphan} (", text.Stdout);
         Assert.Contains("Would remove 1 index, ", text.Stdout);
         Assert.Equal([(orphan, "orphaned")], List());
@@ -327,7 +331,7 @@ public sealed class CacheCommandTests : IDisposable
         var unreachable = Unreachable();
         Unrecorded();
 
-        var removed = Json(_workspace.Run("cache", "prune", "--include-unreachable", "--json"));
+        var removed = Json(_workspace.Run("cache", "prune", "--include-unreachable", "--json"), "removed");
 
         Assert.Equal(InListOrder((orphan, "orphaned"), (unreachable, "unreachable")), Entries(removed));
         Assert.Equal(InListOrder((live, "live"), (null, "unknown")), List());
@@ -353,7 +357,7 @@ public sealed class CacheCommandTests : IDisposable
             }
 
             Assert.Equal([(root, "unreachable")], List());
-            Assert.Empty(Json(_workspace.Run("cache", "prune", "--json")).EnumerateArray());
+            Assert.Empty(Json(_workspace.Run("cache", "prune", "--json"), "removed").EnumerateArray());
             Assert.Equal([(root, "unreachable")], List());
         }
         finally
@@ -445,7 +449,7 @@ public sealed class CacheCommandTests : IDisposable
             var first = _workspace.Run("cache", "prune", "--json");
             var second = _workspace.Run("cache", "prune");
 
-            Assert.Equal(InListOrder((stuck, "orphaned"), (other, "orphaned")), Entries(Json(first)));
+            Assert.Equal(InListOrder((stuck, "orphaned"), (other, "orphaned")), Entries(Json(first, "removed")));
             Assert.Contains("hippo: warning: cannot delete ", first.Stderr);
             Assert.Empty(List());
             Assert.Equal(ExitCode.Clean, second.ExitCode);

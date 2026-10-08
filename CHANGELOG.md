@@ -20,7 +20,7 @@ Nothing was released before 0.1.0 and its prereleases.
 - `hippo cache prune` removes the indexes of workspaces that were deleted, moved or renamed, with `--dry-run` and `--include-unreachable`.
 - OKF v0.2 checks: a folder listed in `bundles` whose root `index.md` declares `okf_version` is an OKF bundle, its path fields are links, and `lint` checks it with the rules `okf-type`, `okf-index-frontmatter`, `okf-log-date`, `okf-source-resource`, `okf-footnote`, `okf-timestamp`, `okf-actor`, `okf-status`, `okf-index` and `okf-version`.
 - Full-text search: `hippo find "<query>"` finds the pages holding every word and phrase of the query in their title, description, path or body, ranks them by BM25 and shows a snippet of each, with the `porter` tokenizer by default or `trigram` for substrings.
-- `--json` on every command but `init` prints JSON instead of text.
+- `--json` on every command but `init` prints JSON instead of text, always an object; a command that lists things holds them under a key naming what they are, such as `files` or `findings`.
 - `hippo --version` prints the version and the commit it was built from, such as `0.1.0+d9d09f6`.
 - Native AOT binaries for `osx-arm64`, `osx-x64`, `linux-x64` (glibc 2.38 or newer), `linux-musl-x64` and `win-x64`, as `dotnet tool` packages and as archives on the GitHub release, plus a framework-dependent `dotnet tool` package for other platforms; `dotnet tool install -g hippo` picks the right one.
 - Install scripts for macOS, Linux and Windows, `install.sh` and `install.ps1`, which install the archive for the platform after checking it against `SHA256SUMS`, a file of SHA-256 checksums on each GitHub release.

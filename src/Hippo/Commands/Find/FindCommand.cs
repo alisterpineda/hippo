@@ -121,7 +121,7 @@ internal static class FindCommand
             var options = Bind(result);
             // Only JSON carries the title, and reading one reads its page's whole search row.
             var found = Run(options, session.Workspace, session.Db, titles: session.Json);
-            session.Emit(found, OutputJson.Default.ListFindOutput, (writer, results) => WriteText(writer, results, options, session.Styled));
+            session.Emit(found, OutputJson.Default.FindListOutput, (writer, results) => WriteText(writer, results.Files, options, session.Styled));
             return ExitCode.Clean;
         }));
         return command;
@@ -133,7 +133,7 @@ internal static class FindCommand
     /// <paramref name="titles"/> says whether a listing carries each page's title, which costs reading its whole search
     /// row; a query's results always carry it. Throws a <see cref="HippoException"/> for a query with no word in it.
     /// </summary>
-    internal static List<FindOutput> Run(FindOptions options, Workspace workspace, SqliteConnection db, bool titles)
+    internal static FindListOutput Run(FindOptions options, Workspace workspace, SqliteConnection db, bool titles)
     {
         // Only the frontmatter filters and fields read a file's frontmatter, so without them it is not read at all.
         var readFrontmatter = options.Where.Count > 0 || options.Fields is not null;
@@ -144,10 +144,10 @@ internal static class FindCommand
             using var listing = db.BeginTransaction(deferred: true);
             var files = Keep(FileQueries.List(db, titles, readFrontmatter, listing), options, workspace, db, listing);
             listing.Commit();
-            return files.Take(options.Limit ?? int.MaxValue)
+            return new FindListOutput(files.Take(options.Limit ?? int.MaxValue)
                 .Select(f => new FindOutput(f.Path, f.Kind, f.Size, Format.Modified(f.Mtime), f.Title, f.ParseError, null,
                     Fields(options, f)))
-                .ToList();
+                .ToList());
         }
 
         var search = SearchIndex.Query(text, workspace.Config.SearchTokenizer)
@@ -163,7 +163,7 @@ internal static class FindCommand
                 Fields(options, m));
         }).ToList();
         transaction.Commit();
-        return found;
+        return new FindListOutput(found);
     }
 
     /// <summary>The rows of <paramref name="rows"/> that every filter in <paramref name="options"/> keeps. The filters

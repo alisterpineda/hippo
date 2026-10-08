@@ -37,13 +37,24 @@ public sealed class TempWorkspace : WorkspaceFixture
     }
 
     /// <summary>What a smoke test checks: hippo, run with <c>--json</c>, exits with <paramref name="exitCode"/>, writes
-    /// nothing to stderr, and writes a non-empty JSON value of <paramref name="kind"/> to stdout.</summary>
-    public async Task SmokeAsync(int exitCode, JsonValueKind kind, params string[] args)
+    /// nothing to stderr, and writes a non-empty JSON object to stdout. A command that lists things uses
+    /// <see cref="SmokeListAsync"/>.</summary>
+    public async Task SmokeAsync(int exitCode, params string[] args)
     {
         var json = await JsonAsync(exitCode, args);
 
-        Assert.Equal(kind, json.ValueKind);
-        Assert.True(kind == JsonValueKind.Array ? json.GetArrayLength() > 0 : json.EnumerateObject().Any(), $"empty JSON: {json}");
+        Assert.Equal(JsonValueKind.Object, json.ValueKind);
+        Assert.True(json.EnumerateObject().Any(), $"empty JSON: {json}");
+    }
+
+    /// <summary><see cref="SmokeAsync"/> for a command that lists things: the list under <paramref name="list"/> must be
+    /// non-empty, since an object holding an empty list is not empty itself.</summary>
+    public async Task SmokeListAsync(int exitCode, string list, params string[] args)
+    {
+        var json = await JsonAsync(exitCode, args);
+
+        Assert.Equal(JsonValueKind.Object, json.ValueKind);
+        Assert.True(json.GetProperty(list).GetArrayLength() > 0, $"empty JSON: {json}");
     }
 
     /// <summary>The sample's <c>wiki/index.md</c>, for a test that rewrites it with something added.</summary>

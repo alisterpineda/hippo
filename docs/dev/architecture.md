@@ -26,7 +26,7 @@ Three shared pieces live here too:
 
 - `WorkspaceSession` is what every workspace command starts from. It finds the workspace, opens and migrates its index, runs the sweep, and hands the command its output writers and the `--json` flag. A command never opens a database itself.
 - `Guard` is where every failure ends: a `HippoException` prints its message, anything else prints whole, and both exit 2.
-- `Output.cs` holds the `--json` records, the source-generated serializer for them, and `Format`, the text helpers. The JSON records are hippo's contract with scripts, so each is a record of its own and never a row type from `Indexing/`.
+- `Output.cs` holds the `--json` records, the source-generated serializer for them, and `Format`, the text helpers. The JSON records are hippo's contract with scripts, so each is a record of its own and never a row type from `Indexing/`. Every command prints an object, and a list sits under a key naming what it holds, so fields can be added beside it without breaking a script.
 
 A command that has helpers of its own gets a folder, named for the command, with a namespace to match. `Find/` is the one so far and the pattern for the rest:
 

@@ -8,10 +8,12 @@ public sealed class LinkCommandTests : IDisposable
 
     public void Dispose() => _workspace.Dispose();
 
-    private static JsonElement Json(TestWorkspace.Result result, int exitCode = 0)
+    /// <summary>The list a command's JSON holds under <paramref name="key"/>: the links <c>refs</c> and
+    /// <c>backrefs</c> print, unless another is named.</summary>
+    private static JsonElement Json(TestWorkspace.Result result, int exitCode = 0, string key = "links")
     {
         Assert.True(result.ExitCode == exitCode, $"exit {result.ExitCode}: {result.Stderr}");
-        return JsonDocument.Parse(result.Stdout).RootElement;
+        return JsonDocument.Parse(result.Stdout).RootElement.GetProperty(key);
     }
 
     private static string[] Lines(string text) => text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -322,12 +324,12 @@ public sealed class LinkCommandTests : IDisposable
         WriteNotes();
 
         var text = _workspace.Run("backrefs", "raw/journal/img/photo 1.png", "--transitive");
-        var json = Json(_workspace.Run("backrefs", "raw/journal/img/photo 1.png", "--transitive", "--json"));
+        var json = Json(_workspace.Run("backrefs", "raw/journal/img/photo 1.png", "--transitive", "--json"), key: "files");
 
         // The photo ← the day entry ← the topic (frontmatter) ← the index, which the topic also links back to.
         Assert.Equal(["raw/journal/2026-09-01.md", "wiki/index.md", "wiki/topics/topic.md"], Lines(text.Stdout));
         Assert.Equal(["raw/journal/2026-09-01.md", "wiki/index.md", "wiki/topics/topic.md"],
-            json.EnumerateArray().Select(s => s.GetProperty("source").GetString()));
+            json.EnumerateArray().Select(s => s.GetProperty("path").GetString()));
     }
 
     [Fact]

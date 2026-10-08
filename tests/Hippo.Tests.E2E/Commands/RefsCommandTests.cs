@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace Hippo.Tests.E2E.Commands;
 
 public sealed class RefsCommandTests : IDisposable
@@ -11,5 +9,5 @@ public sealed class RefsCommandTests : IDisposable
     public void Dispose() => _workspace.Dispose();
 
     [Fact, Trait(Traits.Category, Traits.Smoke)]
-    public Task Refs() => _workspace.SmokeAsync(0, JsonValueKind.Array, "refs", "wiki/topics/topic.md");
+    public Task Refs() => _workspace.SmokeListAsync(0, "links", "refs", "wiki/topics/topic.md");
 }

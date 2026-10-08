@@ -37,7 +37,7 @@ public sealed class FindCommandTests : IDisposable
         _dir.Dispose();
     }
 
-    private List<FindOutput> Run(FindOptions options, bool titles = false) => FindCommand.Run(options, _workspace, _db, titles);
+    private List<FindOutput> Run(FindOptions options, bool titles = false) => FindCommand.Run(options, _workspace, _db, titles).Files;
 
     [Fact]
     public void Without_a_query_every_file_is_listed_in_path_order()

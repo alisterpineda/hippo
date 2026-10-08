@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace Hippo.Tests.E2E.Commands;
 
 public sealed class ShowCommandTests : IDisposable
@@ -11,7 +9,7 @@ public sealed class ShowCommandTests : IDisposable
     public void Dispose() => _workspace.Dispose();
 
     [Fact, Trait(Traits.Category, Traits.Smoke)]
-    public Task Show() => _workspace.SmokeAsync(0, JsonValueKind.Object, "show", "wiki/topics/topic.md");
+    public Task Show() => _workspace.SmokeAsync(0, "show", "wiki/topics/topic.md");
 
     [Fact]
     public async Task Show_as_text_prints_the_frontmatter_as_json()

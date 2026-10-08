@@ -16,16 +16,18 @@ public sealed class UnicodePathTests : IDisposable
 
     public void Dispose() => _workspace.Dispose();
 
-    private static JsonElement Json(TestWorkspace.Result result, int exitCode = 0)
+    /// <summary>The JSON a command printed, or with <paramref name="key"/> the list it holds under that key.</summary>
+    private static JsonElement Json(TestWorkspace.Result result, string? key = null, int exitCode = 0)
     {
         Assert.True(result.ExitCode == exitCode, $"exit {result.ExitCode}: {result.Stderr}");
-        return JsonDocument.Parse(result.Stdout).RootElement;
+        var json = JsonDocument.Parse(result.Stdout).RootElement;
+        return key is null ? json : json.GetProperty(key);
     }
 
     private static string[] Lines(string text) => text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private List<string> Paths(params string[] args) =>
-        Json(_workspace.Run(["find", .. args, "--json"])).EnumerateArray().Select(r => r.GetProperty("path").GetString()!).ToList();
+        Json(_workspace.Run(["find", .. args, "--json"]), "files").EnumerateArray().Select(r => r.GetProperty("path").GetString()!).ToList();
 
     /// <summary>A person page stored in NFC, and a note linking to it once in each form.</summary>
     private void WriteCafe()
@@ -39,7 +41,7 @@ public sealed class UnicodePathTests : IDisposable
     {
         WriteCafe();
 
-        var json = Json(_workspace.Run("refs", "wiki/notes/a.md", "--json"));
+        var json = Json(_workspace.Run("refs", "wiki/notes/a.md", "--json"), "links");
 
         Assert.Equal(["file", "file"], json.EnumerateArray().Select(l => l.GetProperty("type").GetString()));
     }
@@ -62,7 +64,7 @@ public sealed class UnicodePathTests : IDisposable
     {
         WriteCafe();
 
-        var json = Json(_workspace.Run("backrefs", $"wiki/people/{Nfc}.md", "--json"));
+        var json = Json(_workspace.Run("backrefs", $"wiki/people/{Nfc}.md", "--json"), "links");
 
         Assert.Equal([1, 2], json.EnumerateArray().Select(l => l.GetProperty("line").GetInt32()));
     }
@@ -73,7 +75,7 @@ public sealed class UnicodePathTests : IDisposable
         _workspace.Write($"wiki/people/{Nfd}.md", "# Café\n");
         _workspace.Write("wiki/notes/a.md", $"[b](../people/{Nfc}.md)\n");
 
-        var json = Json(_workspace.Run("refs", "wiki/notes/a.md", "--json"));
+        var json = Json(_workspace.Run("refs", "wiki/notes/a.md", "--json"), "links");
 
         Assert.Equal("file", Assert.Single(json.EnumerateArray()).GetProperty("type").GetString());
     }
@@ -85,7 +87,7 @@ public sealed class UnicodePathTests : IDisposable
         _workspace.Write($"wiki/people/{Nfc}.md", "# Café\n");
         _workspace.Write("wiki/notes/a.md", $"---\nperson: ../people/{Nfd}.md\n---\n");
 
-        var json = Json(_workspace.Run("refs", "wiki/notes/a.md", "--json"));
+        var json = Json(_workspace.Run("refs", "wiki/notes/a.md", "--json"), "links");
 
         Assert.Equal("file", Assert.Single(json.EnumerateArray()).GetProperty("type").GetString());
     }
@@ -95,7 +97,7 @@ public sealed class UnicodePathTests : IDisposable
     {
         WriteCafe();
 
-        var json = Json(_workspace.Run("refs", "wiki/notes/a.md", "--json"));
+        var json = Json(_workspace.Run("refs", "wiki/notes/a.md", "--json"), "links");
 
         Assert.Equal([$"wiki/people/{Nfd}.md", $"wiki/people/{Nfc}.md"], json.EnumerateArray().Select(l => l.GetProperty("target").GetString()));
     }
@@ -116,7 +118,7 @@ public sealed class UnicodePathTests : IDisposable
         _workspace.Write($"wiki/{Nfc}.md", "[x](x.md)\n");
         _workspace.Write("wiki/x.md", "# X\n");
 
-        var json = Json(_workspace.Run("refs", $"wiki/{Nfd}.md", "--json"));
+        var json = Json(_workspace.Run("refs", $"wiki/{Nfd}.md", "--json"), "links");
 
         Assert.Equal("wiki/x.md", Assert.Single(json.EnumerateArray()).GetProperty("target").GetString());
     }
@@ -127,7 +129,7 @@ public sealed class UnicodePathTests : IDisposable
         _workspace.Write($"wiki/{Nfd}.md", "[x](x.md)\n");
         _workspace.Write("wiki/x.md", "# X\n");
 
-        var json = Json(_workspace.Run("backrefs", "wiki/x.md", "--json"));
+        var json = Json(_workspace.Run("backrefs", "wiki/x.md", "--json"), "links");
 
         Assert.Equal($"wiki/{Nfd}.md", Assert.Single(json.EnumerateArray()).GetProperty("source").GetString());
     }
@@ -140,9 +142,9 @@ public sealed class UnicodePathTests : IDisposable
         _workspace.Write($"{Nfd}-b.md", $"[a]({Nfd}-a.md)\n");
         _workspace.Write("c.md", $"[b]({Nfc}-b.md)\n");
 
-        var json = Json(_workspace.Run("backrefs", $"{Nfd}-a.md", "--transitive", "--json"));
+        var json = Json(_workspace.Run("backrefs", $"{Nfd}-a.md", "--transitive", "--json"), "files");
 
-        Assert.Equal(["c.md", $"{Nfd}-b.md"], json.EnumerateArray().Select(s => s.GetProperty("source").GetString()));
+        Assert.Equal(["c.md", $"{Nfd}-b.md"], json.EnumerateArray().Select(s => s.GetProperty("path").GetString()));
     }
 
     [Fact]
@@ -153,9 +155,9 @@ public sealed class UnicodePathTests : IDisposable
         _workspace.Write($"{Nfc}-b.md", $"[a]({Nfd}-a.md)\n");
         _workspace.Write("c.md", $"[b]({Nfd}-b.md)\n");
 
-        var json = Json(_workspace.Run("backrefs", $"{Nfc}-a.md", "--transitive", "--json"));
+        var json = Json(_workspace.Run("backrefs", $"{Nfc}-a.md", "--transitive", "--json"), "files");
 
-        Assert.Equal(["c.md", $"{Nfc}-b.md"], json.EnumerateArray().Select(s => s.GetProperty("source").GetString()));
+        Assert.Equal(["c.md", $"{Nfc}-b.md"], json.EnumerateArray().Select(s => s.GetProperty("path").GetString()));
     }
 
     [Fact]
@@ -182,7 +184,7 @@ public sealed class UnicodePathTests : IDisposable
         _workspace.Write("other.md", "[x](x.md)\n");
         _workspace.Write("x.md", "# X\n");
 
-        var backrefs = Json(_workspace.Run("backrefs", "x.md", "--from", $"{Nfd}.md", "--json"));
+        var backrefs = Json(_workspace.Run("backrefs", "x.md", "--from", $"{Nfd}.md", "--json"), "links");
 
         Assert.Equal($"{Nfc}.md", Assert.Single(backrefs.EnumerateArray()).GetProperty("source").GetString());
         Assert.DoesNotContain("x.md", Paths("--no-backrefs", "--from", $"{Nfd}.md"));
@@ -205,7 +207,7 @@ public sealed class UnicodePathTests : IDisposable
         _workspace.Write("other.md", "[x](x.md)\n");
         _workspace.Write("x.md", "# X\n");
 
-        var backrefs = Json(_workspace.Run("backrefs", "x.md", "--from", $"{Nfc}.md", "--json"));
+        var backrefs = Json(_workspace.Run("backrefs", "x.md", "--from", $"{Nfc}.md", "--json"), "links");
 
         Assert.Equal($"{Nfd}.md", Assert.Single(backrefs.EnumerateArray()).GetProperty("source").GetString());
     }
@@ -275,7 +277,7 @@ public sealed class UnicodePathTests : IDisposable
         _workspace.Settle();
         _workspace.RollBackIndexTo(5);
 
-        var json = Json(_workspace.Run("refs", "wiki/notes/a.md", "--json"));
+        var json = Json(_workspace.Run("refs", "wiki/notes/a.md", "--json"), "links");
 
         Assert.Equal(["file", "file"], json.EnumerateArray().Select(l => l.GetProperty("type").GetString()));
     }

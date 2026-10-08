@@ -13,10 +13,10 @@ internal static class RefsCommand
         {
             var relative = session.KeyOf(result.GetValue(path)!);
             var file = FileQueries.Get(session.Db, relative) ?? throw new HippoException($"{relative} is not in the index");
-            var output = LinkQueries.Refs(session.Db, file.Path)
-                .Select(l => new RefOutput(l.Line, l.Kind, l.Type, l.Raw, l.Target, l.Text)).ToList();
+            var output = new RefsOutput(LinkQueries.Refs(session.Db, file.Path)
+                .Select(l => new RefOutput(l.Line, l.Kind, l.Type, l.Raw, l.Target, l.Text)).ToList());
 
-            session.EmitList(output, OutputJson.Default.ListRefOutput, link =>
+            session.EmitList(output, OutputJson.Default.RefsOutput, o => o.Links, link =>
                 $"{link.Line,5}  {link.Kind,-11}  {link.Type,-9}  {Format.Safe(string.IsNullOrEmpty(link.Target) ? link.Raw : link.Target)}{Format.LinkText(link.Text)}");
             return ExitCode.Clean;
         }));

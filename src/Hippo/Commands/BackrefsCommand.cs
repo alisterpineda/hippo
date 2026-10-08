@@ -33,16 +33,16 @@ internal static class BackrefsCommand
 
             if (result.GetValue(transitive))
             {
-                var sources = LinkQueries.TransitiveBackrefs(session.Db, relative, kind, sourceFiles)
-                    .Select(source => new TransitiveBackrefOutput(source)).ToList();
-                session.EmitList(sources, OutputJson.Default.ListTransitiveBackrefOutput, s => Format.Safe(s.Source));
+                var sources = new TransitiveBackrefsOutput(LinkQueries.TransitiveBackrefs(session.Db, relative, kind, sourceFiles)
+                    .Select(source => new TransitiveBackrefOutput(source)).ToList());
+                session.EmitList(sources, OutputJson.Default.TransitiveBackrefsOutput, o => o.Files, s => Format.Safe(s.Path));
                 return ExitCode.Clean;
             }
 
             var links = LinkQueries.Backrefs(session.Db, relative, kind, sourceFiles)
                 .Select(l => new BackrefOutput(l.Source, l.Line, l.Kind, l.Raw, l.Text)).ToList();
             var width = links.Count == 0 ? 0 : links.Max(link => Location(link).Length);
-            session.EmitList(links, OutputJson.Default.ListBackrefOutput, link =>
+            session.EmitList(new BackrefsOutput(links), OutputJson.Default.BackrefsOutput, o => o.Links, link =>
                 $"{Location(link).PadRight(width)}  {link.Kind,-11}  {Format.Safe(link.Raw)}{Format.LinkText(link.Text)}");
             return ExitCode.Clean;
         }));

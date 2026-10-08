@@ -28,8 +28,13 @@ internal static class CacheCommand
         command.SetAction(result => Guard.Run(result.InvocationConfiguration.Error, () =>
         {
             var indexes = CachedIndexes.List(CacheLocation.CacheRoot(environment.GetVariable), environment.GetMountPoints());
-            Emit(result, result.GetValue(WorkspaceSession.JsonOption), indexes, index =>
-                $"{index.State,-11} {index.Size,12}  {Format.Safe(index.Root ?? index.Database)}");
+            WorkspaceSession.EmitList(
+                result.InvocationConfiguration.Output,
+                result.GetValue(WorkspaceSession.JsonOption),
+                new CacheListOutput(Records(indexes)),
+                OutputJson.Default.CacheListOutput,
+                o => o.Indexes,
+                index => $"{index.State,-11} {index.Size,12}  {Format.Safe(index.Root ?? index.Database)}");
             return ExitCode.Clean;
         }));
         return command;
@@ -85,7 +90,13 @@ internal static class CacheCommand
 
             var verb = preview ? "Would remove" : "Removed";
             var json = result.GetValue(WorkspaceSession.JsonOption);
-            Emit(result, json, removed, index => $"{verb} {Format.Safe(index.Root!)} ({index.Size} bytes)");
+            WorkspaceSession.EmitList(
+                result.InvocationConfiguration.Output,
+                json,
+                new CachePruneOutput(preview, Records(removed)),
+                OutputJson.Default.CachePruneOutput,
+                o => o.Removed,
+                index => $"{verb} {Format.Safe(index.Root!)} ({index.Size} bytes)");
             if (!json)
             {
                 var output = result.InvocationConfiguration.Output;
@@ -98,15 +109,9 @@ internal static class CacheCommand
         return command;
     }
 
-    /// <summary>Prints <paramref name="indexes"/> as a JSON array under <c>--json</c>, and otherwise one
-    /// <paramref name="line"/> per index.</summary>
-    private static void Emit(ParseResult result, bool json, List<CachedIndex> indexes, Func<CacheIndexOutput, string> line) =>
-        WorkspaceSession.EmitList(
-            result.InvocationConfiguration.Output,
-            json,
-            indexes.Select(i => new CacheIndexOutput(i.Database, i.Root, Name(i.State), i.Size)).ToList(),
-            OutputJson.Default.ListCacheIndexOutput,
-            line);
+    /// <summary><paramref name="indexes"/> as the records <c>--json</c> prints.</summary>
+    private static List<CacheIndexOutput> Records(List<CachedIndex> indexes) =>
+        indexes.Select(i => new CacheIndexOutput(i.Database, i.Root, Name(i.State), i.Size)).ToList();
 
     private static string Name(IndexState state) => state switch
     {

@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace Hippo.Tests.E2E.Commands;
 
 public sealed class CacheListCommandTests : IDisposable
@@ -16,6 +14,6 @@ public sealed class CacheListCommandTests : IDisposable
         // The cache is empty until a command indexes the workspace.
         await _workspace.JsonAsync(0, "index");
 
-        await _workspace.SmokeAsync(0, JsonValueKind.Array, "cache", "list");
+        await _workspace.SmokeListAsync(0, "indexes", "cache", "list");
     }
 }

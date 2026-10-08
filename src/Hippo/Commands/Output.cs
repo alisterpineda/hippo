@@ -27,6 +27,8 @@ internal sealed record FindOutput(
     public string? Snippet => Marked?.Text;
 }
 
+internal sealed record FindListOutput(List<FindOutput> Files);
+
 internal sealed record ShowOutput(
     string Path, string Kind, long Size, DateTimeOffset Modified, string Hash, JsonElement? Frontmatter, string? ParseError);
 
@@ -34,30 +36,47 @@ internal sealed record ShowOutput(
 /// frontmatter link.</summary>
 internal sealed record RefOutput(long Line, string Kind, string Type, string Raw, string? Target, string? Text);
 
+internal sealed record RefsOutput(List<RefOutput> Links);
+
 /// <summary>A link into a path. <see cref="Text"/> is as for <see cref="RefOutput"/>.</summary>
 internal sealed record BackrefOutput(string Source, long Line, string Kind, string Raw, string? Text);
 
-internal sealed record TransitiveBackrefOutput(string Source);
+internal sealed record BackrefsOutput(List<BackrefOutput> Links);
+
+/// <summary>A file <c>backrefs --transitive</c> lists. Named <see cref="Path"/>, as in <c>find</c>: it is a file, not
+/// a link.</summary>
+internal sealed record TransitiveBackrefOutput(string Path);
+
+internal sealed record TransitiveBackrefsOutput(List<TransitiveBackrefOutput> Files);
 
 internal sealed record FindingOutput(string Rule, string Path, long? Line, string Message, List<string> Related);
 
+internal sealed record LintOutput(List<FindingOutput> Findings);
+
 internal sealed record CacheIndexOutput(string Database, string? Root, string State, long Size);
+
+internal sealed record CacheListOutput(List<CacheIndexOutput> Indexes);
+
+/// <summary>What <c>cache prune</c> removed, or under <c>--dry-run</c> (<see cref="DryRun"/>) would remove.</summary>
+internal sealed record CachePruneOutput(bool DryRun, List<CacheIndexOutput> Removed);
 
 /// <summary>
 /// The <c>--json</c> shapes. They are hippo's contract with scripts, so each is a record of its own, never a row type
-/// from <c>Hippo.Indexing</c>, and <c>OutputJsonTests</c> pins every one. Generated, so serialization needs no
-/// reflection under native AOT.
+/// from <c>Hippo.Indexing</c>, and <c>OutputJsonTests</c> pins every one. Every command prints an object, and a list
+/// sits under a key naming what it holds, never as a bare array, so a field can be added beside it without breaking a
+/// script. Generated, so serialization needs no reflection under native AOT.
 /// </summary>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]
 [JsonSerializable(typeof(IndexOutput))]
 [JsonSerializable(typeof(StatusOutput))]
-[JsonSerializable(typeof(List<FindOutput>))]
+[JsonSerializable(typeof(FindListOutput))]
 [JsonSerializable(typeof(ShowOutput))]
-[JsonSerializable(typeof(List<RefOutput>))]
-[JsonSerializable(typeof(List<BackrefOutput>))]
-[JsonSerializable(typeof(List<TransitiveBackrefOutput>))]
-[JsonSerializable(typeof(List<FindingOutput>))]
-[JsonSerializable(typeof(List<CacheIndexOutput>))]
+[JsonSerializable(typeof(RefsOutput))]
+[JsonSerializable(typeof(BackrefsOutput))]
+[JsonSerializable(typeof(TransitiveBackrefsOutput))]
+[JsonSerializable(typeof(LintOutput))]
+[JsonSerializable(typeof(CacheListOutput))]
+[JsonSerializable(typeof(CachePruneOutput))]
 internal sealed partial class OutputJson : JsonSerializerContext;
 
 /// <summary>How values read as text. Named apart from the <c>*Output</c> shapes and the session's output writer.</summary>

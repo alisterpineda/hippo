@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace Hippo.Tests.E2E.Commands;
 
 public sealed class IndexCommandTests : IDisposable
@@ -11,5 +9,5 @@ public sealed class IndexCommandTests : IDisposable
     public void Dispose() => _workspace.Dispose();
 
     [Fact, Trait(Traits.Category, Traits.Smoke)]
-    public Task Index() => _workspace.SmokeAsync(0, JsonValueKind.Object, "index");
+    public Task Index() => _workspace.SmokeAsync(0, "index");
 }

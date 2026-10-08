@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace Hippo.Tests.E2E.Commands;
 
 public sealed class CachePruneCommandTests : IDisposable
@@ -18,6 +16,6 @@ public sealed class CachePruneCommandTests : IDisposable
         Assert.True(result.ExitCode == 0, $"exit {result.ExitCode}: {result.Stderr}");
         Directory.Delete(gone, recursive: true);
 
-        await _workspace.SmokeAsync(0, JsonValueKind.Array, "cache", "prune");
+        await _workspace.SmokeListAsync(0, "removed", "cache", "prune");
     }
 }

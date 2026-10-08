@@ -19,7 +19,7 @@ public sealed class LintCommandTests : IDisposable
     {
         _workspace.Write("wiki/index.md", Declaration + TempWorkspace.SampleIndex);
 
-        return _workspace.SmokeAsync(1, JsonValueKind.Array, "lint");
+        return _workspace.SmokeListAsync(1, "findings", "lint");
     }
 
     [Fact]
@@ -30,7 +30,7 @@ public sealed class LintCommandTests : IDisposable
         _workspace.Write("raw/bad.md", "---\na: [\n---\n");
 
         var result = await _workspace.RunAsync("lint", "--json");
-        var findings = JsonDocument.Parse(result.Stdout).RootElement.EnumerateArray().ToList();
+        var findings = JsonDocument.Parse(result.Stdout).RootElement.GetProperty("findings").EnumerateArray().ToList();
 
         Assert.Equal(1, result.ExitCode);
         Assert.Equal(4, findings.Count);

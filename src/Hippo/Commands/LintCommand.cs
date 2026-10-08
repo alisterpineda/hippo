@@ -69,7 +69,7 @@ internal static class LintCommand
             var off = session.Workspace.LintOff(merged.Select(f => f.Path).Distinct(StringComparer.Ordinal), named is not null);
             var output = merged.Where(f => !off(f.Rule, f.Path)).ToList();
 
-            session.EmitList(output, OutputJson.Default.ListFindingOutput, finding =>
+            session.EmitList(new LintOutput(output), OutputJson.Default.LintOutput, o => o.Findings, finding =>
             {
                 var location = finding.Line is { } line ? $"{Format.Safe(finding.Path)}:{line}" : Format.Safe(finding.Path);
                 return $"{location}  {finding.Rule}  {Format.Safe(finding.Message)}";

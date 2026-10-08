@@ -8,10 +8,11 @@ public sealed class FindCommandTests : IDisposable
 
     public void Dispose() => _workspace.Dispose();
 
+    /// <summary>The files <c>find --json</c> lists, under <c>files</c>.</summary>
     private static JsonElement Json(TestWorkspace.Result result)
     {
         Assert.True(result.ExitCode == 0, $"exit {result.ExitCode}: {result.Stderr}");
-        return JsonDocument.Parse(result.Stdout).RootElement;
+        return JsonDocument.Parse(result.Stdout).RootElement.GetProperty("files");
     }
 
     /// <summary>The paths <c>find --json</c> returns, in order.</summary>
@@ -163,7 +164,7 @@ public sealed class FindCommandTests : IDisposable
         var json = _workspace.Run("find", "--glob", "*.txt", "--json");
 
         Assert.Equal((0, ""), (text.ExitCode, text.Stdout));
-        Assert.Equal((0, "[]"), (json.ExitCode, json.Stdout.Trim()));
+        Assert.Equal((0, "{\n  \"files\": []\n}"), (json.ExitCode, json.Stdout.Trim().ReplaceLineEndings("\n")));
     }
 
     [Fact]
@@ -333,7 +334,7 @@ public sealed class FindCommandTests : IDisposable
         var json = _workspace.Run("find", "kestrel", "--json");
 
         Assert.Equal((0, ""), (text.ExitCode, text.Stdout));
-        Assert.Equal((0, "[]"), (json.ExitCode, json.Stdout.Trim()));
+        Assert.Equal((0, "{\n  \"files\": []\n}"), (json.ExitCode, json.Stdout.Trim().ReplaceLineEndings("\n")));
     }
 
     [Fact]
@@ -1079,7 +1080,7 @@ public sealed class FindCommandTests : IDisposable
         var result = _workspace.Run("find", "--field", "a", "--json");
 
         Assert.Equal(0, result.ExitCode);
-        var json = JsonDocument.Parse(result.Stdout).RootElement;
+        var json = JsonDocument.Parse(result.Stdout).RootElement.GetProperty("files");
         Assert.Equal(JsonValueKind.Array, json[0].GetProperty("fields").GetProperty("a").ValueKind);
     }
 

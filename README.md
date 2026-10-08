@@ -109,7 +109,7 @@ reading-list.md  status=active
 
 ## Commands
 
-`hippo init` and `hippo cache` aside, every command runs from anywhere inside a workspace: hippo walks up to the first folder with a `.hippo/config.json`. Each prints text, or JSON with `--json` on every command but `init`, and exits 0 when clean, 1 when `lint` reports findings, and 2 on error.
+`hippo init` and `hippo cache` aside, every command runs from anywhere inside a workspace: hippo walks up to the first folder with a `.hippo/config.json`. Each prints text, or JSON with `--json` on every command but `init`, and exits 0 when clean, 1 when `lint` reports findings, and 2 on error. The JSON is always an object, and a command that lists things holds them under a key: `files` for `find` and `backrefs --transitive`, `links` for `refs` and `backrefs`, `findings` for `lint`, `indexes` for `cache list`, and `removed` for `cache prune`.
 
 | Command | What it does |
 | --- | --- |

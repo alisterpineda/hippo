@@ -11,15 +11,16 @@ public sealed class FindCommandTests : IDisposable
 
     private static string[] Lines(string text) => text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-    private static List<string?> Strings(JsonElement array, string property) =>
-        array.EnumerateArray().Select(item => item.GetProperty(property).GetString()).ToList();
+    /// <summary><paramref name="property"/> of each file <c>find --json</c> printed.</summary>
+    private static List<string?> Strings(JsonElement json, string property) =>
+        json.GetProperty("files").EnumerateArray().Select(item => item.GetProperty(property).GetString()).ToList();
 
     [Fact, Trait(Traits.Category, Traits.Smoke)]
     public async Task Find()
     {
         _workspace.WriteSample();
 
-        await _workspace.SmokeAsync(0, JsonValueKind.Array, "find");
+        await _workspace.SmokeListAsync(0, "files", "find");
     }
 
     [Fact]
@@ -29,7 +30,7 @@ public sealed class FindCommandTests : IDisposable
 
         Assert.Equal(["wiki/topics/topic.md"], Strings(await _workspace.JsonAsync(0, "find", "--where", "type=Topic", "--limit", "5"), "path"));
 
-        var fielded = Assert.Single((await _workspace.JsonAsync(0, "find", "--field", "type,sources", "--where", "type", "--where", "type>A")).EnumerateArray());
+        var fielded = Assert.Single((await _workspace.JsonAsync(0, "find", "--field", "type,sources", "--where", "type", "--where", "type>A")).GetProperty("files").EnumerateArray());
         var fields = fielded.GetProperty("fields");
         Assert.Equal(("Topic", "../raw/day.md"),
             (fields.GetProperty("type").GetString(), fields.GetProperty("sources")[0].GetProperty("resource").GetString()));
@@ -53,7 +54,7 @@ public sealed class FindCommandTests : IDisposable
 
         var porter = await _workspace.JsonAsync(0, "find", "topics", "--where", "type=Topic", "--glob", "wiki/**", "--limit", "5");
 
-        var result = Assert.Single(porter.EnumerateArray());
+        var result = Assert.Single(porter.GetProperty("files").EnumerateArray());
         Assert.Equal(("wiki/topics/topic.md", "Topic"), (result.GetProperty("path").GetString(), result.GetProperty("title").GetString()));
         Assert.Equal("# Topic Back to [the index](/index.md), and [a gap](missing.md).", result.GetProperty("snippet").GetString());
         // Piped output is not a terminal, so its snippet carries no bold.
