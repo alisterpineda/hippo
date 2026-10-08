@@ -23,3 +23,4 @@ Nothing was released before 0.1.0 and its prereleases.
 - `--json` on every command but `init` prints JSON instead of text.
 - `hippo --version` prints the version and the commit it was built from, such as `0.1.0+d9d09f6`.
 - Native AOT binaries for `osx-arm64`, `osx-x64`, `linux-x64` (glibc 2.38 or newer), `linux-musl-x64` and `win-x64`, as `dotnet tool` packages and as archives on the GitHub release, plus a framework-dependent `dotnet tool` package for other platforms; `dotnet tool install -g hippo` picks the right one.
+- Install scripts for macOS, Linux and Windows, `install.sh` and `install.ps1`, which install the archive for the platform after checking it against `SHA256SUMS`, a file of SHA-256 checksums on each GitHub release.
