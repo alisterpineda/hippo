@@ -1,6 +1,6 @@
 # hippo
 
-hippo is a command-line tool for a folder of markdown notes, such as an Obsidian vault, a docs folder or a wiki. It indexes the folder into a local SQLite cache and answers questions about it from the terminal: which links are broken, what links to a page, which pages nothing links to, which pages have a given frontmatter value, and where a phrase appears.
+hippo is a command-line tool for a folder of markdown notes, such as a docs folder or a wiki. It indexes the folder into a local SQLite cache and answers questions about it from the terminal: which links are broken, what links to a page, which pages nothing links to, which pages have a given frontmatter value, and where a phrase appears.
 
 Every command but `init` prints JSON with `--json`, so a script or an agent working in the same notes can ask the same questions and read the answers.
 
