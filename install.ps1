@@ -8,6 +8,9 @@
 #                      PATH.
 # HIPPO_DOWNLOAD_BASE  replaces https://github.com/alisterpineda/hippo/releases/download; CI points it at a local
 #                      server, which may be plain HTTP
+# HIPPO_CALLER         self-update when `hippo self update` runs the script, having set HIPPO_VERSION and
+#                      HIPPO_INSTALL_DIR itself: the user PATH is left alone, the warning and the closing line are left
+#                      out, and the failures do not name variables the user never set
 #
 # Runs on Windows PowerShell 5.1, which every Windows install has and where `irm | iex` usually lands, and on pwsh 7.
 # The asset names and the SHA256SUMS format are the release's asset contract, in docs/dev/releasing.md. Everything
@@ -24,6 +27,7 @@
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
         $repo = 'https://github.com/alisterpineda/hippo'
+        $selfUpdate = $env:HIPPO_CALLER -ceq 'self-update'
 
         # PROCESSOR_ARCHITEW6432 is the machine's architecture when a 32-bit PowerShell runs on 64-bit Windows.
         $arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
@@ -53,7 +57,10 @@
             $status = Save-Download "$base/$asset" (Join-Path $tmp $asset)
             switch ($status) {
                 200 {}
-                404 { throw "release v$version has no $asset; check HIPPO_VERSION, or that v$version is a release" }
+                404 {
+                    if ($selfUpdate) { throw "release v$version has no $asset; is v$version a release?" }
+                    throw "release v$version has no $asset; check HIPPO_VERSION, or that v$version is a release"
+                }
                 default { throw "could not download $base/${asset}: HTTP $status" }
             }
             $sums = Join-Path $tmp 'SHA256SUMS'
@@ -78,6 +85,7 @@
             try {
                 $dir = (New-Item -ItemType Directory -Force -Path $dir).FullName
             } catch {
+                if ($selfUpdate) { throw "cannot create $dir, where hippo is; run it as the user who installed it" }
                 throw "cannot create $dir; set HIPPO_INSTALL_DIR to a directory you can write to"
             }
             $exe = Join-Path $dir 'hippo.exe'
@@ -104,12 +112,16 @@
                 try {
                     Move-Item -LiteralPath $exe -Destination $old
                 } catch {
+                    # Under `hippo self update`, the hippo running the script holds hippo.exe, and moves aside like any
+                    # other; what is in the way is another hippo still holding hippo.exe.old from the last update.
+                    if ($selfUpdate) { throw "$exe is in use and could not be moved aside; close the other running hippo and run hippo self update again" }
                     throw "$exe is in use and could not be moved aside; close hippo and rerun this script"
                 }
             }
             try {
                 Move-Item -LiteralPath $staged -Destination $exe -Force
             } catch {
+                if ($selfUpdate) { throw "cannot write to $dir, where hippo is; run it as the user who installed it" }
                 throw "cannot write to $dir; set HIPPO_INSTALL_DIR to a directory you can write to"
             }
             Write-Host "Installed hippo $installed to $exe"
@@ -118,10 +130,22 @@
         }
 
         # The user PATH is where new terminals look; this session gets the directory too, so hippo runs here at once.
-        Add-UserPath $dir
-        if (-not (Test-PathEntry $env:Path $dir)) {
-            $env:Path = "$($env:Path.TrimEnd(';'));$dir"
+        # Under `hippo self update` the user ran hippo, not this script, from wherever they put it, so the user PATH stays
+        # as they left it rather than gaining the directory hippo resolved itself to.
+        $addedToPath = $false
+        if (-not $selfUpdate) {
+            $addedToPath = Add-UserPath $dir
+            if (-not (Test-PathEntry $env:Path $dir)) {
+                $env:Path = "$($env:Path.TrimEnd(';'));$dir"
+            }
         }
+
+        # Written once the binary is in place, so a failed install leaves none, and after the PATH step, whose outcome
+        # it records.
+        Write-Receipt -Dir $dir -Version $version -AddedToPath $addedToPath
+
+        # Under `hippo self update` the user ran hippo, not this script, so the advice below is not theirs to act on.
+        if ($selfUpdate) { return }
 
         # A hippo installed as a .NET tool, hippo.cmd in ~\.dotnet\tools, is the likely one.
         $found = Get-Command hippo -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -130,6 +154,25 @@
         }
 
         Write-Host 'Rerun this script to update.'
+    }
+
+    # The receipt tells `hippo self update` that this script put hippo here, so it may update it; its name and content
+    # are the receipt contract in docs/dev/releasing.md. Every install rewrites it. addedToPath is what a future
+    # `hippo self uninstall` needs to know whether the user PATH entry is the script's to remove, so once true it stays
+    # true: a rerun finds the entry there and adds nothing, and `hippo self update` skips the PATH step, but the entry
+    # is still the script's. The JSON is written as a string, since Windows PowerShell 5.1's ConvertTo-Json spreads it
+    # over lines, and without a BOM, which 5.1's Set-Content -Encoding utf8 would add. It is written beside the old
+    # receipt and renamed over it, as the binary is: a receipt the user marked hidden cannot be opened for writing.
+    function Write-Receipt($dir, $version, $addedToPath) {
+        $path = Join-Path $dir '.hippo-receipt.json'
+        if (-not $addedToPath -and (Test-Path -LiteralPath $path) -and ([IO.File]::ReadAllText($path) -match '"addedToPath"\s*:\s*true')) {
+            $addedToPath = $true
+        }
+        $added = if ($addedToPath) { 'true' } else { 'false' }
+        $json = '{"installedBy":"install.ps1","version":"' + $version + '","addedToPath":' + $added + '}'
+        $staged = "$path.new"
+        [IO.File]::WriteAllText($staged, $json, (New-Object Text.UTF8Encoding $false))
+        Move-Item -LiteralPath $staged -Destination $path -Force
     }
 
     # Returns the version in the tag that releases/latest redirects to, or nothing.
@@ -180,14 +223,15 @@
         }
     }
 
-    # Adds the directory to the user PATH in the registry. The value is read and written as stored, so entries such as
-    # %USERPROFILE%\AppData\Local\Microsoft\WindowsApps keep their variables and the value keeps its kind, REG_EXPAND_SZ
-    # on a new profile; [Environment]'s methods would expand every entry and store REG_SZ.
+    # Adds the directory to the user PATH in the registry, and returns whether it was not there already. The value is
+    # read and written as stored, so entries such as %USERPROFILE%\AppData\Local\Microsoft\WindowsApps keep their
+    # variables and the value keeps its kind, REG_EXPAND_SZ on a new profile; [Environment]'s methods would expand every
+    # entry and store REG_SZ.
     function Add-UserPath($dir) {
         $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
         try {
             $userPath = $key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
-            if (Test-PathEntry $userPath $dir) { return }
+            if (Test-PathEntry $userPath $dir) { return $false }
             $kind = if ($key.GetValueNames() -contains 'Path') { $key.GetValueKind('Path') } else { 'ExpandString' }
             $newPath = if ($userPath) { "$($userPath.TrimEnd(';'));$dir" } else { $dir }
             $key.SetValue('Path', $newPath, $kind)
@@ -199,6 +243,7 @@
         # else changes.
         [Environment]::SetEnvironmentVariable('HIPPO_INSTALL_REFRESH', $null, 'User')
         Write-Host "Added $dir to your user PATH. Terminals that were already open need reopening to find hippo."
+        $true
     }
 
     # Whether the PATH-style list holds the directory, as written or once its variables are expanded.

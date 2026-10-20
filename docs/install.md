@@ -14,7 +14,7 @@ On Windows, in PowerShell:
 irm https://raw.githubusercontent.com/alisterpineda/hippo/main/install.ps1 | iex
 ```
 
-`install.sh` picks the native binary for your Mac or Linux x64 system (glibc or musl) from the latest release, checks it against the release's `SHA256SUMS`, and puts `hippo` in `~/.local/bin`; if that folder is not on your `PATH`, it prints the line to add to your shell's startup file. `install.ps1` does the same for Windows x64, puts `hippo.exe` in `%LOCALAPPDATA%\Programs\hippo`, and adds that folder to your user `PATH`, which terminals already open see once reopened. A download that does not match its checksum installs nothing, and neither script asks for sudo or administrator rights. Rerun the script to update.
+`install.sh` picks the native binary for your Mac or Linux x64 system (glibc or musl) from the latest release, checks it against the release's `SHA256SUMS`, and puts `hippo` in `~/.local/bin`; if that folder is not on your `PATH`, it prints the line to add to your shell's startup file. `install.ps1` does the same for Windows x64, puts `hippo.exe` in `%LOCALAPPDATA%\Programs\hippo`, and adds that folder to your user `PATH`, which terminals already open see once reopened. A download that does not match its checksum installs nothing, and neither script asks for sudo or administrator rights. Each also leaves `.hippo-receipt.json` beside the binary, a small file recording that the script installed hippo there, which is safe to leave in place. Rerun the script to update.
 
 `HIPPO_VERSION` installs a given version instead of the latest release, or a prerelease, which the latest release never is. `HIPPO_INSTALL_DIR` installs to another folder.
 

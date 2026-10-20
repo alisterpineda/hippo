@@ -6,6 +6,10 @@ Nothing was released before 0.1.0 and its prereleases.
 
 ## Unreleased
 
+### Added
+
+- The install scripts leave `.hippo-receipt.json` beside the binary, recording that they installed it, for a coming `hippo self update` to read.
+
 ## 0.1.0 - 2026-10-11
 
 ### Added

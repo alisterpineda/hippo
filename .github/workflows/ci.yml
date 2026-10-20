@@ -232,6 +232,15 @@ jobs:
           }
           write_sums "$hash"
 
+          # A release whose binary cannot start: its checksum matches, so only the script's own run of the binary can
+          # stop the install.
+          broken=hippo-0.0.0-broken-${{ matrix.rid }}.tar.gz
+          mkdir -p artifacts/serve/v0.0.0-broken artifacts/broken
+          printf '#!/bin/sh\nexit 1\n' > artifacts/broken/hippo
+          chmod +x artifacts/broken/hippo
+          COPYFILE_DISABLE=1 tar -czf "artifacts/serve/v0.0.0-broken/$broken" -C artifacts/broken hippo
+          (cd artifacts/serve/v0.0.0-broken && $sha256 "$broken" > SHA256SUMS)
+
           python3 -m http.server 8000 --bind 127.0.0.1 --directory artifacts/serve &
           server=$!
           trap 'kill "$server"' EXIT
@@ -252,12 +261,36 @@ jobs:
             esac
           }
 
-          # Runs install.sh with the given variables, and checks that it fails with the given message and installs
-          # nothing.
+          # The receipt hippo self update reads, compared byte for byte: a trailing newline or a stray space would be a
+          # change to the receipt contract in docs/dev/releasing.md. Its version is the release's, not --version's.
+          printf '%s' '{"installedBy":"install.sh","version":"'"$HIPPO_VERSION"'"}' > artifacts/receipt.expected
+          check_receipt() {
+            if [ ! -f "$installed/.hippo-receipt.json" ]; then
+              echo "::error::install.sh left no receipt at $installed/.hippo-receipt.json."
+              exit 1
+            fi
+            if ! cmp artifacts/receipt.expected "$installed/.hippo-receipt.json"; then
+              echo "::error::The receipt is not $(cat artifacts/receipt.expected):"
+              od -c "$installed/.hippo-receipt.json"
+              exit 1
+            fi
+          }
+
+          # The directory's hippo and receipt, hashed, with nothing for one that is not there.
+          holds_hashed() {
+            for f in "$1/hippo" "$1/.hippo-receipt.json"; do
+              if [ -e "$f" ]; then $sha256 "$f"; fi
+            done
+          }
+
+          # Runs install.sh into the given directory with the given variables, and checks that it fails with the given
+          # message and leaves the directory's hippo and receipt as they were, or absent.
           check_refused() {
-            message=$1
-            shift
-            if env HIPPO_INSTALL_DIR="$refused" "$@" sh install.sh 2> artifacts/refused.err; then
+            dir=$1
+            message=$2
+            shift 2
+            before=$(holds_hashed "$dir")
+            if env HIPPO_INSTALL_DIR="$dir" "$@" sh install.sh 2> artifacts/refused.err; then
               echo "::error::install.sh succeeded with $*; it should have refused with: $message"
               exit 1
             fi
@@ -266,46 +299,101 @@ jobs:
               echo "::error::install.sh failed without saying: $message"
               exit 1
             fi
-            if [ -e "$refused/hippo" ]; then
-              echo "::error::install.sh refused but installed $refused/hippo."
+            if [ "$(holds_hashed "$dir")" != "$before" ]; then
+              echo "::error::install.sh refused but changed $dir, which holds: $(LC_ALL=C ls -A "$dir" | tr '\n' ' ')"
               exit 1
             fi
           }
 
           HIPPO_INSTALL_DIR=$installed sh install.sh
           check_version
+          check_receipt
 
           # A rerun is how a user updates, so it must replace the binary already there, here a stand-in, and accept
           # a version with a leading v. The stand-in is renamed over the binary, as install.sh does, because writing
           # into it can fail with "Text file busy" on Linux while a process still has it open to run.
+          # Every install rewrites the receipt, so the stale one written here, as an older release's, is replaced.
           printf '#!/bin/sh\necho old\n' > "$installed/hippo.stand-in"
           chmod +x "$installed/hippo.stand-in"
           mv -f "$installed/hippo.stand-in" "$installed/hippo"
+          printf '%s' '{"installedBy":"install.sh","version":"0.0.0-stale"}' > "$installed/.hippo-receipt.json"
           HIPPO_INSTALL_DIR=$installed HIPPO_VERSION=v$HIPPO_VERSION sh install.sh
           check_version
-          # The staging directory beside the binary is gone.
-          if [ "$(ls -A "$installed")" != hippo ]; then
-            echo "::error::$installed holds more than hippo: $(ls -A "$installed")"
+          check_receipt
+          # The staging directory beside the binary is gone. LC_ALL=C, since glibc locales ignore the leading dot when
+          # sorting.
+          holds=$(LC_ALL=C ls -A "$installed" | tr '\n' ' ')
+          if [ "$holds" != '.hippo-receipt.json hippo ' ]; then
+            echo "::error::$installed holds more than .hippo-receipt.json and hippo: $holds"
             exit 1
           fi
 
+          # Under hippo self update the user ran hippo, not the script, so the script leaves out its PATH advice, the
+          # warning about another hippo and its closing line. A hippo first on PATH, with the install directory off it,
+          # makes a plain run print all three, so their absence under HIPPO_CALLER means something.
+          shadow=$GITHUB_WORKSPACE/artifacts/shadow
+          mkdir -p "$shadow"
+          printf '#!/bin/sh\necho shadow\n' > "$shadow/hippo"
+          chmod +x "$shadow/hippo"
+          install_shadowed() {
+            if ! env PATH="$shadow:$PATH" HIPPO_INSTALL_DIR="$installed" "$@" sh install.sh > artifacts/shadowed.out 2>&1; then
+              cat artifacts/shadowed.out
+              echo "::error::install.sh failed with $* and another hippo on PATH."
+              exit 1
+            fi
+            cat artifacts/shadowed.out
+          }
+          advice=("is not on your PATH" "another hippo is on your PATH" "Rerun this script to update.")
+          install_shadowed
+          for line in "${advice[@]}"; do
+            if ! grep -qF "$line" artifacts/shadowed.out; then
+              echo "::error::install.sh did not print '$line' with another hippo on PATH and $installed off it."
+              exit 1
+            fi
+          done
+          install_shadowed HIPPO_CALLER=self-update
+          if ! grep -qF "Installed hippo $HIPPO_VERSION+" artifacts/shadowed.out; then
+            echo "::error::install.sh with HIPPO_CALLER=self-update did not say it installed hippo."
+            exit 1
+          fi
+          check_version
+          check_receipt
+          for line in "${advice[@]}"; do
+            if grep -qF "$line" artifacts/shadowed.out; then
+              echo "::error::install.sh with HIPPO_CALLER=self-update printed '$line'."
+              exit 1
+            fi
+          done
+
+          # These refusals come before the install directory exists, so they leave nothing to find there.
+          #
           # A version with no release names the asset it looked for, since a typo in HIPPO_VERSION is the likely cause.
-          check_refused "has no hippo-0.0.0-missing-${{ matrix.rid }}.tar.gz" HIPPO_VERSION=0.0.0-missing
+          # hippo sets HIPPO_VERSION itself, so under it the message does not name the variable.
+          check_refused "$refused" "has no hippo-0.0.0-missing-${{ matrix.rid }}.tar.gz; check HIPPO_VERSION" HIPPO_VERSION=0.0.0-missing
+          check_refused "$refused" "has no hippo-0.0.0-missing-${{ matrix.rid }}.tar.gz; is v0.0.0-missing a release?" HIPPO_VERSION=0.0.0-missing HIPPO_CALLER=self-update
 
           write_sums
-          check_refused "has no line for $archive"
+          check_refused "$refused" "has no line for $archive"
 
           # One changed digit in the published checksum must stop the install.
           case $hash in 0*) bad=1${hash#?} ;; *) bad=0${hash#?} ;; esac
           write_sums "$bad"
-          check_refused "did not match the published checksum"
+          check_refused "$refused" "did not match the published checksum"
+
+          # A binary that does not run is caught after the install directory and the staging directory in it are made,
+          # so a fresh directory shows the failure left neither a binary nor a receipt behind, and the working install
+          # shows it left both as they were.
+          check_refused "$GITHUB_WORKSPACE/artifacts/refused-broken" "did not run on this system" HIPPO_VERSION=0.0.0-broken
+          check_refused "$installed" "did not run on this system" HIPPO_VERSION=0.0.0-broken
+          check_version
 
       # install.ps1 installs the zip as the step above installs a tarball, under both Windows PowerShell 5.1, where
       # `irm | iex` usually lands, and pwsh 7, run as a file and through `iex`. The server is stopped in a finally, in
       # this step, for the same reason, and the same two paths are left to a check by hand after a release.
       #
-      # The script adds each install directory to the runner's user PATH, as it would a user's; the runner is discarded
-      # with the job. A failing native command does not stop a pwsh step, so every run's exit code is checked.
+      # The script adds each install directory to the runner's user PATH, as it would a user's, except under
+      # HIPPO_CALLER; the runner is discarded with the job. A failing native command does not stop a pwsh step, so every
+      # run's exit code is checked.
       - name: Install from the archive
         if: matrix.archive == 'zip'
         shell: pwsh
@@ -342,25 +430,32 @@ jobs:
             exit 1
           }
 
-          # Runs install.ps1 under the given shell, as a file or, given a command, as that command runs it, and returns
-          # its exit code. Its output is kept in artifacts/install.out and its errors in artifacts/install.err.
-          function Invoke-Install($shell, $dir, $version, $command) {
-            $previous = $env:HIPPO_INSTALL_DIR, $env:HIPPO_VERSION
+          # Runs install.ps1 under the given shell, as a file or, given a command, as that command runs it, with
+          # HIPPO_CALLER set when given a caller, and returns its exit code. Its output is kept in artifacts/install.out
+          # and its errors in artifacts/install.err.
+          function Invoke-Install($shell, $dir, $version, $command, $caller) {
+            $previous = $env:HIPPO_INSTALL_DIR, $env:HIPPO_VERSION, $env:HIPPO_CALLER
             $env:HIPPO_INSTALL_DIR = $dir
             $env:HIPPO_VERSION = $version
+            $env:HIPPO_CALLER = $caller
             $run = if ($command) { '-Command', $command } else { '-File', 'install.ps1' }
             try {
               & $shell -NoProfile -ExecutionPolicy Bypass @run > artifacts/install.out 2> artifacts/install.err
               $code = $LASTEXITCODE
             } finally {
-              $env:HIPPO_INSTALL_DIR, $env:HIPPO_VERSION = $previous
+              $env:HIPPO_INSTALL_DIR, $env:HIPPO_VERSION, $env:HIPPO_CALLER = $previous
             }
             Get-Content artifacts/install.out, artifacts/install.err | Out-Host
             $code
           }
 
-          function Assert-Installed($shell, $dir, $version = $release, $command) {
-            $code = Invoke-Install $shell $dir $version $command
+          # What the last run printed, from either stream, since a warning's stream differs between the two shells.
+          function Get-Output {
+            "$(Get-Content -Raw artifacts/install.out)$(Get-Content -Raw artifacts/install.err)"
+          }
+
+          function Assert-Installed($shell, $dir, $version = $release, $command, $caller) {
+            $code = Invoke-Install $shell $dir $version $command $caller
             if ($code -ne 0) { Fail "install.ps1 under $shell exited with $code." }
             $output = & "$dir/hippo.exe" --version
             if (-not "$output".StartsWith("$release+")) {
@@ -372,11 +467,28 @@ jobs:
             if (Test-Path $path) { (Get-FileHash -Algorithm SHA256 $path).Hash }
           }
 
-          # Checks that install.ps1 refuses with the given message and leaves the directory's hippo.exe as it was, or
-          # absent. Run as a file, it must exit non-zero; through `iex`, the session must carry on past it.
-          function Assert-Refused($shell, $dir, $message, $version = $release, $command) {
+          # The receipt hippo self update reads, compared byte for byte: Windows PowerShell 5.1 writes a BOM unless told
+          # not to, and a newline or a space would be a change to the receipt contract in docs/dev/releasing.md. Its
+          # version is the release's, not --version's, and addedToPath is whether that run added the directory to the
+          # user PATH.
+          function Assert-Receipt($dir, $addedToPath) {
+            $path = "$dir/.hippo-receipt.json"
+            if (-not (Test-Path $path)) { Fail "install.ps1 left no receipt at $path." }
+            $flag = if ($addedToPath) { 'true' } else { 'false' }
+            $expected = '{"installedBy":"install.ps1","version":"' + $release + '","addedToPath":' + $flag + '}'
+            $actual = [IO.File]::ReadAllBytes($path) -join ' '
+            if ($actual -ne ([Text.Encoding]::ASCII.GetBytes($expected) -join ' ')) {
+              Fail "The receipt at $path is not $expected but the bytes $actual."
+            }
+          }
+
+          # Checks that install.ps1 refuses with the given message and leaves the directory's hippo.exe and receipt as
+          # they were, byte for byte, or absent. Run as a file, it must exit non-zero; through `iex`, the session must
+          # carry on past it.
+          function Assert-Refused($shell, $dir, $message, $version = $release, $command, $caller) {
             $before = Get-Hash "$dir/hippo.exe"
-            $code = Invoke-Install $shell $dir $version $command
+            $receipt = Get-Hash "$dir/.hippo-receipt.json"
+            $code = Invoke-Install $shell $dir $version $command $caller
             if ($command) {
               if (-not "$(Get-Content -Raw artifacts/install.out)".Contains('still-alive')) {
                 Fail "install.ps1 through iex under $shell ended the session when it refused."
@@ -388,11 +500,26 @@ jobs:
               Fail "install.ps1 under $shell failed without saying: $message"
             }
             if ((Get-Hash "$dir/hippo.exe") -ne $before) { Fail "install.ps1 under $shell refused but changed $dir/hippo.exe." }
+            if ((Get-Hash "$dir/.hippo-receipt.json") -ne $receipt) {
+              Fail "install.ps1 under $shell refused but changed $dir/.hippo-receipt.json."
+            }
           }
 
+          # Sorted ordinally, so the receipt's leading dot sorts first whatever the culture.
           function Assert-Holds($dir, $expected) {
-            $names = (Get-ChildItem -Force $dir | Sort-Object Name).Name -join ' '
-            if ($names -ne $expected) { Fail "$dir holds $names, not $expected." }
+            $names = [string[]]@((Get-ChildItem -Force $dir).Name)
+            [Array]::Sort($names, [StringComparer]::Ordinal)
+            if (($names -join ' ') -ne $expected) { Fail "$dir holds $($names -join ' '), not $expected." }
+          }
+
+          # The user PATH as stored, its variables unexpanded.
+          function Get-UserPath {
+            $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
+            try {
+              $key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+            } finally {
+              $key.Dispose()
+            }
           }
 
           # The user PATH as a new profile has it: REG_EXPAND_SZ, with an entry that names a variable. The script must
@@ -402,6 +529,11 @@ jobs:
           $key.SetValue('Path', $seeded -join ';', 'ExpandString')
           $key.Dispose()
           $added = @()
+
+          # A hippo first on PATH, as the .NET tool's hippo.cmd would be, which install.ps1 warns about.
+          $shadow = [IO.Path]::GetFullPath("$env:GITHUB_WORKSPACE/artifacts/shadow")
+          New-Item -ItemType Directory -Force $shadow | Out-Null
+          Set-Content "$shadow/hippo.cmd" '@echo shadow'
 
           $iex = 'Get-Content -Raw install.ps1 | Invoke-Expression'
           $server = Start-Process python -ArgumentList '-m', 'http.server', '8000', '--bind', '127.0.0.1', '--directory', 'artifacts/serve' -NoNewWindow -PassThru
@@ -421,16 +553,26 @@ jobs:
               $installed = "$env:GITHUB_WORKSPACE/artifacts/installed-$shell"
               $iexed = "$env:GITHUB_WORKSPACE/artifacts/iex-$shell"
               $refused = "$env:GITHUB_WORKSPACE/artifacts/refused-$shell"
+              $brokenFresh = "$env:GITHUB_WORKSPACE/artifacts/refused-broken-$shell"
+              $called = "$env:GITHUB_WORKSPACE/artifacts/called-$shell"
               $added += [IO.Path]::GetFullPath($installed), [IO.Path]::GetFullPath($iexed)
               Write-Sums $hash
               Assert-Installed $shell $installed
+              Assert-Receipt $installed $true
+              if (-not (Get-Output).Contains('to your user PATH')) {
+                Fail "install.ps1 under $shell did not say it added $installed to the user PATH."
+              }
 
               # A rerun is how a user updates, so it must replace the binary already there, here a stand-in, and
-              # accept a version with a leading v.
+              # accept a version with a leading v. Every install rewrites the receipt, so the stale one written here, as
+              # an older release's, is replaced; the directory is on the user PATH from the first install, and the
+              # receipt keeps saying the script put it there.
               Set-Content "$installed/hippo.exe" 'stand-in'
+              [IO.File]::WriteAllText("$installed/.hippo-receipt.json", '{"installedBy":"install.ps1","version":"0.0.0-stale","addedToPath":true}')
               Assert-Installed $shell $installed "v$release"
+              Assert-Receipt $installed $true
               # Nothing the script unpacked is left beside the binary.
-              Assert-Holds $installed hippo.exe
+              Assert-Holds $installed '.hippo-receipt.json hippo.exe'
 
               # Windows renames a running exe but will not overwrite it, so a rerun moves it aside to hippo.exe.old. A
               # handle that shares reading and renaming, but not writing, holds the binary as a running hippo does.
@@ -440,23 +582,54 @@ jobs:
               } finally {
                 $held.Close()
               }
-              Assert-Holds $installed 'hippo.exe hippo.exe.old'
+              Assert-Holds $installed '.hippo-receipt.json hippo.exe hippo.exe.old'
               # Once nothing holds it, the next run deletes it.
               Assert-Installed $shell $installed
-              Assert-Holds $installed hippo.exe
+              Assert-Holds $installed '.hippo-receipt.json hippo.exe'
+              Assert-Receipt $installed $true
 
+              # The working install's receipt is left byte for byte as it was.
               Assert-Refused $shell $installed 'did not run on this system' 0.0.0-broken
+              # A binary that does not run is caught after the install directory is made, so a fresh directory shows the
+              # failure left neither a binary nor a receipt behind.
+              Assert-Refused $shell $brokenFresh 'did not run on this system' 0.0.0-broken
+
+              # Under hippo self update the user ran hippo, not the script, so the script leaves the user PATH alone and
+              # leaves out the warning about another hippo and its closing line. A hippo first on PATH makes a plain run
+              # print both, as the first install printed the line about the user PATH, so their absence under
+              # HIPPO_CALLER means something. Its directory is new, so only HIPPO_CALLER keeps it off the user PATH.
+              $searchPath = $env:Path
+              $env:Path = "$shadow;$searchPath"
+              try {
+                Assert-Installed $shell $installed
+                foreach ($line in 'another hippo is on your PATH', 'Rerun this script to update.') {
+                  if (-not (Get-Output).Contains($line)) { Fail "install.ps1 under $shell did not print '$line' with another hippo on PATH." }
+                }
+                $userPath = Get-UserPath
+                Assert-Installed $shell $called -caller self-update
+                Assert-Receipt $called $false
+                foreach ($line in 'to your user PATH', 'another hippo is on your PATH', 'Rerun this script to update.') {
+                  if ((Get-Output).Contains($line)) { Fail "install.ps1 under $shell with HIPPO_CALLER=self-update printed '$line'." }
+                }
+                if ((Get-UserPath) -cne $userPath) {
+                  Fail "install.ps1 under $shell with HIPPO_CALLER=self-update changed the user PATH from '$userPath' to '$(Get-UserPath)'."
+                }
+              } finally {
+                $env:Path = $searchPath
+              }
 
               # `irm | iex` runs the script in the user's session, where hippo must then run by name.
               Assert-Installed $shell $iexed -command "$iex; (Get-Command hippo).Source"
+              Assert-Receipt $iexed $true
               $found = @(Get-Content artifacts/install.out)[-1]
               if ($found -ne [IO.Path]::GetFullPath("$iexed/hippo.exe")) {
                 Fail "After install.ps1 through iex under $shell, hippo runs $found, not $iexed/hippo.exe."
               }
 
               # A version with no release names the asset it looked for, since a typo in HIPPO_VERSION is the likely
-              # cause.
-              Assert-Refused $shell $refused "has no hippo-0.0.0-missing-${{ matrix.rid }}.zip" 0.0.0-missing
+              # cause. hippo sets HIPPO_VERSION itself, so under it the message does not name the variable.
+              Assert-Refused $shell $refused "has no hippo-0.0.0-missing-${{ matrix.rid }}.zip; check HIPPO_VERSION" 0.0.0-missing
+              Assert-Refused $shell $refused "has no hippo-0.0.0-missing-${{ matrix.rid }}.zip; is v0.0.0-missing a release?" 0.0.0-missing -caller self-update
 
               Write-Sums
               Assert-Refused $shell $refused "has no line for $archive"

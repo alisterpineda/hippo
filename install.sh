@@ -8,6 +8,9 @@
 # HIPPO_INSTALL_DIR  where hippo goes; ~/.local/bin otherwise. The script never uses sudo.
 # HIPPO_DOWNLOAD_BASE  replaces https://github.com/alisterpineda/hippo/releases/download; CI points it at a local
 #                    server, which may be plain HTTP
+# HIPPO_CALLER       self-update when `hippo self update` runs the script, having set HIPPO_VERSION and
+#                    HIPPO_INSTALL_DIR itself: the PATH advice, the warning and the closing line are left out, and the
+#                    failures do not name variables the user never set
 #
 # The asset names and the SHA256SUMS format are the release's asset contract, in docs/dev/releasing.md. Everything
 # runs from main, called on the last line, so a download cut short runs nothing.
@@ -47,6 +50,7 @@ download() {
 }
 
 main() {
+    caller=${HIPPO_CALLER:-}
     for cmd in curl tar; do
         command -v "$cmd" >/dev/null 2>&1 || die "$cmd is needed but was not found"
     done
@@ -123,7 +127,10 @@ main() {
     status=$(download "$base/$asset" "$tmp/$asset")
     case $status in
         200) ;;
-        404) die "release v$version has no $asset; check HIPPO_VERSION, or that v$version is a release" ;;
+        404)
+            if [ "$caller" = self-update ]; then die "release v$version has no $asset; is v$version a release?"; fi
+            die "release v$version has no $asset; check HIPPO_VERSION, or that v$version is a release"
+            ;;
         *) die "could not download $base/$asset: HTTP $status" ;;
     esac
     status=$(download "$base/SHA256SUMS" "$tmp/SHA256SUMS")
@@ -138,6 +145,7 @@ main() {
 
     dir=${HIPPO_INSTALL_DIR:-$HOME/.local/bin}
     if ! mkdir -p "$dir" 2>/dev/null || [ ! -w "$dir" ]; then
+        if [ "$caller" = self-update ]; then die "cannot write to $dir, where hippo is; run it as the user who installed it"; fi
         die "cannot write to $dir; set HIPPO_INSTALL_DIR to a directory you can write to"
     fi
     # Absolute, for the PATH checks and the line printed below.
@@ -155,7 +163,15 @@ main() {
     # Run before it replaces anything, so a binary that cannot start here leaves the installed one in place.
     installed=$("$stage/hippo" --version) || die "the downloaded hippo did not run on this system; nothing was installed"
     mv -f "$stage/hippo" "$dir/hippo"
+    # The receipt tells `hippo self update` that this script put hippo here, so it may update it; its name and
+    # content are the receipt contract in docs/dev/releasing.md. It goes in after the binary, the same way, so a failed
+    # install leaves none, and every install rewrites it.
+    printf '%s' "{\"installedBy\":\"install.sh\",\"version\":\"$version\"}" > "$stage/.hippo-receipt.json"
+    mv -f "$stage/.hippo-receipt.json" "$dir/.hippo-receipt.json"
     echo "Installed hippo $installed to $dir/hippo"
+
+    # Under `hippo self update` the user ran hippo, not this script, so the advice below is not theirs to act on.
+    if [ "$caller" = self-update ]; then return; fi
 
     case ":$PATH:" in
         *":$dir:"*) ;;
