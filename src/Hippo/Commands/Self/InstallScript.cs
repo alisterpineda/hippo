@@ -53,6 +53,10 @@ internal static class InstallScript
             {
                 start.ArgumentList.Add(argument);
             }
+            // A hippo started from pwsh 7 inherits a PSModulePath with pwsh's own modules first. Windows PowerShell
+            // then finds pwsh's Microsoft.PowerShell.Utility, cannot load it, and loses Get-FileHash. Without the
+            // variable it builds its own default from the registry, as a fresh Windows PowerShell session does.
+            start.Environment.Remove("PSModulePath");
         }
         else
         {

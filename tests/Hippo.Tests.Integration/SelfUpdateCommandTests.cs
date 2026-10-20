@@ -426,6 +426,8 @@ public sealed class SelfUpdateCommandTests : IDisposable
         {
             Assert.Equal(Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"), _started!.FileName);
             Assert.Equal(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"], _started.ArgumentList.Take(5));
+            // Windows PowerShell must build its own module path, not inherit one from a pwsh 7 that started hippo.
+            Assert.False(_started.Environment.ContainsKey("PSModulePath"));
         }
         else
         {
