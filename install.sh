@@ -7,7 +7,9 @@
 #                    otherwise
 # HIPPO_INSTALL_DIR  where hippo goes; ~/.local/bin otherwise. The script never uses sudo.
 # HIPPO_DOWNLOAD_BASE  replaces https://github.com/alisterpineda/hippo/releases/download; CI points it at a local
-#                    server, which may be plain HTTP
+#                    server, which may be plain HTTP. `hippo self update` passes it through, and when it ends in
+#                    /releases/download looks the latest release up at the same base under /releases/latest; the
+#                    script itself always looks up on GitHub
 # HIPPO_CALLER       self-update when `hippo self update` runs the script, having set HIPPO_VERSION and
 #                    HIPPO_INSTALL_DIR itself: the PATH advice, the warning and the closing line are left out, and the
 #                    failures do not name variables the user never set

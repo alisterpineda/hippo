@@ -18,6 +18,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The install scripts as committed, for the test that the binary embeds them unchanged. -->
+    <None Include="..\..\install.sh" Link="install.sh" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\install.ps1" Link="install.ps1" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Hippo\Hippo.csproj" />
     <ProjectReference Include="..\..\src\Hippo.Migrations\Hippo.Migrations.csproj" />
     <ProjectReference Include="..\Hippo.Tests.Shared\Hippo.Tests.Shared.csproj" />

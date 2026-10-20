@@ -1,6 +1,6 @@
 # Scripts and agents
 
-`hippo init` and `hippo cache` aside, every command runs from anywhere inside a workspace: hippo walks up to the first folder with a `.hippo/config.json`. Each prints text, or JSON with `--json` on every command but `init`.
+`hippo init`, `hippo cache` and `hippo self` aside, every command runs from anywhere inside a workspace: hippo walks up to the first folder with a `.hippo/config.json`. Each prints text, or JSON with `--json` on every command but `init` and `self update`.
 
 ## Exit status
 

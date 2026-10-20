@@ -18,9 +18,14 @@ public static class HippoProcess
     /// <summary>Runs hippo in <paramref name="workingDirectory"/> (the test's own when null) with
     /// <paramref name="environment"/> added to the inherited environment, after its <c>GIT_</c> variables are
     /// removed.</summary>
-    public static async Task<Result> RunAsync(string? workingDirectory, IReadOnlyDictionary<string, string> environment, params string[] args)
+    public static Task<Result> RunAsync(string? workingDirectory, IReadOnlyDictionary<string, string> environment, params string[] args) =>
+        RunExeAsync(ExePath, workingDirectory, environment, args);
+
+    /// <summary>Runs the binary at <paramref name="exe"/>, for a test that runs a copy of hippo, as
+    /// <see cref="RunAsync(string?, IReadOnlyDictionary{string, string}, string[])"/> runs hippo itself.</summary>
+    public static async Task<Result> RunExeAsync(string exe, string? workingDirectory, IReadOnlyDictionary<string, string> environment, params string[] args)
     {
-        var start = new ProcessStartInfo(Exe)
+        var start = new ProcessStartInfo(exe)
         {
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
@@ -59,7 +64,7 @@ public static class HippoProcess
     }
 
     /// <summary>HIPPO_EXE when set, otherwise the binary the build publishes, which must exist.</summary>
-    private static string Exe
+    public static string ExePath
     {
         get
         {

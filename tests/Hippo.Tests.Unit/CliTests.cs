@@ -18,7 +18,7 @@ public class CliTests
     public void The_commands_are_listed_in_order()
     {
         Assert.Equal(
-            ["init", "index", "status", "find", "show", "refs", "backrefs", "lint", "cache"],
+            ["init", "index", "status", "find", "show", "refs", "backrefs", "lint", "cache", "self"],
             Cli.Build().Subcommands.Select(c => c.Name));
     }
 
@@ -29,7 +29,8 @@ public class CliTests
     }
 
     /// <summary>Each command, then arguments it refuses, and the start of the error. <c>find</c> takes a lone
-    /// <c>--no-such-option</c> as its query, so it is given a bad limit.</summary>
+    /// <c>--no-such-option</c> as its query, so it is given a bad limit; <c>self update</c> likewise takes one as its
+    /// version, so it is given what is not a version, and a version with build metadata.</summary>
     [Theory]
     [InlineData("", "--no-such-option", "Unrecognized command or argument '--no-such-option'")]
     [InlineData("", "bogus", "Unrecognized command or argument 'bogus'")]
@@ -44,6 +45,11 @@ public class CliTests
     [InlineData("cache", "--no-such-option", "Unrecognized command or argument '--no-such-option'")]
     [InlineData("cache list", "--no-such-option", "Unrecognized command or argument '--no-such-option'")]
     [InlineData("cache prune", "--no-such-option", "Unrecognized command or argument '--no-such-option'")]
+    [InlineData("self", "--no-such-option", "Unrecognized command or argument '--no-such-option'")]
+    [InlineData("self update", "--no-such-option", "'--no-such-option' is not a version, such as 0.2.0 or 0.2.0-rc.1")]
+    [InlineData("self update", "nope", "'nope' is not a version, such as 0.2.0 or 0.2.0-rc.1")]
+    [InlineData("self update", "1.2", "'1.2' is not a version, such as 0.2.0 or 0.2.0-rc.1")]
+    [InlineData("self update", "v0.3.0+abc1234", "'v0.3.0+abc1234' has build metadata after the +, which no release carries; name the version alone: 0.3.0")]
     public void A_usage_error_prints_the_error_and_a_pointer_to_help_and_exits_2(string command, string args, string expected)
     {
         var output = new StringWriter();

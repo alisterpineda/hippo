@@ -60,6 +60,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The install scripts, as committed: `hippo self update` writes the one for its OS to a temp directory and runs
+         it for its own directory, so the binary carries the scripts CI tested with it. Embedding them was chosen on
+         2026-10-20 over fetching them from main at run time: an embedded script needs only the asset contract in
+         docs/dev/releasing.md to install a later release, and a fix to a script ships with the next release. -->
+    <EmbeddedResource Include="../../install.sh" LogicalName="install.sh" />
+    <EmbeddedResource Include="../../install.ps1" LogicalName="install.ps1" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 

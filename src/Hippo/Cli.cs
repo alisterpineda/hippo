@@ -5,6 +5,7 @@ using System.CommandLine.Parsing;
 using System.Reflection;
 using Hippo.Commands;
 using Hippo.Commands.Find;
+using Hippo.Commands.Self;
 
 namespace Hippo;
 
@@ -29,6 +30,7 @@ public static class Cli
         var lint = LintCommand.Build(environment);
         root.Subcommands.Add(lint);
         root.Subcommands.Add(CacheCommand.Build(environment));
+        root.Subcommands.Add(SelfCommand.Build(environment));
         var help = root.Options.OfType<HelpOption>().Single();
         help.Action = new HelpWithRules((HelpAction)help.Action!, lint);
         return root;

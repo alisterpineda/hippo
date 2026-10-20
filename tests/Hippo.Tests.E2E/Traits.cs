@@ -9,8 +9,9 @@ public static class Traits
     public const string Category = "Category";
 
     /// <summary>The one test per leaf command that checks it runs under the binary: its exit code, nothing on stderr,
-    /// and, with <c>--json</c>, a non-empty array or object on stdout. <see cref="CommandCoverageTests"/> checks that
-    /// each leaf command's class has exactly one.</summary>
+    /// and, with <c>--json</c>, a non-empty array or object on stdout; <c>init</c> and <c>self update</c> have no
+    /// <c>--json</c>, so theirs check the first two. <see cref="CommandCoverageTests"/> checks that each leaf
+    /// command's class has exactly one.</summary>
     public const string Smoke = "Smoke";
 
     public const string Topic = "Topic";

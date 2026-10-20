@@ -38,7 +38,8 @@ public sealed class TempWorkspace : WorkspaceFixture
 
     /// <summary>What a smoke test checks: hippo, run with <c>--json</c>, exits with <paramref name="exitCode"/>, writes
     /// nothing to stderr, and writes a non-empty JSON object to stdout. A command that lists things uses
-    /// <see cref="SmokeListAsync"/>.</summary>
+    /// <see cref="SmokeListAsync"/>; <c>init</c> and <c>self update</c>, which have no <c>--json</c>, check the exit
+    /// code and stderr themselves.</summary>
     public async Task SmokeAsync(int exitCode, params string[] args)
     {
         var json = await JsonAsync(exitCode, args);

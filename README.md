@@ -16,7 +16,7 @@ On Windows, in PowerShell:
 irm https://raw.githubusercontent.com/alisterpineda/hippo/main/install.ps1 | iex
 ```
 
-Rerun the script to update. [Install](https://github.com/alisterpineda/hippo/blob/main/docs/install.md) covers installing a given version, the .NET tool, installing by hand, Linux and Windows on arm64, and verifying a download.
+From 0.2.0, `hippo self update` updates it; on 0.1.0, rerun the script once. [Install](https://github.com/alisterpineda/hippo/blob/main/docs/install.md) covers installing a given version, updating, the .NET tool, installing by hand, Linux and Windows on arm64, and verifying a download.
 
 ## What it's for
 
@@ -81,7 +81,7 @@ projects/garden.md  Garden redesign
 
 ### Give a script or an agent the same answers
 
-Every command but `init` prints JSON with `--json`, so a script, or an agent working in the same notes, can ask the same questions and read the answers:
+Every command but `init` and `self update` prints JSON with `--json`, so a script, or an agent working in the same notes, can ask the same questions and read the answers:
 
 ```console
 $ hippo backrefs reading-list.md --json
@@ -107,7 +107,7 @@ hippo checks [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-fo
 
 ## Commands
 
-`hippo init` and `hippo cache` aside, every command runs from anywhere inside a workspace: hippo walks up to the first folder with a `.hippo/config.json`.
+`hippo init`, `hippo cache` and `hippo self` aside, every command runs from anywhere inside a workspace: hippo walks up to the first folder with a `.hippo/config.json`.
 
 | Command | What it does |
 | --- | --- |
@@ -121,6 +121,7 @@ hippo checks [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-fo
 | [`hippo lint`](https://github.com/alisterpineda/hippo/blob/main/docs/lint.md) | Reports broken links, frontmatter that fails to parse, and where OKF bundles depart from OKF v0.2 |
 | [`hippo cache list`](https://github.com/alisterpineda/hippo/blob/main/docs/cache.md) | Lists every index in the cache, with its state, size and workspace root |
 | [`hippo cache prune`](https://github.com/alisterpineda/hippo/blob/main/docs/cache.md) | Removes the indexes of workspaces that were deleted, moved or renamed |
+| [`hippo self update [<version>]`](https://github.com/alisterpineda/hippo/blob/main/docs/install.md#updating) | Updates a hippo the install script put in place, to the latest release or to a named version, with the copy of the script built into it |
 
 `hippo <command> --help` lists a command's options.
 

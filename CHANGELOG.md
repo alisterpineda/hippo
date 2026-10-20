@@ -8,7 +8,7 @@ Nothing was released before 0.1.0 and its prereleases.
 
 ### Added
 
-- The install scripts leave `.hippo-receipt.json` beside the binary, recording that they installed it, for a coming `hippo self update` to read.
+- `hippo self update` updates a hippo the install scripts put in place, to the latest release or to a named version, by running the copy of the install script built into it; the scripts leave `.hippo-receipt.json` beside the binary, which is what tells hippo the script manages it. On 0.1.0, which has no `self`, rerun the script once.
 
 ## 0.1.0 - 2026-10-11
 

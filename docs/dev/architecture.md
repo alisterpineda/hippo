@@ -14,7 +14,7 @@ disk ──► Workspaces/ ──► Indexing/Sweeper ──► SQLite ──►
                  └──────────── Okf/ ───────────────┘
 ```
 
-Every command but `init` and `cache` runs the whole pipeline on each invocation: there is no daemon and no watch mode, so the index is only ever as fresh as the last command made it. The sweep is cheap when nothing changed, which is what makes that acceptable.
+Every command but `init`, `cache` and `self` runs the whole pipeline on each invocation: there is no daemon and no watch mode, so the index is only ever as fresh as the last command made it. The sweep is cheap when nothing changed, which is what makes that acceptable.
 
 ## The folders
 
@@ -33,6 +33,8 @@ A command that has helpers of its own gets a folder, named for the command, with
 - `FindCommand.Build` declares the options and validators, as every command does. Its action binds the parse result into a `FindOptions` record, calls `Run`, and prints what comes back.
 - `FindCommand.Run` takes the options, the workspace and the connection, and returns the `--json` records. It takes no parse result and writes nothing, so a unit test can ask what `find` would list with no command line and no output to parse. The integration tests keep covering the binding, the validators and the two forms of output.
 - `FrontmatterOptions.cs` is the `--where` and `--field` language. It parses conditions and field paths and runs them over a page's stored frontmatter JSON. It is here rather than in `Indexing/` because only `find` speaks it.
+
+`Self/` is the other folder: `SelfCommand` decides whether an update is due and runs the install script embedded in the binary for hippo's own directory. Its `Decide` is the `Run` of this command: it takes the versions and returns what to print or what to install, writing nothing, so the version policy is a unit test, and `Update` around it is the refusals and the side effects. Beside it are `SemVer` for the versions it compares, `LatestRelease` for its one HTTP request, `Receipt` for the file that says the install script manages the binary, `InstallScript` for writing and starting the script, and `ToolStore` for the advice a .NET tool gets instead.
 
 A command that fits in one file stays as one file at the root of `Commands/`. The seam is the point, not the folder: a single-file command whose action grows past a screen should get the same `Run` method before it gets a folder.
 
@@ -67,7 +69,7 @@ The Open Knowledge Format checks, kept apart because they are a spec hippo follo
 
 ### Top-level files
 
-`Program.cs` calls `Cli.Run`. `CliEnvironment` is what a command reads from the process it runs in: the working directory, the environment, the clock, the mount points, and whether output is a terminal. Tests pass their own, which is how whole commands run in-process. `HippoException` is the one exception type a command raises on purpose. `DapperAot.cs` and `Sqlite.targets` are the native AOT plumbing.
+`Program.cs` calls `Cli.Run`. `CliEnvironment` is what a command reads from the process it runs in: the working directory, the environment, the clock, the mount points, and whether output is a terminal, and for `self update`, where hippo is, the HTTP handler its lookup goes through and the runner that starts the install script. Tests pass their own, which is how whole commands run in-process, and the integration tests' handler and runner throw unless a test sets its own, so no command reaches the network or starts a process there. `HippoException` is the one exception type a command raises on purpose. `DapperAot.cs` and `Sqlite.targets` are the native AOT plumbing.
 
 ## Boundaries worth knowing
 
@@ -88,7 +90,7 @@ The Open Knowledge Format checks, kept apart because they are a spec hippo follo
 ## Where a change goes
 
 - A new option on an existing command: that command's file in `Commands/`, and its `*Output` record if the JSON changes, with the matching test in `OutputJsonTests`.
-- A new command: a new file in `Commands/`, registered in `Cli.Build`. If it needs the index, it opens a `WorkspaceSession`; if it does not, it runs under `Guard` directly, as `init` and `cache` do. Give it an options record and a `Run` method as `find` has by the rule above, once its action is past a screen, and a folder once it has helpers of its own.
+- A new command: a new file in `Commands/`, registered in `Cli.Build`. If it needs the index, it opens a `WorkspaceSession`; if it does not, it runs under `Guard` directly, as `init`, `cache` and `self` do. Give it an options record and a `Run` method as `find` has by the rule above, once its action is past a screen, and a folder once it has helpers of its own.
 - A new question to ask the index: a method on the fitting `*Queries` class, with a unit test against `TestDatabase`.
 - A new fact to store per file: a migration (see [migrations.md](migrations.md)), a column on the sweep's row records, and the parse in `Workspaces/Page`.
 - A new lint rule: its description in `LintRules`, and its name there too, or in `OkfRules` if it is an OKF rule. An OKF rule that judges a file alone goes in `OkfChecks`, which runs only inside OKF bundles; its findings are stored, so a new or changed one raises `PageSettings.ParseVersion`, which makes every index parse its pages again. Any other rule is a worked rule in `LintCommand`, reading what the sweep stored, as `frontmatter-syntax` does from `FileQueries.ParseErrors`.

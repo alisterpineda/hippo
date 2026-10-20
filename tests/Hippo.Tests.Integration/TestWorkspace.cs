@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
@@ -10,7 +11,8 @@ namespace Hippo.Tests.Integration;
 /// working directory, and only <c>HIPPO_CACHE_DIR</c> set, pointing at the cache. A test may make the workspace a
 /// repository with <see cref="WorkspaceFixture.Git"/>, but hippo must still never run git in-process, where git would see
 /// the test process's own environment: the workspace has <c>files.gitignore</c> off or is outside any repository. Tests
-/// that need hippo to run git are E2E tests.
+/// that need hippo to run git are E2E tests. Nor may a command reach the network or start a process: the handler and
+/// the runner <c>self update</c> goes through throw unless a test sets its own.
 /// </summary>
 internal sealed class TestWorkspace : WorkspaceFixture
 {
@@ -25,6 +27,26 @@ internal sealed class TestWorkspace : WorkspaceFixture
 
     /// <summary>Whether hippo takes its output for a terminal: false unless a test sets it.</summary>
     public bool Terminal { get; set; }
+
+    /// <summary>The file hippo takes itself to run as: the test host's own, which has no receipt beside it, unless a
+    /// test sets its own; null is a runtime that cannot tell.</summary>
+    public string? ProcessPath { get; set; } = Environment.ProcessPath;
+
+    /// <summary>The directory hippo takes its code to load from: the test host's own unless a test sets its own.</summary>
+    public string BaseDirectory { get; set; } = AppContext.BaseDirectory;
+
+    /// <summary>What answers the latest-release lookup: a handler that fails the test unless a test sets its own.</summary>
+    public HttpMessageHandler HttpHandler { get; set; } = new NoNetwork();
+
+    /// <summary>What runs the install script: a runner that fails the test unless a test sets its own.</summary>
+    public Func<ProcessStartInfo, int> RunProcess { get; set; } =
+        start => throw new InvalidOperationException($"unexpected process call: {start.FileName} {string.Join(' ', start.ArgumentList)}");
+
+    private sealed class NoNetwork : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException($"unexpected network call: {request.Method} {request.RequestUri}");
+    }
 
     /// <summary>A path in the temp directory beside the workspace and the cache.</summary>
     public string Beside(string relativePath) => Path.Combine(Folder, relativePath);
@@ -94,7 +116,13 @@ internal sealed class TestWorkspace : WorkspaceFixture
     {
         var output = new StringWriter();
         var error = new StringWriter();
-        var environment = new CliEnvironment(workingDirectory, name => variables.GetValueOrDefault(name), Clock, () => MountPoints, Terminal);
+        var environment = new CliEnvironment(workingDirectory, name => variables.GetValueOrDefault(name), Clock, () => MountPoints, Terminal)
+        {
+            ProcessPath = ProcessPath,
+            BaseDirectory = BaseDirectory,
+            CreateHttpHandler = () => HttpHandler,
+            RunProcess = RunProcess,
+        };
 
         var exitCode = Cli.Run(args, environment, new InvocationConfiguration { Output = output, Error = error });
 

@@ -7,7 +7,9 @@
 # HIPPO_INSTALL_DIR    where hippo.exe goes; %LOCALAPPDATA%\Programs\hippo otherwise. The directory is added to the user
 #                      PATH.
 # HIPPO_DOWNLOAD_BASE  replaces https://github.com/alisterpineda/hippo/releases/download; CI points it at a local
-#                      server, which may be plain HTTP
+#                      server, which may be plain HTTP. `hippo self update` passes it through, and when it ends in
+#                      /releases/download looks the latest release up at the same base under /releases/latest; the
+#                      script itself always looks up on GitHub
 # HIPPO_CALLER         self-update when `hippo self update` runs the script, having set HIPPO_VERSION and
 #                      HIPPO_INSTALL_DIR itself: the user PATH is left alone, the warning and the closing line are left
 #                      out, and the failures do not name variables the user never set
