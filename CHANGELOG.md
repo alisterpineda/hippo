@@ -4,6 +4,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 Nothing was released before 0.1.0 and its prereleases.
 
+## Unreleased
+
 ## 0.2.0 - 2026-10-20
 
 ### Added
